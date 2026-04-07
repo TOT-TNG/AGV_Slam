@@ -1,0 +1,14 @@
+{
+  "headerId": 123,
+  "timestamp": "2025-10-15T14:00:00Z",
+  "version": "1.1",
+  "manufacturer": "AGVCorp",
+  "serialNumber": "SN001",
+  "mapCurrent": "Map01",
+  "orderId": "ORD001",
+  "orderUpdateId": 1,
+  "lastNodeId": "Node_A",
+  "agvPosition": { "x": 10, "y": 5, "theta": 90 },
+  "batteryState": { "batteryCharge": 90.5, "charging": false },
+  "operationMode": "AUTOMATIC"
+}

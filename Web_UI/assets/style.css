@@ -1,0 +1,865 @@
+/* =========================================================
+   GLOBAL RESET
+========================================================= */
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', sans-serif;
+  overflow: hidden;
+  background-color: #0a1b3f;
+  color: white; /* chữ trắng toàn cục */
+}
+
+/* =========================================================
+   LOGIN PAGE
+========================================================= */
+
+/* ----- Background ----- */
+.bg-image {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background-image: url('/assets/factory_bg.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: brightness(0.6);
+  z-index: -1;
+}
+
+/* ----- Centered content ----- */
+.centered {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  z-index: 2;
+}
+
+/* ----- Icon animation ----- */
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+@keyframes floatIcon {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.icon {
+  width: 150px;
+  animation: pulse 2s infinite, floatIcon 3s ease-in-out infinite;
+  filter: drop-shadow(0 6px 12px rgba(30,64,175,0.4));
+  opacity: 1;
+}
+
+/* ----- Text styles ----- */
+.title-white {
+  color: white;
+  font-weight: 700;
+  font-size: 36px;
+  margin-top: 18px;
+}
+.subtitle {
+  color: rgba(255,255,255,0.95);
+  font-size: 16px;
+  margin-top: 8px;
+}
+
+/* ----- Login card ----- */
+.login-card {
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(8px);
+  border-radius: 16px;
+  padding: 24px;
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  z-index: 2;
+}
+.login-card input {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: none;
+  border-radius: 8px;
+}
+.login-card input::placeholder { color: rgba(255,255,255,0.6); }
+.login-card button {
+  background: linear-gradient(90deg, #2563eb, #3b82f6);
+  border: none;
+  color: white;
+  font-weight: 600;
+  border-radius: 8px;
+  transition: all 0.25s ease;
+}
+.login-card button:hover {
+  background: linear-gradient(90deg, #1e3a8a, #2563eb);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(37,99,235,0.4);
+}
+
+/* =========================================================
+   LANGUAGE SELECTOR
+========================================================= */
+#lang-container { position: relative; display: inline-block; }
+#lang-icon.rotate { animation: spin 0.4s linear; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+#lang-container::after {
+  content: "▼";
+  position: absolute;
+  right: -18px;
+  top: 4px;
+  font-size: 12px;
+  color: white;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+#lang-menu {
+  position: absolute;
+  right: 0;
+  top: 35px;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(6px);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  animation: fadeIn 0.18s ease-in-out;
+  min-width: 140px;
+  z-index: 1001;
+}
+.lang-item {
+  color: white;
+  cursor: pointer;
+  font-size: 15px;
+  margin: 6px 0;
+  text-align: right;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.lang-item:hover {
+  background: rgba(255,255,255,0.06);
+  color: #93c5fd;
+}
+
+@keyframes fadeIn {
+  from {opacity: 0; transform: translateY(-6px);}
+  to {opacity: 1; transform: translateY(0);}
+}
+
+/* =========================================================
+   DASHBOARD BASE LAYOUT
+========================================================= */
+
+/* ----- Background smart factory for home ----- */
+.background-div {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url("/assets/bg_smartFac.png");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: brightness(0.45);
+  z-index: -1;
+}
+
+/* ----- Sidebar ----- */
+.sidebar {
+  position: fixed;
+  top: 0; left: 0;
+  width: 230px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+  box-shadow: 2px 0 12px rgba(0,0,0,0.4);
+  color: white;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 0;
+  z-index: 10;
+}
+
+.menu-logo {
+  font-size: 22px;
+  font-weight: 700;
+  text-align: center;
+  color: #60a5fa;
+  margin-bottom: 30px;
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  padding-left: 20px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.25s ease;
+}
+.menu-item:hover {
+  color: white;
+  transform: translateX(6px);
+}
+
+/* ----- Top bar ----- */
+.topbar {
+  height: 60px;
+  background: rgba(255,255,255,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 30px;
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+  backdrop-filter: blur(8px);
+}
+.topbar-title {
+  font-size: 20px;
+  color: white;
+  font-weight: 600;
+}
+
+/* ----- Main panel ----- */
+.main-panel {
+  margin-left: 230px;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+/* ----- Account section ----- */
+.account-icon {
+  width: 34px;
+  filter: drop-shadow(0 0 6px rgba(255,255,255,0.4));
+}
+#account-container { position: relative; }
+#account-menu {
+  position: absolute;
+  right: 0;
+  top: 40px;
+  background: rgba(0,0,0,0.65);
+  border-radius: 8px;
+  padding: 6px 0;
+  min-width: 120px;
+  text-align: left;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.account-item {
+  color: white;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.account-item:hover {
+  background: rgba(255,255,255,0.12);
+}
+
+/* =========================================================
+   ASSISTANT TOAST
+========================================================= */
+.assistant-toast {
+  position: fixed;
+  bottom: 18px;
+  right: 24px;
+  min-width: 320px;
+  max-width: 520px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+  z-index: 99999;
+  backdrop-filter: blur(8px);
+  animation: assistantIn 0.25s ease-out;
+}
+.assistant-toast.idle {
+  min-width: auto;
+  max-width: none;
+  padding: 8px;
+  border-radius: 999px;
+}
+.assistant-toast.idle .assistant-body,
+.assistant-toast.idle .assistant-close {
+  display: none;
+}
+.assistant-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: url("/assets/assistant.png") center/cover no-repeat;
+  color: transparent;
+  font-size: 0;
+  display: inline-block;
+  box-shadow: 0 10px 24px rgba(34,211,238,0.35), inset 0 0 0 1px rgba(255,255,255,0.15);
+  position: relative;
+  animation: assistantPulse 2.6s ease-in-out infinite;
+}
+.assistant-avatar::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: conic-gradient(from 180deg, rgba(34,211,238,0.0), rgba(37,99,235,0.45), rgba(34,211,238,0.0));
+  filter: blur(2px);
+  animation: assistantSpin 6s linear infinite;
+  z-index: -1;
+}
+.assistant-avatar::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  animation: assistantRing 2.6s ease-in-out infinite;
+}
+.assistant-toast.idle .assistant-avatar {
+  animation: assistantPulse 2.2s ease-in-out infinite, assistantFloat 3.2s ease-in-out infinite, assistantBlink 5.5s ease-in-out infinite;
+}
+.assistant-toast.alerting .assistant-avatar {
+  animation: assistantBounce 0.5s ease-out 1, assistantPulse 1.6s ease-in-out infinite;
+}
+.assistant-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: white;
+  flex: 1;
+}
+.assistant-title {
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+}
+.assistant-message {
+  font-size: 13px;
+  color: rgba(255,255,255,0.9);
+}
+.assistant-close {
+  background: rgba(255,255,255,0.08);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.assistant-toast.level-warning {
+  border-color: rgba(251, 191, 36, 0.6);
+}
+.assistant-toast.level-error {
+  border-color: rgba(248, 113, 113, 0.7);
+}
+.assistant-toast.level-info {
+  border-color: rgba(96, 165, 250, 0.6);
+}
+@keyframes assistantIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes assistantPulse {
+  0% { transform: scale(1); box-shadow: 0 6px 16px rgba(34,211,238,0.35); }
+  50% { transform: scale(1.06); box-shadow: 0 10px 22px rgba(37,99,235,0.5); }
+  100% { transform: scale(1); box-shadow: 0 6px 16px rgba(34,211,238,0.35); }
+}
+@keyframes assistantSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes assistantBlink {
+  0%, 45%, 100% { filter: brightness(1); transform: scaleY(1); }
+  46% { filter: brightness(0.9); transform: scaleY(0.92); }
+  48% { filter: brightness(1); transform: scaleY(1); }
+  70% { filter: brightness(1); transform: scaleY(1); }
+  71% { filter: brightness(0.9); transform: scaleY(0.9); }
+  73% { filter: brightness(1); transform: scaleY(1); }
+}
+@keyframes assistantBounce {
+  0% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-6px) scale(1.04); }
+  70% { transform: translateY(2px) scale(0.98); }
+  100% { transform: translateY(0) scale(1); }
+}
+@keyframes assistantRing {
+  0% { transform: scale(0.95); opacity: 0.55; }
+  70% { transform: scale(1.2); opacity: 0.08; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+@keyframes assistantFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* =========================================================
+   DASHBOARD HOME CONTENT
+========================================================= */
+
+/* ----- Overall container ----- */
+.dashboard-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  height: calc(100vh - 70px);
+  padding: 20px 40px;
+  overflow: hidden;
+}
+
+/* ----- Title System Overview ----- */
+.overview-title {
+  color: white;
+  font-size: 26px;
+  font-weight: 700;
+  text-align: left;
+  width: 100%;
+  margin-bottom: 20px;
+  padding-left: 10px;
+  text-shadow: 0 0 6px rgba(255,255,255,0.4);
+}
+
+/* ================== HOME CONTENT - FULL TRANSPARENT CARD ================== */
+
+/* ----- White box (main content) ----- */
+.white-box {
+  background: transparent;
+  border-radius: 20px;
+  padding: 24px 32px;
+  width: 100%;
+  max-width: 1000px;
+  color: white;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+}
+
+.white-box:hover {
+  box-shadow: 0 0 30px rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* ----- Summary row ----- */
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.summary-item {
+  flex: 1;
+  padding: 10px;
+  margin: 0 5px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  transition: all 0.25s ease;
+  color: white;
+}
+
+.summary-item h2,
+.summary-item h5,
+.summary-item p {
+  color: white;
+}
+
+.summary-item:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 10px rgba(255,255,255,0.2);
+  transform: translateY(-2px);
+}
+
+/* ----- Chart container ----- */
+.white-box .text-center {
+  color: white;
+}
+
+/* ----- Graph canvas / Plotly ----- */
+.white-box .js-plotly-plot .plotly,
+.white-box .js-plotly-plot .cartesianlayer,
+.white-box .js-plotly-plot .paperlayer,
+.white-box .js-plotly-plot .subplot {
+  background: transparent !important;
+}
+
+.white-box .js-plotly-plot .legend {
+  color: white !important;
+}
+.white-box .js-plotly-plot .text {
+  fill: white !important;
+}
+
+/* ----- Inputs / Buttons ----- */
+.white-box input[type="text"],
+.white-box input[type="number"],
+.white-box input[type="password"],
+.white-box select {
+  width: 100%;
+  padding: 10px 12px;
+  margin: 6px 0 16px 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.05);
+  color: white;
+  font-size: 1rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.white-box input:focus,
+.white-box select:focus {
+  border-color: rgba(255,255,255,0.6);
+  box-shadow: 0 0 6px rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.05);
+}
+
+.white-box button {
+  padding: 10px 20px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.3);
+  color: white;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.white-box button:hover {
+  border-color: rgba(255,255,255,0.6);
+  box-shadow: 0 0 10px rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.05);
+}
+
+/* ===== SUBMENU MAP ===== */
+.submenu {
+  display: flex;
+  flex-direction: column;
+  margin-left: 25px;
+  margin-top: 5px;
+}
+
+.submenu-item {
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 15px;
+  padding: 4px 0;
+  transition: all 0.25s ease;
+}
+
+.submenu-item:hover {
+  color: white;
+  transform: translateX(4px);
+}
+
+/* ==================== CREATE MAP PAGE (RIGHT TOOLBOX) ==================== */
+
+.map-main-container {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 70px);
+  background: white;
+  border-radius: 12px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+/* Khu vực bản đồ chính */
+.map-design-area {
+  width: 100%;
+  height: 100%;
+  background: white;
+  position: relative;
+  cursor: crosshair;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-size: 16px;
+  overflow: visible;
+  pointer-events: auto !important;
+}
+
+.map-placeholder {
+  opacity: 0.5;
+  user-select: none;
+}
+
+/* Toolbox panel (ẩn mặc định bên phải) */
+.toolbox-panel {
+  position: absolute;
+  top: 0;
+  right: -250px;
+  width: 250px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: -4px 0 12px rgba(0,0,0,0.2);
+  border-left: 1px solid #ddd;
+  padding: 20px 16px;
+  border-radius: 12px 0 0 12px;
+  transition: all 0.35s ease;
+  z-index: 10;
+}
+
+.toolbox-panel.open {
+  right: 0;
+}
+
+/* Toggle container */
+.toolbox-toggle-container {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 20;
+}
+
+/* Nút mũi tên */
+.toolbox-toggle {
+    width: 36px; height: 36px;
+    background: rgba(0,0,0,0.7);
+    color: white !important;
+    font-size: 24px;
+    font-weight: bold;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+.toolbox-toggle:hover {
+  background: rgba(0, 0, 0, 0.85);
+  transform: scale(1.1);
+}
+
+/* Icon của Node và Edge */
+.tool-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 15px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.tool-item:hover {
+  transform: scale(1.05);
+}
+
+.tool-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+.toolbox-panel.open ~ .toolbox-toggle-container .toolbox-toggle {
+    animation: rotateArrow 0.3s ease forwards;
+}
+@keyframes rotateArrow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(180deg); }
+}
+
+.toolbox-panel ~ .toolbox-toggle-container .toolbox-toggle {
+    animation: rotateArrowBack 0.3s ease forwards;
+}
+@keyframes rotateArrowBack {
+    from { transform: rotate(180deg); }
+    to { transform: rotate(0deg); }
+}
+
+/* Node: hình vuông màu xanh */
+.node-icon {
+  background-color: #ff0019;
+}
+.node:active {
+    cursor: grabbing;
+}
+/* Label dưới icon */
+.tool-label {
+  font-size: 14px;
+  color: #333;
+  font-weight: 500;
+}
+.map-design-area:active {
+    cursor: grabbing !important;
+}
+/* ==================== MAP EDITOR ==================== */
+#edge-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  pointer-events: visiblePainted; /* đảm bảo click xuyên qua SVG */
+  z-index: 3;
+  transform-origin: center center !important;
+  transition: transform 0.1s ease-out;
+  overflow: visible;
+}
+#edge-layer svg {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: visible !important;
+    pointer-events: visiblePainted !important;
+}
+#edge-layer g {
+  pointer-events: visiblePainted !important;
+  cursor: pointer; /* cho cảm giác tương tác được */
+}
+
+#edge-layer rect,
+#edge-layer path {
+  pointer-events: visiblePainted !important;
+  cursor: pointer;
+}
+#edge-svg {z-index: 1;}
+/* CANVAS KHÔNG CHẶN CLICK */
+#map-canvas { pointer-events: auto !important;
+z-index: 10; }
+.node {
+  width: 30px;
+  height: 30px;
+  background: #ff0033;
+  border-radius: 6px;
+  position: absolute;
+  cursor: grab;
+  box-shadow: 0 0 8px rgba(0,0,0,0.25);
+  transition: all 0.1s ease;
+  z-index: 10;
+  pointer-events: auto !important;
+}
+.node.selected {
+  outline: 3px solid #00ffaa;
+  box-shadow: 0 0 20px #00ffaa;
+}
+.node.dragging {
+    transform: scale(1.1) !important;
+    box-shadow: 0 8px 20px rgba(255,0,51,0.6) !important;
+    z-index: 100 !important;
+    border: 4px solid #ff6b6b !important;
+}
+body.dragging * {
+    cursor: grabbing !important;
+}
+/* ZOOM + PAN */
+#map-container {
+    will-change: transform;
+    transform-origin: 0 0;
+    top: 0%;
+    left: 0%;
+    width: 3000;
+    height: 2000;
+    pointer-events: none !important;
+}
+#map-canvas {
+  pointer-events: none !important; /* Không chặn edge hoặc node */
+}
+.edge-line {
+  position: absolute;
+  top: 0;
+  left:  0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  background: #555;
+  transform-origin: 0 50%;
+  z-index: 1;
+}
+
+.context-menu {
+  position: absolute;
+  display: block;
+  background: rgba(40,40,40,0.95);
+  color: white;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+  z-index: 9999;
+  padding: 4px 0;
+  width: 120px;
+}
+.context-item {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.context-item:hover {
+  background: rgba(255,255,255,0.1);
+  color: #2563eb;
+}
+#properties-panel {
+    transition: all 0.35s ease;
+    z-index: 1000 !important;
+}
+#properties-panel .form-control {
+    font-size: 14px;
+}
+/* CHỮ ĐEN TRONG DROPDOWN */
+.text-dark, .form-label, .form-control, .form-select {
+    color: #212529 !important;
+}
+
+/* PROPERTIES PANEL - SCROLL MƯỢT */
+#properties-panel > div[style*="flex: 1"] {
+    scrollbar-width: thin;
+    scrollbar-color: #888 #f1f1f1;
+}
+#properties-panel > div[style*="flex: 1"]::-webkit-scrollbar {
+    width: 6px;
+}
+/* PROPERTIES KHÔNG HỞ */
+#properties-panel {
+    right: -280px !important;
+    transition: right 0.35s ease !important;
+}
+#properties-panel.show {
+    right: 0 !important;
+}
+
+/* LIDAR ĐẸP NHƯ IPHONE — DÙNG dbc.Checklist */
+#prop-lidar {
+    width: 60px !important;
+    height: 34px !important;
+    background: #e5e5e5 !important;
+    border-radius: 34px !important;
+    border: none !important;
+    position: relative !important;
+    appearance: none !important;
+    cursor: pointer;
+    box-shadow: inset 0 2px 5px rgba(0,0,0,0.2);
+    transition: all 0.3s ease;
+}
+
+#prop-lidar:checked {
+    background: #34C759 !important;
+}
+
+#prop-lidar::before {
+    content: "";
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: white;
+    top: 4px;
+    left: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    transition: transform 0.3s ease;
+}
+
+#prop-lidar:checked::before {
+    transform: translateX(26px) !important;
+}

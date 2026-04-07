@@ -1,0 +1,19 @@
+﻿@keyframes rock-slow { 0% {transform: rotate(0deg);} 50% {transform: rotate(6deg);} 100% {transform: rotate(0deg);} }
+.agv-card {
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.35), 0 0 18px rgba(14,165,233,0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+.agv-card:hover {
+  transform: translateY(-6px) scale(1.02);
+  box-shadow: 0 18px 32px rgba(0,0,0,0.45), 0 0 30px rgba(14,165,233,0.5), 0 0 18px rgba(59,130,246,0.4);
+}
+.agv-card img {
+  filter: drop-shadow(0 12px 22px rgba(0,0,0,0.45)) brightness(1.05);
+}
+.agv-card:hover img {
+  filter: drop-shadow(0 16px 28px rgba(14,165,233,0.6)) brightness(1.15);
+}
