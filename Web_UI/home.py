@@ -12,6 +12,10 @@ df = pd.DataFrame({
     "Count": [45, 12, 23]
 })
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 def _build_home_fig(lang: str):
     lang = normalize_lang(lang)
     fig = px.pie(
@@ -69,11 +73,27 @@ def make_sidebar(lang: str):
                             ),
                             html.Div(
                                 [
+<<<<<<< HEAD
                                     html.Div(t(lang, "menu.map.create", "Create Map"), id="submenu-create-map", className="submenu-item"),
                                     html.Div(t(lang, "menu.map.configure", "Map Configure"), id="submenu-setup-map", className="submenu-item"),
                                     html.A(
                                         t(lang, "menu.map.agvmap", "AGV Map"),
                                         href="http://192.168.88.253:8000/AgvMap.html",
+=======
+                                    html.Div(
+                                        t(lang, "menu.map.create", "Create Map"),
+                                        id="submenu-create-map",
+                                        className="submenu-item",
+                                    ),
+                                    html.Div(
+                                        t(lang, "menu.map.configure", "Map Configure"),
+                                        id="submenu-setup-map",
+                                        className="submenu-item",
+                                    ),
+                                    html.A(
+                                        t(lang, "menu.map.agvmap", "AGV Map"),
+                                        href="http://192.168.0.23:8000/AgvMap.html",
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                                         target="_blank",
                                         className="submenu-item",
                                         style={"textDecoration": "none", "color": "inherit"},
@@ -94,8 +114,21 @@ def make_sidebar(lang: str):
                             ),
                             html.Div(
                                 [
+<<<<<<< HEAD
                                     html.Div(t(lang, "menu.task.create", "Create Task"), id="submenu-task-create", className="submenu-item"),
                                     html.Div(t(lang, "menu.task.list", "Task List"), id="submenu-task-list", className="submenu-item"),
+=======
+                                    html.Div(
+                                        t(lang, "menu.task.create", "Create Task"),
+                                        id="submenu-task-create",
+                                        className="submenu-item",
+                                    ),
+                                    html.Div(
+                                        t(lang, "menu.task.list", "Task List"),
+                                        id="submenu-task-list",
+                                        className="submenu-item",
+                                    ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                                 ],
                                 id="submenu-task",
                                 className="submenu",
@@ -108,9 +141,27 @@ def make_sidebar(lang: str):
                         className="menu-item",
                         id="menu-agv-manager",
                     ),
+<<<<<<< HEAD
                     html.Div([html.I(className="bi bi-journal-text me-2"), html.Span(t(lang, "menu.log", "Log"))], className="menu-item", id="menu-log"),
                     html.Div([html.I(className="bi bi-bar-chart-line me-2"), html.Span(t(lang, "menu.stat", "Statistic"))], className="menu-item", id="menu-stat"),
                     html.Div([html.I(className="bi bi-question-circle me-2"), html.Span(t(lang, "menu.help", "Help"))], className="menu-item", id="menu-help"),
+=======
+                    html.Div(
+                        [html.I(className="bi bi-journal-text me-2"), html.Span(t(lang, "menu.log", "Log"))],
+                        className="menu-item",
+                        id="menu-log",
+                    ),
+                    html.Div(
+                        [html.I(className="bi bi-bar-chart-line me-2"), html.Span(t(lang, "menu.stat", "Statistic"))],
+                        className="menu-item",
+                        id="menu-stat",
+                    ),
+                    html.Div(
+                        [html.I(className="bi bi-question-circle me-2"), html.Span(t(lang, "menu.help", "Help"))],
+                        className="menu-item",
+                        id="menu-help",
+                    ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                 ],
                 className="menu-list",
             ),
@@ -120,8 +171,13 @@ def make_sidebar(lang: str):
 
 
 # ======= TOPBAR (factory) =======
+<<<<<<< HEAD
 # - icon globe + VIE/ENG + caret
 # - nằm cạnh user icon, cùng hàng
+=======
+# - chỉ giữ nút toggle ngôn ngữ
+# - panel ngôn ngữ thật đã nằm ở main.py để tránh trùng id
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 def make_topbar(lang: str):
     lang = normalize_lang(lang)
     abbr = "VIE" if lang == "vi" else "ENG"
@@ -129,6 +185,7 @@ def make_topbar(lang: str):
     return html.Div(
         [
             html.Div(t(lang, "topbar.title", "AGV Control System (ACS)"), className="topbar-title"),
+<<<<<<< HEAD
 
             # Right actions: language + user (same row)
             html.Div(
@@ -138,6 +195,12 @@ def make_topbar(lang: str):
                         [
                             # Toggle button
                             # Toggle button ONLY (menu panel moved to main.py root)
+=======
+            html.Div(
+                [
+                    html.Div(
+                        [
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                             html.Button(
                                 [
                                     html.I(className="bi bi-globe2", style={"marginRight": "8px"}),
@@ -159,6 +222,7 @@ def make_topbar(lang: str):
                                     "whiteSpace": "nowrap",
                                 },
                             ),
+<<<<<<< HEAD
 
                             # Menu panel (shown/hidden via callback in main.py)
                             html.Div(
@@ -192,6 +256,16 @@ def make_topbar(lang: str):
                     ),
 
                     # ===== User icon (giữ nguyên) =====
+=======
+                        ],
+                        style={
+                            "position": "relative",
+                            "display": "inline-block",
+                            "zIndex": "1000",
+                            "overflow": "visible",
+                        },
+                    ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                     html.Div(
                         [
                             html.Img(
@@ -202,7 +276,17 @@ def make_topbar(lang: str):
                             ),
                             html.Div(
                                 id="account-menu",
+<<<<<<< HEAD
                                 children=[html.Div(t(lang, "account.logout", "Logout"), id="logout-btn", className="account-item")],
+=======
+                                children=[
+                                    html.Div(
+                                        t(lang, "account.logout", "Logout"),
+                                        id="logout-btn",
+                                        className="account-item",
+                                    )
+                                ],
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                                 style={"display": "none"},
                             ),
                         ],
@@ -223,10 +307,18 @@ def make_topbar(lang: str):
         style={"display": "flex", "alignItems": "center", "justifyContent": "space-between"},
     )
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 # ======= HOME CONTENT (factory) =======
 def home_layout(lang: str):
     lang = normalize_lang(lang)
     fig = _build_home_fig(lang)
+<<<<<<< HEAD
+=======
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     return html.Div(
         [
             html.H3(t(lang, "home.title", "System Overview"), className="overview-title"),
@@ -238,25 +330,61 @@ def home_layout(lang: str):
                                 [
                                     html.Div(
                                         [
+<<<<<<< HEAD
                                             html.H5(t(lang, "home.card.agv_online", "AGV Online"), className="card-title mb-1"),
                                             html.H2("12", className="mb-0"),
                                             html.P(t(lang, "home.card.agv_online.desc", "Currently active AGVs"), className="mb-0"),
+=======
+                                            html.H5(
+                                                t(lang, "home.card.agv_online", "AGV Online"),
+                                                className="card-title mb-1",
+                                            ),
+                                            html.H2("12", className="mb-0"),
+                                            html.P(
+                                                t(lang, "home.card.agv_online.desc", "Currently active AGVs"),
+                                                className="mb-0",
+                                            ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                                         ],
                                         className="summary-item",
                                     ),
                                     html.Div(
                                         [
+<<<<<<< HEAD
                                             html.H5(t(lang, "home.card.tasks_today", "Tasks Today"), className="card-title mb-1"),
                                             html.H2("234", className="mb-0"),
                                             html.P(t(lang, "home.card.tasks_today.desc", "Total tasks executed"), className="mb-0"),
+=======
+                                            html.H5(
+                                                t(lang, "home.card.tasks_today", "Tasks Today"),
+                                                className="card-title mb-1",
+                                            ),
+                                            html.H2("234", className="mb-0"),
+                                            html.P(
+                                                t(lang, "home.card.tasks_today.desc", "Total tasks executed"),
+                                                className="mb-0",
+                                            ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                                         ],
                                         className="summary-item",
                                     ),
                                     html.Div(
                                         [
+<<<<<<< HEAD
                                             html.H5(t(lang, "home.card.errors", "Errors"), className="card-title mb-1"),
                                             html.H2("5", className="mb-0"),
                                             html.P(t(lang, "home.card.errors.desc", "Reported system issues"), className="mb-0"),
+=======
+                                            html.H5(
+                                                t(lang, "home.card.errors", "Errors"),
+                                                className="card-title mb-1",
+                                            ),
+                                            html.H2("5", className="mb-0"),
+                                            html.P(
+                                                t(lang, "home.card.errors.desc", "Reported system issues"),
+                                                className="mb-0",
+                                            ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                                         ],
                                         className="summary-item",
                                     ),
@@ -266,8 +394,19 @@ def home_layout(lang: str):
                             html.Hr(style={"borderColor": "rgba(255,255,255,0.3)"}),
                             html.Div(
                                 [
+<<<<<<< HEAD
                                     html.H5(t(lang, "home.chart.title", "Task Status Distribution"), className="text-center mb-3"),
                                     dcc.Graph(figure=fig, style={"height": "340px", "backgroundColor": "transparent"}),
+=======
+                                    html.H5(
+                                        t(lang, "home.chart.title", "Task Status Distribution"),
+                                        className="text-center mb-3",
+                                    ),
+                                    dcc.Graph(
+                                        figure=fig,
+                                        style={"height": "340px", "backgroundColor": "transparent"},
+                                    ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
                                 ]
                             ),
                         ],
@@ -281,7 +420,11 @@ def home_layout(lang: str):
     )
 
 
+<<<<<<< HEAD
 # ======= CALLBACKS (giữ nguyên) =======
+=======
+# ======= CALLBACKS =======
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 @callback(
     Output("account-menu", "style"),
     Input("account-icon", "n_clicks"),
@@ -316,6 +459,10 @@ def toggle_submenus(map_click, task_click, store):
     ctx = dash.callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
+<<<<<<< HEAD
+=======
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     trigger = ctx.triggered[0]["prop_id"].split(".")[0]
     store = store or {"map_open": False, "task_open": False, "map_clicks": -1, "task_clicks": -1}
 
@@ -324,17 +471,31 @@ def toggle_submenus(map_click, task_click, store):
     map_clicks = map_click if map_click is not None else prev_map_clicks
     task_clicks = task_click if task_click is not None else prev_task_clicks
 
+<<<<<<< HEAD
     # Chỉ toggle khi số click mới khác số cũ
     changed_map = trigger == "menu-map" and map_click is not None and map_clicks != prev_map_clicks
     changed_task = trigger == "menu-task" and task_click is not None and task_clicks != prev_task_clicks
+=======
+    changed_map = trigger == "menu-map" and map_click is not None and map_clicks != prev_map_clicks
+    changed_task = trigger == "menu-task" and task_click is not None and task_clicks != prev_task_clicks
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     if not (changed_map or changed_task):
         raise dash.exceptions.PreventUpdate
 
     map_open = store.get("map_open", False)
     task_open = store.get("task_open", False)
+<<<<<<< HEAD
     if changed_map:
         map_open = not map_open
         task_open = False
+=======
+
+    if changed_map:
+        map_open = not map_open
+        task_open = False
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     if changed_task:
         task_open = not task_open
         map_open = False
@@ -369,17 +530,31 @@ def apply_task_submenu(data):
 @callback(
     Output("url", "pathname", allow_duplicate=True),
     Input("submenu-create-map", "n_clicks"),
+<<<<<<< HEAD
+=======
+    Input("submenu-setup-map", "n_clicks"),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     Input("menu-home", "n_clicks"),
     Input("menu-agv-manager", "n_clicks"),
     Input("submenu-task-create", "n_clicks"),
     Input("submenu-task-list", "n_clicks"),
     prevent_initial_call=True,
 )
+<<<<<<< HEAD
 def go_to_pages(create_click, home_click, agv_mgr_click, task_create_click, task_list_click):
     ctx = dash.callback_context
     if not ctx.triggered:
         return no_update
     trigger = ctx.triggered[0]["prop_id"].split(".")[0]
+=======
+def go_to_pages(create_click, setup_map_click, home_click, agv_mgr_click, task_create_click, task_list_click):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return no_update
+
+    trigger = ctx.triggered[0]["prop_id"].split(".")[0]
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     if trigger == "menu-home":
         return "/home"
     if trigger == "menu-agv-manager":
@@ -390,9 +565,21 @@ def go_to_pages(create_click, home_click, agv_mgr_click, task_create_click, task
         return "/task-list"
     if trigger == "submenu-create-map":
         return "/create-map"
+<<<<<<< HEAD
     return no_update
 
 
 # Backward compatibility (để các file cũ vẫn import được)
 sidebar = make_sidebar("vi")
 topbar = make_topbar("vi")
+=======
+    if trigger == "submenu-setup-map":
+        return "/map-configure"
+
+    return no_update
+
+
+# Backward compatibility
+sidebar = make_sidebar("vi")
+topbar = make_topbar("vi")
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574

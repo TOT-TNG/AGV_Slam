@@ -7,6 +7,7 @@ from i18n import t, normalize_lang
 # ===== Templates (panel trái) =====
 # Giữ nguyên KEY + steps logic; title/steps sẽ dịch theo lang khi render page
 TEMPLATES_BASE = [
+<<<<<<< HEAD
     {"key": "MOVE_STORAGE_RACK", "title_en": "Move the storage rack", "title_vi": "Di chuyển rack hàng",
      "steps_en": ["Move", "Lift", "Move", "Putdown"], "steps_vi": ["Di chuyển", "Nâng", "Di chuyển", "Hạ"]},
     {"key": "MOVE_BACK_RACK", "title_en": "Move back the storage rack", "title_vi": "Di chuyển rack về vị trí",
@@ -23,6 +24,30 @@ TEMPLATES_BASE = [
      "steps_en": ["Move", "Putdown"], "steps_vi": ["Di chuyển", "Hạ"]},
 ]
 
+=======
+    {
+        "key": "MOVE_TO_POSE",
+        "title_en": "Transfer Goods",
+        "title_vi": "Transfer Goods",
+        "action_type": "MOVE_TO_POSE",
+        "config": {"name": ""},
+    },
+    {
+        "key": "PICKUP",
+        "title_en": "Pickup",
+        "title_vi": "Pickup",
+        "action_type": "PICKUP",
+        "config": {},
+    },
+    {
+        "key": "DROP",
+        "title_en": "Drop",
+        "title_vi": "Drop",
+        "action_type": "DROP",
+        "config": {},
+    },
+]
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 def _templates_for_lang(lang: str):
     lang = normalize_lang(lang)
     out = []
@@ -30,7 +55,12 @@ def _templates_for_lang(lang: str):
         out.append({
             "key": tpl["key"],
             "title": tpl["title_en"] if lang == "en" else tpl["title_vi"],
+<<<<<<< HEAD
             "steps": tpl["steps_en"] if lang == "en" else tpl["steps_vi"],
+=======
+            "action_type": tpl["action_type"],
+            "config": tpl["config"],
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
         })
     return out
 
@@ -320,12 +350,22 @@ def save_workflow_all(n, wf_name, wf_state, wf_config):
     for idx, node in enumerate(task_nodes_sorted, start=1):
         node_id = node.get("id")
         data = node.get("data") or {}
+<<<<<<< HEAD
+=======
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
         tasks_payload.append({
             "order": idx,
             "nodeId": node_id,
             "title": data.get("title"),
+<<<<<<< HEAD
             "steps": data.get("steps", []),
             "config": wf_config.get(node_id, {}),
+=======
+            "action_type": data.get("action_type"),
+            "config": data.get("config", {}),
+            "settings": wf_config.get(node_id, {}),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
         })
 
     payload = {

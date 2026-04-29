@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 const API_URL = "http://192.168.88.253:8000";
+=======
+const API_URL = "http://192.168.0.17:8000";
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 let agvElement;
 const nodes = {};
 
@@ -253,7 +257,11 @@ async function sendAction(action) {
 
 async function loadMap(mapId) {
   try {
+<<<<<<< HEAD
     const base = "http://192.168.1.7:8000";
+=======
+    const base = "http://192.168.0.17:8000";
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 
     const [mapJson, nodeList, edgeList] = await Promise.all([
       fetch(`${base}/api/maps/${mapId}`).then(r => r.json()),

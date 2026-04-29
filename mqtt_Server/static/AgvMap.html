@@ -8,6 +8,7 @@
 <style>
   :root { --bg:#0f172a; --panel: rgba(15,23,42,0.95); }
   html,body { height:100%; margin:0; background:var(--bg); color:#fff; font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial; overflow:hidden; }
+<<<<<<< HEAD
  
  /* ======================================= */
  /* Cáº¬P NHáº¬T TOPBAR & TOGGLE BUTTON */
@@ -190,6 +191,347 @@
 <body>
  
  <div id="top-bar-wrapper">
+=======
+
+  #top-bar-wrapper {
+    position: fixed; left: 0; right: 0; top: 0;
+    z-index: 1200;
+    transition: transform 0.3s ease-in-out;
+    transform: translateY(0);
+  }
+
+  #top-bar {
+    height: auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--panel);
+    box-shadow: 0 6px 30px rgba(0,0,0,0.6);
+    backdrop-filter: blur(12px);
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  #top-bar-toggle {
+    position: fixed;
+    top: var(--top-bar-height-computed, 100px);
+    right: 20px;
+    width: 50px;
+    height: 35px;
+    background: #FF5252;
+    color: #fff;
+    border-radius: 0 0 10px 10px;
+    cursor: pointer;
+    display: flex; justify-content: center; align-items: center;
+    box-shadow: 0 6px 20px rgba(255, 82, 82, 0.5);
+    transition: top 0.3s ease-in-out, transform 0.3s ease-in-out, box-shadow 0.3s, background 0.2s;
+    z-index: 1201;
+  }
+  #top-bar-toggle:hover { background: #e64a4a; }
+
+  .topbar-hidden #top-bar-wrapper {
+    transform: translateY(calc(-1 * var(--top-bar-height-computed, 100px)));
+  }
+  .topbar-hidden #top-bar-toggle {
+    top: 0;
+    transform: rotate(180deg);
+    box-shadow: 0 0 20px rgba(255, 82, 82, 1);
+  }
+
+  #controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  select, input[type=number], input[type=checkbox] {
+    padding:6px 10px; border-radius:8px; background:rgba(255,255,255,0.08); color:#fff;
+    border:1px solid rgba(255,255,255,0.1);
+  }
+  .btn {
+    padding:6px 12px; border-radius:10px; background:rgba(255,255,255,0.1);
+    cursor:pointer; transition:all 0.2s; font-size:13px;
+  }
+  .btn:hover { background:rgba(255,255,255,0.2); }
+  .btn-red { background:#dc2626; }
+  .btn-red:hover { background:#b91c1c; }
+
+  #map-container { position:fixed; left:0; right:0; top:0; bottom:0; overflow:hidden; }
+  #scene { width:100%; height:100%; position:relative; background:#020617; }
+  #map-inner {
+    position:absolute; left:50%; top:50%;
+    transform-origin:center center;
+    will-change:transform; user-select:none;
+  }
+
+  #map-canvas, .layer-group, .layer, #overlay-canvas, #dyn-canvas {
+    position:absolute; left:0; top:0;
+  }
+  .layer { pointer-events:none; }
+
+  #overlay-canvas { pointer-events:none; z-index: 80; }
+  #dyn-canvas     { pointer-events:none; z-index: 90; }
+
+  #node-layer { pointer-events:auto; z-index: 60; cursor: pointer; }
+  #agv-layer  {
+    pointer-events: none;
+    z-index: 70;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: visible;
+  }
+
+  .agv-click {
+    position:absolute;
+    width: 36px;
+    height:36px;
+    transform:translate(-50%,-50%);
+    cursor:pointer;
+    pointer-events:auto;
+  }
+
+  .node-click {
+    position:absolute; width:18px; height:18px; border-radius:9999px;
+    background:rgba(59,130,246,0.2); border:2px solid #fff;
+    transform:translate(-50%,-50%); cursor:pointer;
+    transition:transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .node-click:hover {
+    transform:translate(-50%,-50%) scale(1.1);
+    box-shadow:0 0 0 6px rgba(59,130,246,0.25);
+  }
+
+  .modal-backdrop {
+    position:fixed; inset:0; background:rgba(0,0,0,0.55);
+    display:flex; align-items:center; justify-content:center;
+    z-index:1300; backdrop-filter: blur(6px);
+  }
+  .modal-card {
+    background:rgba(15,23,42,0.95); border:1px solid rgba(255,255,255,0.08);
+    border-radius:14px; padding:18px; width:320px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.4);
+  }
+  .modal-card h3 { margin:0 0 8px 0; font-size:18px; font-weight:700; }
+  .modal-card .meta { font-size:13px; color:#cbd5e1; margin-bottom:12px; }
+  .modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+  .btn-primary { background:#0ea5e9; color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer; }
+  .btn-primary:hover { background:#0284c7; }
+  .btn-ghost { background:rgba(255,255,255,0.08); color:#e2e8f0; padding:8px 12px; border-radius:10px; cursor:pointer; }
+  .btn-ghost:hover { background:rgba(255,255,255,0.15); }
+
+  #info { padding:6px 12px; background:rgba(255,255,255,0.1); border-radius:8px; font-size:13px; }
+
+  /* ===== AGV SIDE PANEL ===== */
+  #agv-side-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 390px;
+    max-width: calc(100vw - 24px);
+    height: 100vh;
+    background: rgba(15,23,42,0.98);
+    border-left: 1px solid rgba(255,255,255,0.08);
+    box-shadow: -18px 0 40px rgba(0,0,0,0.45);
+    backdrop-filter: blur(14px);
+    z-index: 1500;
+    transform: translateX(100%);
+    transition: transform 0.28s ease;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #agv-side-panel.open {
+    transform: translateX(0);
+  }
+
+  #agv-side-panel .panel-header {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:18px 18px 14px;
+    border-bottom:1px solid rgba(255,255,255,0.08);
+  }
+
+  #agv-side-panel .panel-title-wrap {
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+  }
+
+  #agv-side-panel .panel-title {
+    font-size:20px;
+    font-weight:700;
+    line-height:1.2;
+  }
+
+  #agv-side-panel .panel-subtitle {
+    font-size:12px;
+    color:#94a3b8;
+  }
+
+  #agv-panel-close {
+    width:38px;
+    height:38px;
+    border:none;
+    border-radius:10px;
+    background:rgba(255,255,255,0.08);
+    color:#fff;
+    cursor:pointer;
+    font-size:18px;
+    transition:all 0.2s ease;
+  }
+  #agv-panel-close:hover {
+    background:rgba(255,255,255,0.16);
+  }
+
+  #agv-side-panel .panel-body {
+    flex:1;
+    overflow-y:auto;
+    padding:16px;
+  }
+
+  .agv-card {
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:16px;
+    padding:14px;
+    margin-bottom:14px;
+  }
+
+  .agv-card-title {
+    font-size:13px;
+    color:#93c5fd;
+    font-weight:700;
+    margin-bottom:12px;
+    text-transform:uppercase;
+    letter-spacing:0.6px;
+  }
+
+  .agv-info-grid {
+    display:grid;
+    grid-template-columns: 1fr;
+    gap:10px;
+  }
+
+  .agv-info-row {
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    font-size:14px;
+  }
+
+  .agv-info-label {
+    color:#cbd5e1;
+  }
+
+  .agv-info-value {
+    color:#fff;
+    font-weight:600;
+    text-align:right;
+    word-break:break-word;
+  }
+
+  .agv-status-badge {
+    display:inline-flex;
+    align-items:center;
+    padding:5px 10px;
+    border-radius:9999px;
+    font-size:12px;
+    font-weight:700;
+  }
+
+  .agv-status-online {
+    background:rgba(34,197,94,0.16);
+    color:#4ade80;
+  }
+
+  .agv-status-offline {
+    background:rgba(239,68,68,0.16);
+    color:#f87171;
+  }
+
+  .agv-status-working {
+    background:rgba(14,165,233,0.16);
+    color:#38bdf8;
+  }
+
+  .agv-status-idle {
+    background:rgba(148,163,184,0.16);
+    color:#cbd5e1;
+  }
+
+  .agv-battery-row {
+    display:flex;
+    align-items:center;
+    gap:12px;
+  }
+
+  .agv-battery-bar {
+    flex:1;
+    height:14px;
+    border-radius:9999px;
+    background:rgba(255,255,255,0.08);
+    overflow:hidden;
+  }
+
+  .agv-battery-fill {
+    width:0%;
+    height:100%;
+    background:#22c55e;
+    transition:width 0.2s ease, background 0.2s ease;
+  }
+
+  .agv-battery-text {
+    min-width:54px;
+    text-align:right;
+    font-weight:700;
+    color:#fff;
+  }
+
+  .agv-action-list {
+    display:grid;
+    gap:10px;
+  }
+
+  .agv-action-btn {
+    width:100%;
+    border:none;
+    border-radius:12px;
+    padding:12px 14px;
+    color:#fff;
+    font-size:14px;
+    font-weight:700;
+    cursor:pointer;
+    transition:all 0.2s ease;
+  }
+
+  .agv-action-btn:disabled {
+    opacity:0.45;
+    cursor:not-allowed;
+  }
+
+  .agv-btn-orange { background:#f59e0b; }
+  .agv-btn-orange:hover:not(:disabled) { background:#d97706; }
+
+  .agv-btn-purple { background:#7c3aed; }
+  .agv-btn-purple:hover:not(:disabled) { background:#6d28d9; }
+
+  .agv-btn-danger { background:#dc2626; }
+  .agv-btn-danger:hover:not(:disabled) { background:#b91c1c; }
+
+  .agv-btn-blue { background:#0ea5e9; }
+  .agv-btn-blue:hover:not(:disabled) { background:#0284c7; }
+
+  .agv-btn-green { background:#16a34a; }
+  .agv-btn-green:hover:not(:disabled) { background:#15803d; }
+
+  .agv-hint {
+    font-size:12px;
+    color:#94a3b8;
+    line-height:1.45;
+    margin-top:8px;
+  }
+</style>
+</head>
+<body>
+
+<div id="top-bar-wrapper">
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
   <div id="top-bar">
     <div id="controls">
       <select id="mapSelect"><option value="">-- Chọn bản đồ --</option></select>
@@ -211,7 +553,11 @@
 
       <div style="display:flex; align-items:center; gap:6px;">
         <span>Map:</span>
+<<<<<<< HEAD
         <label><input type="checkbox" id="flipMapX"> Lật X</label>
+=======
+        <label><input type="checkbox" id="flipMapX" checked> Lật X</label>
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
         <label><input type="checkbox" id="flipMapY"> Lật Y</label>
       </div>
 
@@ -219,6 +565,7 @@
       <div class="btn" id="fullscreen">Fullscreen</div>
     </div>
   </div>
+<<<<<<< HEAD
  </div>
  
 <div id="top-bar-toggle">
@@ -242,10 +589,128 @@
    </div>
    <div id="agv-label-layer" class="layer"></div>   </div>
  </div>
+=======
+</div>
+
+<div id="top-bar-toggle">
+  <span style="font-size: 16px;">&#9660;</span>
+</div>
+
+<div id="map-container">
+  <div id="scene">
+    <div id="map-inner">
+      <div id="map-layer" class="layer-group">
+        <canvas id="map-canvas"></canvas>
+      </div>
+
+      <div id="overlay-layer" class="layer-group">
+        <div id="edge-layer" class="layer"></div>
+        <div id="node-layer" class="layer"></div>
+        <div id="agv-layer" class="layer"></div>
+
+        <canvas id="overlay-canvas"></canvas>
+        <canvas id="dyn-canvas"></canvas>
+      </div>
+    </div>
+    <div id="agv-label-layer" class="layer"></div>
+  </div>
+</div>
+
+<!-- ===== AGV SIDE PANEL ===== -->
+<div id="agv-side-panel">
+  <div class="panel-header">
+    <div class="panel-title-wrap">
+      <div class="panel-title" id="agv-panel-title">AGV</div>
+      <div class="panel-subtitle">Thông tin AGV & điều khiển nhanh</div>
+    </div>
+    <button id="agv-panel-close" type="button">✕</button>
+  </div>
+
+  <div class="panel-body">
+    <div class="agv-card">
+      <div class="agv-card-title">Thông tin chung</div>
+      <div class="agv-info-grid">
+        <div class="agv-info-row">
+          <div class="agv-info-label">ID</div>
+          <div class="agv-info-value" id="panel-agv-id">--</div>
+        </div>
+        <div class="agv-info-row">
+          <div class="agv-info-label">Kết nối</div>
+          <div class="agv-info-value" id="panel-agv-connection">--</div>
+        </div>
+        <div class="agv-info-row">
+          <div class="agv-info-label">Trạng thái</div>
+          <div class="agv-info-value" id="panel-agv-state">--</div>
+        </div>
+        <div class="agv-info-row">
+          <div class="agv-info-label">Node hiện tại</div>
+          <div class="agv-info-value" id="panel-agv-node">--</div>
+        </div>
+        <div class="agv-info-row">
+          <div class="agv-info-label">Order hiện tại</div>
+          <div class="agv-info-value" id="panel-agv-order">--</div>
+        </div>
+        <div class="agv-info-row">
+          <div class="agv-info-label">Tạm dừng</div>
+          <div class="agv-info-value" id="panel-agv-paused">--</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="agv-card">
+      <div class="agv-card-title">Vị trí hiện tại</div>
+      <div class="agv-info-grid">
+        <div class="agv-info-row">
+          <div class="agv-info-label">X</div>
+          <div class="agv-info-value" id="panel-agv-x">--</div>
+        </div>
+        <div class="agv-info-row">
+          <div class="agv-info-label">Y</div>
+          <div class="agv-info-value" id="panel-agv-y">--</div>
+        </div>
+        <div class="agv-info-row">
+          <div class="agv-info-label">Theta</div>
+          <div class="agv-info-value" id="panel-agv-theta">--</div>
+        </div>
+        <div class="agv-info-row">
+          <div class="agv-info-label">Cập nhật cuối</div>
+          <div class="agv-info-value" id="panel-agv-last-update">--</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="agv-card">
+      <div class="agv-card-title">Mức pin</div>
+      <div class="agv-battery-row">
+        <div class="agv-battery-bar">
+          <div class="agv-battery-fill" id="panel-agv-battery-fill"></div>
+        </div>
+        <div class="agv-battery-text" id="panel-agv-battery-text">--%</div>
+      </div>
+      <div class="agv-hint" id="panel-agv-battery-state">Chưa có dữ liệu pin</div>
+    </div>
+
+    <div class="agv-card">
+      <div class="agv-card-title">Điều khiển</div>
+      <div class="agv-action-list">
+        <button class="agv-action-btn agv-btn-orange" id="btn-pause-agv" type="button">PAUSE</button>
+        <button class="agv-action-btn agv-btn-purple" id="btn-resume-agv" type="button">RESUME</button>
+        <button class="agv-action-btn agv-btn-danger" id="btn-cancel-order" type="button">Hủy lệnh</button>
+        <button class="agv-action-btn agv-btn-blue" id="btn-go-charge" type="button">Sạc pin</button>
+        <button class="agv-action-btn agv-btn-green" id="btn-go-wait" type="button">Về khu chờ</button>
+      </div>
+      <div class="agv-hint">
+        Hiện tại mới làm giao diện frontend. Các nút điều khiển sẽ nối backend ở bước sau.
+      </div>
+    </div>
+  </div>
+</div>
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
 
+<<<<<<< HEAD
 // ==================== BIáº¾N TOÃ€N Cá»¤C ====================
 const RES_DEFAULT = 0.05;
 let originX = 0, originY = 0, resolution = RES_DEFAULT;
@@ -1448,3 +1913,1440 @@ setupWebSocket();
 </script>
 </body>
 </html>
+=======
+  // ==================== GLOBALS ====================
+  const RES_DEFAULT = 0.05;
+  const ARRIVE_EPS = 0.15;
+
+  let originX = 0, originY = 0, resolution = RES_DEFAULT;
+  let mapRotation = 0;
+  let userMapRotationDeg = 0;
+  let imgNatW = 0, imgNatH = 0;
+  let scaleView = 1, userZoom = 1, panX = 0, panY = 0;
+  let dragging = false, dragStart = {}, panStart = {};
+  let mapData = null;
+  let currentImg = null;
+
+  // poses
+  let agvs = {};
+  let targetAgvs = {};
+  let displayAgvs = {};
+  let lastPoseByAgv = {};
+  let stableCounts = {};
+  let agvLastUpdate = {};
+  let ws = null;
+
+  // highlight
+  let highlightSegments = [];
+  let highlightOwner = null;
+  let highlightDestination = null;
+  let highlightDestCoord = null;
+
+  // animation loop
+  let animHandle = null;
+  let lastAnimTs = null;
+
+  // panel
+    let selectedAgvId = null;
+    let agvPanelTargets = {
+      charge: null,
+      wait: null
+    };
+
+  // DOM
+  const mapSelect = document.getElementById('mapSelect');
+  const statusEl = document.getElementById('status');
+  const scene = document.getElementById('scene');
+  const mapInner = document.getElementById('map-inner');
+  const mapCanvas = document.getElementById('map-canvas');
+  const overlayCanvas = document.getElementById('overlay-canvas');
+  const dynCanvas = document.getElementById('dyn-canvas');
+
+  const mapLayerEl = document.getElementById('map-layer');
+  const overlayLayerEl = document.getElementById('overlay-layer');
+  const flipMapX = document.getElementById('flipMapX');
+  const flipMapY = document.getElementById('flipMapY');
+  const nodeLayer = document.getElementById('node-layer');
+  const edgeLayer = document.getElementById('edge-layer');
+  const agvLayer = document.getElementById('agv-layer');
+
+  const manualRotateInput = document.getElementById('manualRotate');
+  const applyRotateBtn = document.getElementById('applyRotate');
+  const resetRotateBtn = document.getElementById('resetRotate');
+  const resetBtn = document.getElementById('resetView');
+  const fullscreenBtn = document.getElementById('fullscreen');
+  const controlsEl = document.getElementById('controls');
+
+  const agvSidePanel = document.getElementById('agv-side-panel');
+  const agvPanelCloseBtn = document.getElementById('agv-panel-close');
+
+  // AGV select
+  const agvSelect = document.createElement('select');
+  agvSelect.id = 'agvSelect';
+  agvSelect.style.padding = '6px 10px';
+  agvSelect.style.borderRadius = '8px';
+  agvSelect.style.background = 'rgba(255,255,255,0.08)';
+  agvSelect.style.color = '#fff';
+  agvSelect.style.border = '1px solid rgba(255,255,255,0.1)';
+
+  if (controlsEl && !document.getElementById('agvSelectContainer')) {
+    const wrap = document.createElement('div');
+    wrap.id = 'agvSelectContainer';
+    wrap.style.display = 'flex';
+    wrap.style.alignItems = 'center';
+    wrap.style.gap = '6px';
+    const label = document.createElement('span');
+    label.textContent = 'AGV:';
+    wrap.appendChild(label);
+    wrap.appendChild(agvSelect);
+    controlsEl.appendChild(wrap);
+  }
+
+  // Simulation toggle
+  const toggleSimBtn = document.createElement('div');
+  toggleSimBtn.className = 'btn';
+  toggleSimBtn.id = 'toggleSim';
+  toggleSimBtn.textContent = 'Bật mô phỏng';
+  document.getElementById('controls').appendChild(toggleSimBtn);
+
+  let nodeModal = null;
+  let agvModal = null;
+  let simulationMode = false;
+  let simAnimations = {};
+  let simEdgeLocks = {};
+  let simActiveEdge = {};
+
+  // ==================== TOPBAR TOGGLE ====================
+  const topBar = document.getElementById('top-bar');
+  const toggleButton = document.getElementById('top-bar-toggle');
+
+  function updateTopbarHeight() {
+    const height = topBar.offsetHeight;
+    document.documentElement.style.setProperty('--top-bar-height-computed', `${height}px`);
+  }
+  toggleButton.onclick = () => {
+    updateTopbarHeight();
+    document.documentElement.classList.toggle('topbar-hidden');
+  };
+  window.addEventListener('load', updateTopbarHeight);
+  window.addEventListener('resize', updateTopbarHeight);
+  setTimeout(updateTopbarHeight, 100);
+
+  // ==================== HELPERS ====================
+  function worldToPixel(wx, wy) {
+    const px_relative = (wx - originX) / resolution;
+    const py_relative = (wy - originY) / resolution;
+    const px = imgNatW - py_relative;
+    const py = px_relative;
+    return { x: px, y: py };
+  }
+  function applyOverlayFlip(px, py) {
+    return { x: px, y: py };
+  }
+  function toRad(theta) {
+    return Math.abs(theta) > 2 * Math.PI ? theta * Math.PI / 180 : theta;
+  }
+
+  function isArrived(pose, dest, eps = ARRIVE_EPS) {
+    if (!pose || !dest) return false;
+    const dx = (pose.x ?? 0) - (dest.x ?? 0);
+    const dy = (pose.y ?? 0) - (dest.y ?? 0);
+    return (dx * dx + dy * dy) <= (eps * eps);
+  }
+
+  function formatTimeAgo(ts) {
+    if (!ts) return '--';
+    const diff = Date.now() - ts;
+    if (diff < 0) return 'Vừa xong';
+    if (diff < 1000) return 'Vừa xong';
+    if (diff < 60000) return `${Math.floor(diff / 1000)} giây trước`;
+    if (diff < 3600000) return `${Math.floor(diff / 60000)} phút trước`;
+    return `${Math.floor(diff / 3600000)} giờ trước`;
+  }
+
+  function getAgvWorkingState(pose) {
+    const orderId = String(pose?.orderId ?? '').trim();
+    const paused = !!pose?.paused;
+
+    if (paused) return 'Tạm dừng';
+    if (orderId) return 'Đang có lệnh';
+    return 'Rảnh';
+  }
+
+  function getAgvStatusBadgeHtml(status) {
+    if (status === 'Kết nối') {
+      return `<span class="agv-status-badge agv-status-online">Kết nối</span>`;
+    }
+    return `<span class="agv-status-badge agv-status-offline">Mất kết nối</span>`;
+  }
+
+  function getAgvWorkingStateHtml(state) {
+    if (state === 'Đang có lệnh') {
+      return `<span class="agv-status-badge agv-status-working">Đang có lệnh</span>`;
+    }
+    if (state === 'Tạm dừng') {
+      return `<span class="agv-status-badge agv-status-offline">Tạm dừng</span>`;
+    }
+    return `<span class="agv-status-badge agv-status-idle">Rảnh</span>`;
+  }
+
+  function applyMapAndOverlayRotation() {
+    const totalMapDeg = mapRotation * 180 / Math.PI + userMapRotationDeg;
+    const overlayDeg = mapRotation * 180 / Math.PI - userMapRotationDeg;
+
+    mapCanvas.style.transform = `
+      scale(${flipMapX.checked ? -1 : 1}, ${flipMapY.checked ? -1 : 1})
+      rotate(${totalMapDeg}deg)
+    `;
+
+    const overlayTransform = `rotate(${overlayDeg}deg)`;
+    overlayCanvas.style.transform = overlayTransform;
+    dynCanvas.style.transform = overlayTransform;
+  }
+
+  function applyTransform() {
+    const fullScale = scaleView * userZoom;
+    mapInner.style.transform = `translate(-50%,-50%) scale(${fullScale}) translate(${panX}px,${panY}px)`;
+    applyMapAndOverlayRotation();
+  }
+
+  function autoFit() {
+    const rect = scene.getBoundingClientRect();
+    const sx = rect.width / imgNatW;
+    const sy = rect.height / imgNatH;
+    scaleView = Math.min(sx, sy) * 0.94;
+    userZoom = 1; panX = panY = 0;
+    applyTransform();
+  }
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function normAngle(a) {
+    while (a > Math.PI) a -= 2*Math.PI;
+    while (a < -Math.PI) a += 2*Math.PI;
+    return a;
+  }
+  function lerpAngle(a, b, t) {
+    const da = normAngle(b - a);
+    return a + da * t;
+  }
+
+  // ==================== PANEL ====================
+    async function loadAgvTargets(agvId) {
+    agvPanelTargets = { charge: null, wait: null };
+
+    if (!agvId) return;
+
+    try {
+      const res = await fetch(`/api/agv/targets?agv_id=${encodeURIComponent(agvId)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+
+      agvPanelTargets.charge = data?.charge || null;
+      agvPanelTargets.wait = data?.wait || null;
+    } catch (err) {
+      console.error('[AGV PANEL] Không tải được targets:', err);
+    }
+  }
+
+  function setPanelBattery(batteryVal) {
+    const fill = document.getElementById('panel-agv-battery-fill');
+    const text = document.getElementById('panel-agv-battery-text');
+    const state = document.getElementById('panel-agv-battery-state');
+
+    if (batteryVal === null) {
+      fill.style.width = '0%';
+      fill.style.background = '#64748b';
+      text.textContent = '--%';
+      state.textContent = 'Chưa có dữ liệu pin';
+      return;
+    }
+
+    const v = Math.max(0, Math.min(100, batteryVal));
+    fill.style.width = `${v}%`;
+
+    if (v < 20) {
+      fill.style.background = '#ef4444';
+      state.textContent = 'Pin thấp';
+    } else if (v < 50) {
+      fill.style.background = '#f59e0b';
+      state.textContent = 'Pin trung bình';
+    } else {
+      fill.style.background = '#22c55e';
+      state.textContent = 'Pin tốt';
+    }
+
+    text.textContent = `${v}%`;
+  }
+
+    function refreshAgvPanel() {
+    if (!selectedAgvId) return;
+
+    const pose = targetAgvs[selectedAgvId] || agvs[selectedAgvId] || {};
+    const connection = getAgvStatus(selectedAgvId);
+    const workingState = getAgvWorkingState(pose);
+    const isOffline = connection !== 'Kết nối';
+
+    document.getElementById('panel-agv-id').textContent = selectedAgvId;
+    document.getElementById('panel-agv-connection').innerHTML = getAgvStatusBadgeHtml(connection);
+    document.getElementById('panel-agv-state').innerHTML = getAgvWorkingStateHtml(workingState);
+    document.getElementById('panel-agv-node').textContent = pose.lastNodeId ?? '--';
+    document.getElementById('panel-agv-order').textContent = pose.orderId || '--';
+    document.getElementById('panel-agv-paused').textContent = pose.paused ? 'Có' : 'Không';
+    document.getElementById('panel-agv-x').textContent = Number(pose.x ?? 0).toFixed(3);
+    document.getElementById('panel-agv-y').textContent = Number(pose.y ?? 0).toFixed(3);
+    document.getElementById('panel-agv-theta').textContent = Number(pose.theta ?? 0).toFixed(3);
+    document.getElementById('panel-agv-last-update').textContent = formatTimeAgo(agvLastUpdate[selectedAgvId]);
+
+    const batteryRaw =
+      pose.battery ??
+      pose.batteryState?.batteryCharge ??
+      pose.pin ??
+      pose.pin_percent ??
+      pose.batteryLevel;
+
+    const batteryVal = (batteryRaw === undefined || batteryRaw === null || Number.isNaN(Number(batteryRaw)))
+      ? null
+      : Math.round(Number(batteryRaw));
+
+    setPanelBattery(batteryVal);
+
+    const cancelBtn = document.getElementById('btn-cancel-order');
+    const chargeBtn = document.getElementById('btn-go-charge');
+    const waitBtn = document.getElementById('btn-go-wait');
+    const pauseBtn = document.getElementById('btn-pause-agv');
+    const resumeBtn = document.getElementById('btn-resume-agv');
+
+    cancelBtn.disabled = isOffline || !String(pose.orderId ?? '').trim();
+    chargeBtn.disabled = isOffline || !agvPanelTargets.charge?.node_id;
+    waitBtn.disabled = isOffline || !agvPanelTargets.wait?.node_id;
+    pauseBtn.disabled = isOffline || !!pose.paused;
+    resumeBtn.disabled = isOffline || !pose.paused;
+
+    chargeBtn.textContent = agvPanelTargets.charge?.name
+      ? `Sạc pin (${agvPanelTargets.charge.name})`
+      : 'Sạc pin';
+
+    waitBtn.textContent = agvPanelTargets.wait?.name
+      ? `Về khu chờ (${agvPanelTargets.wait.name})`
+      : 'Về khu chờ';
+  }
+  async function openAgvPanel(agvId) {
+    selectedAgvId = agvId;
+    document.getElementById('agv-panel-title').textContent = `AGV ${agvId}`;
+    agvSidePanel.classList.add('open');
+
+    refreshAgvPanel();
+    await loadAgvTargets(agvId);
+    refreshAgvPanel();
+  }
+
+  function closeAgvPanel() {
+    agvSidePanel.classList.remove('open');
+    selectedAgvId = null;
+  }
+
+  agvPanelCloseBtn.onclick = closeAgvPanel;
+
+  // ==================== DRAW ICON ====================
+  function drawAgvIcon(ctx, x, y, theta, color = '#0A57A4') {
+    const size = 16;
+    const radius = 2;
+    const arrowColor = '#ffffff';
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(theta);
+
+    ctx.beginPath();
+    ctx.moveTo(-size / 2 + radius, -size / 2);
+    ctx.lineTo(size / 2 - radius, -size / 2);
+    ctx.arcTo(size / 2, -size / 2, size / 2, -size / 2 + radius, radius);
+    ctx.lineTo(size / 2, size / 2 - radius);
+    ctx.arcTo(size / 2, size / 2, size / 2 - radius, size / 2, radius);
+    ctx.lineTo(-size / 2 + radius, size / 2);
+    ctx.arcTo(-size / 2, size / 2, -size / 2, size / 2 - radius, radius);
+    ctx.lineTo(-size / 2, -size / 2 + radius);
+    ctx.arcTo(-size / 2, -size / 2, -size / 2 + radius, -size / 2, radius);
+    ctx.closePath();
+
+    ctx.fillStyle = color;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2.0;
+
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = arrowColor;
+    ctx.beginPath();
+    ctx.moveTo(0, -size / 2 + 2);
+    ctx.lineTo(-3.5, -size / 2 + 8);
+    ctx.lineTo(3.5, -size / 2 + 8);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // ==================== CANVAS CLEAR ====================
+  function clearAll() {
+    nodeLayer.innerHTML = '';
+    if (agvLayer) agvLayer.innerHTML = '';
+
+    mapCanvas.getContext('2d').clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+    overlayCanvas.getContext('2d').clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    dynCanvas.getContext('2d').clearRect(0, 0, dynCanvas.width, dynCanvas.height);
+  }
+
+  function clearDynamic() {
+    const ctx = dynCanvas.getContext('2d');
+    ctx.clearRect(0, 0, dynCanvas.width, dynCanvas.height);
+  }
+
+  // ==================== DRAW MAP IMAGE ====================
+  function drawMapImage(img) {
+    currentImg = img;
+    imgNatW = img.naturalWidth || img.width;
+    imgNatH = img.naturalHeight || img.height;
+
+    mapCanvas.width = imgNatW; mapCanvas.height = imgNatH;
+    overlayCanvas.width = imgNatW; overlayCanvas.height = imgNatH;
+    dynCanvas.width = imgNatW; dynCanvas.height = imgNatH;
+
+    mapCanvas.style.width = imgNatW + 'px'; mapCanvas.style.height = imgNatH + 'px';
+    overlayCanvas.style.width = imgNatW + 'px'; overlayCanvas.style.height = imgNatH + 'px';
+    dynCanvas.style.width = imgNatW + 'px'; dynCanvas.style.height = imgNatH + 'px';
+
+    [mapLayerEl, overlayLayerEl].forEach(el => {
+      el.style.width = imgNatW + 'px';
+      el.style.height = imgNatH + 'px';
+    });
+    [nodeLayer, edgeLayer].forEach(el => {
+  if (el) { 
+    el.style.width = imgNatW + 'px'; 
+    el.style.height = imgNatH + 'px'; 
+  }
+});
+
+// agv-layer không phủ full map để không chặn click node
+if (agvLayer) {
+  agvLayer.style.width = '0px';
+  agvLayer.style.height = '0px';
+}
+
+    const ctx = mapCanvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, imgNatW, imgNatH);
+  }
+
+  // ==================== BUILD STATIC OVERLAY (overlayCanvas) ====================
+  const EDGE_COLOR = '#d1d5db';
+  const EDGE_WIDTH_PX = 16;
+
+  function buildEdges(roads) {
+    const ctx = overlayCanvas.getContext('2d');
+    ctx.lineCap = 'round';
+
+    roads.forEach(r => {
+      const sx = r.point_start_x ?? r.point_start?.[0] ?? 0;
+      const sy = r.point_start_y ?? r.point_start?.[1] ?? 0;
+      const ex = r.point_end_x ?? r.point_end?.[0] ?? 0;
+      const ey = r.point_end_y ?? r.point_end?.[1] ?? 0;
+
+      let s = worldToPixel(sx, sy); s = applyOverlayFlip(s.x, s.y);
+      let e = worldToPixel(ex, ey); e = applyOverlayFlip(e.x, e.y);
+
+      ctx.strokeStyle = EDGE_COLOR;
+      ctx.lineWidth = EDGE_WIDTH_PX;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(e.x, e.y);
+      ctx.stroke();
+    });
+  }
+
+  function buildBeziers(beziers) {
+    if (!Array.isArray(beziers) || beziers.length === 0) return;
+    const ctx = overlayCanvas.getContext('2d');
+    ctx.strokeStyle = EDGE_COLOR;
+    ctx.lineWidth = EDGE_WIDTH_PX;
+    ctx.lineCap = 'round';
+
+    for (const b of beziers) {
+      const pts = ['point_start', 'curve_point_start', 'curve_point_end', 'point_end'].map(key => {
+        const x = b[key + '_x'] ?? b[key]?.[0] ?? 0;
+        const y = b[key + '_y'] ?? b[key]?.[1] ?? 0;
+        let pt = worldToPixel(x, y);
+        return applyOverlayFlip(pt.x, pt.y);
+      });
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      ctx.bezierCurveTo(pts[1].x, pts[1].y, pts[2].x, pts[2].y, pts[3].x, pts[3].y);
+      ctx.stroke();
+    }
+  }
+
+  function buildNodes(points) {
+    const ctx = overlayCanvas.getContext('2d');
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = '#ff4d4d';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2.0;
+
+    nodeLayer.innerHTML = '';
+    const nodeRadius = 7;
+
+    points.forEach(p => {
+      const wx = p.x ?? p[0] ?? 0;
+      const wy = p.y ?? p[1] ?? 0;
+      let { x, y } = worldToPixel(wx, wy);
+      ({ x, y } = applyOverlayFlip(x, y));
+
+      ctx.beginPath();
+      ctx.arc(x, y, nodeRadius, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+
+      const nodeId = p.name_id ?? p.name ?? p.id ?? '';
+      const nodeName = p.name ?? p.name_id ?? nodeId;
+
+      const div = document.createElement('div');
+      div.className = 'node-click';
+      div.style.left = `${x}px`;
+      div.style.top = `${y}px`;
+      div.dataset.nodeId = nodeId;
+      div.dataset.nodeName = nodeName;
+      div.dataset.x = wx;
+      div.dataset.y = wy;
+      div.title = `${nodeName || 'Node'} (${wx.toFixed(2)}, ${wy.toFixed(2)})`;
+      div.addEventListener('dblclick', () => {
+        openNodeModal({ id: nodeId, name: nodeName, x: wx, y: wy });
+      });
+      nodeLayer.appendChild(div);
+    });
+
+    ctx.restore();
+  }
+
+  // ==================== HIGHLIGHT (dynamic) ====================
+  function buildHighlightFromPair(a, b) {
+    const roads = mapData.robot_roads || mapData.roads || [];
+    const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+
+    const matchEdge = roads.find(r => String(r.id_source) === a && String(r.id_dest) === b);
+    if (matchEdge) {
+      return {
+        type: 'line',
+        points: [
+          { x: matchEdge.point_start_x ?? matchEdge.point_start?.[0] ?? 0, y: matchEdge.point_start_y ?? matchEdge.point_start?.[1] ?? 0 },
+          { x: matchEdge.point_end_x ?? matchEdge.point_end?.[0] ?? 0, y: matchEdge.point_end_y ?? matchEdge.point_end?.[1] ?? 0 }
+        ]
+      };
+    }
+
+    const matchBz = beziers.find(bz => String(bz.id_source) === a && String(bz.id_dest) === b);
+    if (matchBz) {
+      return {
+        type: 'bezier',
+        points: [
+          { x: matchBz.point_start_x ?? matchBz.point_start?.[0] ?? 0, y: matchBz.point_start_y ?? matchBz.point_start?.[1] ?? 0 },
+          { x: matchBz.curve_point_start_x ?? matchBz.curve_point_start?.[0] ?? 0, y: matchBz.curve_point_start_y ?? matchBz.curve_point_start?.[1] ?? 0 },
+          { x: matchBz.curve_point_end_x ?? matchBz.curve_point_end?.[0] ?? 0, y: matchBz.curve_point_end_y ?? matchBz.curve_point_end?.[1] ?? 0 },
+          { x: matchBz.point_end_x ?? matchBz.point_end?.[0] ?? 0, y: matchBz.point_end_y ?? matchBz.point_end?.[1] ?? 0 }
+        ]
+      };
+    }
+
+    return null;
+  }
+
+  function setHighlightPathFromNodes(nodeIds, ownerId = null) {
+    highlightOwner = ownerId || highlightOwner;
+    if (ownerId) stableCounts[ownerId] = 0;
+
+    const destId = Array.isArray(nodeIds) && nodeIds.length ? String(nodeIds[nodeIds.length - 1]) : null;
+    highlightDestination = destId;
+
+    if (!mapData || !Array.isArray(nodeIds)) {
+      highlightSegments = [];
+      highlightDestCoord = null;
+      redrawDynamic();
+      return;
+    }
+
+    const segs = [];
+    const pts = mapData.robot_points || mapData.points || [];
+    const lookup = {};
+    pts.forEach(p => {
+      const id = String(p.name_id ?? p.id ?? p.name ?? '');
+      lookup[id] = { x: p.x ?? 0, y: p.y ?? 0 };
+    });
+
+    const roads = mapData.robot_roads || mapData.roads || [];
+    roads.forEach(r => {
+      const sid = String(r.id_source ?? r.source ?? '');
+      const did = String(r.id_dest ?? r.dest ?? '');
+      if (!lookup[sid]) lookup[sid] = { x: r.point_start_x ?? r.point_start?.[0] ?? 0, y: r.point_start_y ?? r.point_start?.[1] ?? 0 };
+      if (!lookup[did]) lookup[did] = { x: r.point_end_x ?? r.point_end?.[0] ?? 0, y: r.point_end_y ?? r.point_end?.[1] ?? 0 };
+    });
+
+    const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+    beziers.forEach(b => {
+      const sid = String(b.id_source ?? b.source ?? '');
+      const did = String(b.id_dest ?? b.dest ?? '');
+      if (!lookup[sid]) lookup[sid] = { x: b.point_start_x ?? b.point_start?.[0] ?? 0, y: b.point_start_y ?? b.point_start?.[1] ?? 0 };
+      if (!lookup[did]) lookup[did] = { x: b.point_end_x ?? b.point_end?.[0] ?? 0, y: b.point_end_y ?? b.point_end?.[1] ?? 0 };
+    });
+
+    for (let i = 0; i < nodeIds.length - 1; i++) {
+      const a = String(nodeIds[i]);
+      const b = String(nodeIds[i + 1]);
+      let seg = buildHighlightFromPair(a, b);
+      if (!seg) {
+        const pa = lookup[a];
+        const pb = lookup[b];
+        if (pa && pb) seg = { type: 'line', points: [pa, pb] };
+      }
+      if (seg) segs.push(seg);
+    }
+
+    highlightSegments = segs;
+    highlightDestCoord = destId && lookup[destId] ? lookup[destId] : null;
+
+    redrawDynamic();
+  }
+
+  function drawHighlight() {
+    const ctx = dynCanvas.getContext('2d');
+    if (!highlightSegments || !highlightSegments.length) return;
+
+    highlightSegments.forEach(seg => {
+      ctx.save();
+      ctx.strokeStyle = '#0ea5e9';
+      ctx.lineWidth = EDGE_WIDTH_PX + 4;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = 'rgba(14,165,233,0.7)';
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+
+      if (seg.type === 'bezier' && seg.points.length === 4) {
+        let p0 = worldToPixel(seg.points[0].x, seg.points[0].y); p0 = applyOverlayFlip(p0.x, p0.y);
+        let p1 = worldToPixel(seg.points[1].x, seg.points[1].y); p1 = applyOverlayFlip(p1.x, p1.y);
+        let p2 = worldToPixel(seg.points[2].x, seg.points[2].y); p2 = applyOverlayFlip(p2.x, p2.y);
+        let p3 = worldToPixel(seg.points[3].x, seg.points[3].y); p3 = applyOverlayFlip(p3.x, p3.y);
+        ctx.moveTo(p0.x, p0.y);
+        ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+        ctx.stroke();
+      } else {
+        let p0 = worldToPixel(seg.points[0].x, seg.points[0].y); p0 = applyOverlayFlip(p0.x, p0.y);
+        ctx.moveTo(p0.x, p0.y);
+        for (let i = 1; i < seg.points.length; i++) {
+          let p = worldToPixel(seg.points[i].x, seg.points[i].y); p = applyOverlayFlip(p.x, p.y);
+          ctx.lineTo(p.x, p.y);
+        }
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    });
+  }
+
+  // ==================== RENDER AGVs (dynamic) ====================
+  function getAgvStatus(id) {
+    const now = Date.now();
+    const last = agvLastUpdate[id] || 0;
+    if (!last || now - last > 3000) return 'Mất kết nối';
+    return 'Kết nối';
+  }
+
+  function renderAGVs() {
+    const ctx = dynCanvas.getContext('2d');
+    if (agvLayer) agvLayer.innerHTML = '';
+
+    Object.entries(agvs).forEach(([id, pose]) => {
+      const mx = pose.x ?? 0;
+      const my = pose.y ?? 0;
+      const mtheta = pose.theta ?? 0;
+
+      let { x, y } = worldToPixel(mx, my);
+      ({ x, y } = applyOverlayFlip(x, y));
+
+      const agvThetaRad = toRad(mtheta);
+      const headingFix = Math.PI;
+      const totalRotationRad = agvThetaRad + headingFix + mapRotation - (userMapRotationDeg * Math.PI / 180);
+
+      const status = getAgvStatus(id);
+      const statusLow = (status || '').toLowerCase();
+      const offline = statusLow.includes('mất') || statusLow.includes('mat');
+      const fillColor = offline ? '#9ca3af' : '#0A57A4';
+
+      drawAgvIcon(ctx, x, y, totalRotationRad, fillColor);
+
+      if (agvLayer) {
+        const div = document.createElement('div');
+        div.className = 'agv-click';
+        div.style.left = `${x}px`;
+        div.style.top = `${y}px`;
+        div.title = `${id} (${mx.toFixed(2)}, ${my.toFixed(2)})`;
+        div.onpointerdown = (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          openAgvPanel(id);
+        };
+        agvLayer.appendChild(div);
+      }
+    });
+  }
+
+  function redrawDynamic() {
+    if (!mapData) return;
+    clearDynamic();
+    drawHighlight();
+    renderAGVs();
+  }
+
+  // ==================== ANIMATION LOOP ====================
+  function startAnimLoop() {
+    if (animHandle) return;
+
+    const step = (ts) => {
+      if (lastAnimTs === null) lastAnimTs = ts;
+      const dt = Math.min(0.05, (ts - lastAnimTs) / 1000);
+      lastAnimTs = ts;
+
+      const k = 1 - Math.pow(0.001, dt);
+
+      Object.keys(targetAgvs).forEach(id => {
+        const tpose = targetAgvs[id];
+        if (!tpose) return;
+
+        if (!displayAgvs[id]) {
+          displayAgvs[id] = { ...tpose };
+        } else {
+          const d = displayAgvs[id];
+          d.x = lerp(d.x ?? 0, tpose.x ?? 0, k);
+          d.y = lerp(d.y ?? 0, tpose.y ?? 0, k);
+
+          const a = toRad(d.theta ?? 0);
+          const b = toRad(tpose.theta ?? 0);
+          d.theta = lerpAngle(a, b, k);
+
+          d.battery = tpose.battery ?? d.battery;
+          d.batteryState = tpose.batteryState ?? d.batteryState;
+          d.lastNodeId = tpose.lastNodeId ?? d.lastNodeId;
+          d.orderId = tpose.orderId ?? d.orderId;
+          d.paused = tpose.paused ?? d.paused;
+        }
+      });
+
+      agvs = displayAgvs;
+
+      if (highlightOwner && highlightDestCoord) {
+        const ownerPose = agvs[highlightOwner];
+        if (ownerPose && isArrived(ownerPose, highlightDestCoord, ARRIVE_EPS)) {
+          highlightSegments = [];
+          highlightOwner = null;
+          highlightDestination = null;
+          highlightDestCoord = null;
+        }
+      }
+
+      redrawDynamic();
+
+      if (selectedAgvId) {
+        refreshAgvPanel();
+      }
+
+      animHandle = requestAnimationFrame(step);
+    };
+
+    animHandle = requestAnimationFrame(step);
+  }
+
+  // ==================== ROTATE ====================
+  window.setRotate = (deg) => {
+    manualRotateInput.value = deg;
+    applyRotateBtn.click();
+  };
+
+  applyRotateBtn.onclick = () => {
+    userMapRotationDeg = parseFloat(manualRotateInput.value) || 0;
+    rebuildAllOverlay();
+    applyTransform();
+  };
+
+  resetRotateBtn.onclick = () => {
+    manualRotateInput.value = 0;
+    userMapRotationDeg = 0;
+    rebuildAllOverlay();
+    applyTransform();
+  };
+
+  manualRotateInput.addEventListener('keydown', e => e.key === 'Enter' && applyRotateBtn.click());
+
+  [flipMapX, flipMapY].forEach(cb => {
+    cb.addEventListener('change', () => { rebuildAllOverlay(); applyTransform(); });
+  });
+
+  // ==================== REBUILD STATIC OVERLAY ====================
+  function rebuildAllOverlay() {
+    if (!mapData) return;
+
+    nodeLayer.innerHTML = '';
+    const octx = overlayCanvas.getContext('2d');
+    octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    const points = mapData.robot_points || mapData.points || mapData.poses || [];
+    const roads = mapData.robot_roads || mapData.roads || [];
+    const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+
+    buildEdges(roads);
+    if (beziers.length) buildBeziers(beziers);
+    buildNodes(points);
+
+    redrawDynamic();
+  }
+
+  // ==================== LOAD MAP ====================
+  async function loadMap(mapId) {
+    statusEl.textContent = 'Đang tải...';
+    mapSelect.disabled = true;
+
+    clearAll();
+
+    agvs = {};
+    targetAgvs = {};
+    displayAgvs = {};
+    lastPoseByAgv = {};
+    stableCounts = {};
+    agvLastUpdate = {};
+
+    highlightSegments = [];
+    highlightOwner = null;
+    highlightDestination = null;
+    highlightDestCoord = null;
+
+    try {
+      const res = await fetch(`/api/maps/${mapId}`);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      mapData = data;
+      mapData.id = mapId;
+
+      const rm = data.robot_maps || {};
+      originX = Number(rm.x ?? data.origin_x ?? 0);
+      originY = Number(rm.y ?? data.origin_y ?? 0);
+      resolution = Number(rm.resolution ?? data.resolution ?? RES_DEFAULT);
+      mapRotation = Number(rm.theta ?? data.theta ?? 0);
+
+      const imgSrc = rm.image ? `data:image/png;base64,${rm.image}` : (rm.image_path || data.image_path || '');
+      if (!imgSrc) throw new Error('Không có ảnh');
+
+      const img = await new Promise((rs, rj) => {
+        const i = new Image();
+        i.onload = () => rs(i);
+        i.onerror = rj;
+        i.src = imgSrc;
+      });
+
+      drawMapImage(img);
+      userMapRotationDeg = 0;
+      manualRotateInput.value = 0;
+
+      rebuildAllOverlay();
+      autoFit();
+
+      statusEl.textContent = `${rm.name || data.name || mapId} – ${imgNatW}×${imgNatH}px – res=${resolution.toFixed(4)}`;
+      applyTransform();
+
+    } catch (err) {
+      statusEl.textContent = 'Lỗi: ' + err.message;
+      console.error(err);
+    } finally {
+      mapSelect.disabled = false;
+    }
+  }
+
+  // ==================== INTERACTION ====================
+  scene.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = scene.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const oldZoom = userZoom;
+    userZoom = Math.max(0.2, Math.min(10, userZoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+
+    const ratio = userZoom / oldZoom;
+    panX = panX * ratio + mx / (scaleView * oldZoom) * (1 - ratio);
+    panY = panY * ratio + my / (scaleView * oldZoom) * (1 - ratio);
+    applyTransform();
+  });
+
+  scene.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+
+    if (e.target.closest('.agv-click') || e.target.closest('.node-click')) {
+      return;
+    }
+
+    dragging = true;
+    dragStart = { x: e.clientX, y: e.clientY };
+    panStart = { x: panX, y: panY };
+    scene.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const dx = (e.clientX - dragStart.x) / (scaleView * userZoom);
+    const dy = (e.clientY - dragStart.y) / (scaleView * userZoom);
+    panX = panStart.x + dx;
+    panY = panStart.y + dy;
+    applyTransform();
+  });
+  window.addEventListener('mouseup', () => { dragging = false; scene.style.cursor = 'default'; });
+
+  scene.addEventListener('click', (e) => {
+    if (!e.target.closest('.agv-click') && !e.target.closest('#agv-side-panel')) {
+      // giữ nguyên panel, không auto close
+    }
+  });
+
+  resetBtn.onclick = autoFit;
+  fullscreenBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  mapSelect.onchange = e => e.target.value && loadMap(e.target.value);
+
+  // ==================== MODALS ====================
+  function ensureNodeModal() {
+    if (nodeModal) return;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.style.display = 'none';
+    const card = document.createElement('div');
+    card.className = 'modal-card';
+    card.innerHTML = `
+      <h3 id="modal-title">Điểm</h3>
+      <div class="meta" id="modal-meta"></div>
+      <div class="modal-actions">
+        <div class="btn-ghost" id="modal-close">Đóng</div>
+        <div class="btn-primary" id="modal-go">Đi tới điểm này</div>
+      </div>
+    `;
+    backdrop.appendChild(card);
+    document.body.appendChild(backdrop);
+    nodeModal = { backdrop, card };
+    card.querySelector('#modal-close').onclick = () => backdrop.style.display = 'none';
+  }
+
+  function openNodeModal(info) {
+    ensureNodeModal();
+    nodeModal.card.querySelector('#modal-title').textContent = info.name || info.id || 'Điểm';
+    nodeModal.card.querySelector('#modal-meta').textContent = `ID: ${info.id || '—'} · (${info.x.toFixed(3)}, ${info.y.toFixed(3)})`;
+    nodeModal.card.querySelector('#modal-go').onclick = () => {
+      nodeModal.backdrop.style.display = 'none';
+      sendMoveOrder(info);
+    };
+    nodeModal.backdrop.style.display = 'flex';
+  }
+
+  function ensureAgvModal() {
+    if (agvModal) return;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.style.display = 'none';
+    const card = document.createElement('div');
+    card.className = 'modal-card';
+    card.innerHTML = `
+      <h3 id="agv-modal-title">AGV</h3>
+      <div class="meta" id="agv-modal-meta"></div>
+      <div class="meta" id="agv-modal-status"></div>
+      <div class="meta" style="margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div style="width:22px; text-align:center;">🔋</div>
+          <div style="flex:1; height:10px; background:rgba(255,255,255,0.12); border-radius:6px; overflow:hidden;">
+            <div class="battery-bar-fill" style="height:100%; width:0; background:#22c55e;"></div>
+          </div>
+          <span id="agv-modal-battery" style="width:48px; text-align:right;">--%</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <div class="btn-ghost" id="agv-modal-close">Đóng</div>
+      </div>
+    `;
+    backdrop.appendChild(card);
+    document.body.appendChild(backdrop);
+    agvModal = { backdrop, card };
+    card.querySelector('#agv-modal-close').onclick = () => backdrop.style.display = 'none';
+  }
+
+  function refreshAgvSelect() {
+    const current = agvSelect.value;
+    agvSelect.innerHTML = '';
+    Object.keys(targetAgvs).forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      agvSelect.appendChild(opt);
+    });
+    if (current && Object.keys(targetAgvs).includes(current)) agvSelect.value = current;
+  }
+
+  function openAgvModal(agvId) {
+    ensureAgvModal();
+    const pose = targetAgvs[agvId] || agvs[agvId] || {};
+    const metaEl = agvModal.card.querySelector('#agv-modal-meta');
+    const statusEl2 = agvModal.card.querySelector('#agv-modal-status');
+    const batteryEl = agvModal.card.querySelector('#agv-modal-battery');
+    const bar = agvModal.card.querySelector('.battery-bar-fill');
+
+    agvModal.card.querySelector('#agv-modal-title').textContent = agvId || 'AGV';
+    metaEl.textContent = `Vị trí: (${(pose.x ?? 0).toFixed(3)}, ${(pose.y ?? 0).toFixed(3)}) | Góc: ${(pose.theta ?? 0).toFixed(2)}`;
+    statusEl2.textContent = `Trạng thái: ${getAgvStatus(agvId)}`;
+
+    const batteryRaw = pose.battery ?? pose.batteryState?.batteryCharge ?? pose.pin ?? pose.pin_percent ?? pose.batteryLevel;
+    const batteryVal = (batteryRaw === undefined || batteryRaw === null || Number.isNaN(Number(batteryRaw)))
+      ? null : Math.round(Number(batteryRaw));
+
+    if (batteryVal === null) {
+      batteryEl.textContent = '50%';
+      if (bar) bar.style.width = '50%';
+    } else {
+      batteryEl.textContent = `${batteryVal}%`;
+      const width = Math.max(0, Math.min(100, batteryVal));
+      if (bar) {
+        bar.style.width = `${width}%`;
+        bar.style.background = batteryVal < 20 ? '#ef4444' : (batteryVal < 50 ? '#f59e0b' : '#22c55e');
+      }
+    }
+
+    agvModal.backdrop.style.display = 'flex';
+  }
+
+  // ==================== SIMULATION TOGGLE ====================
+  function setSimStatus(on) {
+    simulationMode = on;
+    toggleSimBtn.textContent = on ? 'Tắt mô phỏng' : 'Bật mô phỏng';
+    statusEl.textContent = on ? 'Mô phỏng' : 'Sẵn sàng';
+  }
+  toggleSimBtn.onclick = () => {
+    simulationMode = !simulationMode;
+    setSimStatus(simulationMode);
+    alert('Mô phỏng demo: Bạn đang dùng bản realtime + animation. Nếu cần mô phỏng đầy đủ như bản cũ, mình sẽ merge lại phần path/lock.');
+  };
+
+  // ==================== SEND ORDER ====================
+  async function sendMoveOrder(node) {
+    const agvIds = Object.keys(targetAgvs);
+    if (!agvIds.length) {
+      alert('Chưa có AGV online.');
+      return;
+    }
+    const chosen = agvSelect?.value;
+    const agvId = chosen && agvIds.includes(chosen) ? chosen : agvIds[0];
+
+    try {
+      const res = await fetch('/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agv_id: agvId, destination: node.id || node.name })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      statusEl.textContent = `Đã gửi lệnh tới ${node.name || node.id} (AGV ${agvId})`;
+
+      if (Array.isArray(data.path)) {
+        setHighlightPathFromNodes(data.path, agvId);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Không gửi được lệnh: ' + err.message);
+    }
+  }
+
+  // ==================== PANEL BUTTONS (UI ONLY) ====================
+    async function postAgvPanelAction(url, buttonEl, successMessageBuilder) {
+    if (!selectedAgvId) {
+      alert('Chưa chọn AGV.');
+      return null;
+    }
+      async function postInstantAgvAction(actionType, buttonEl, successMessage) {
+    if (!selectedAgvId) {
+      alert('Chưa chọn AGV.');
+      return null;
+    }
+
+    const oldText = buttonEl.textContent;
+    buttonEl.disabled = true;
+    buttonEl.textContent = 'Đang gửi...';
+
+    try {
+      const res = await fetch('/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agv_id: selectedAgvId,
+          action_type: actionType
+        })
+      });
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {}
+
+      if (!res.ok) {
+        const msg = data?.detail || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      statusEl.textContent = successMessage;
+      return data;
+    } catch (err) {
+      console.error('[AGV INSTANT ACTION] lỗi:', err);
+      alert(`Không thực hiện được lệnh ${actionType}: ${err.message}`);
+      return null;
+    } finally {
+      buttonEl.textContent = oldText;
+      refreshAgvPanel();
+    }
+  }
+
+    const oldText = buttonEl.textContent;
+    buttonEl.disabled = true;
+    buttonEl.textContent = 'Đang gửi...';
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agv_id: selectedAgvId })
+      });
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {}
+
+      if (!res.ok) {
+        const msg = data?.detail || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      if (typeof successMessageBuilder === 'function') {
+        statusEl.textContent = successMessageBuilder(data);
+      }
+
+      return data;
+    } catch (err) {
+      console.error('[AGV PANEL ACTION] lỗi:', err);
+      alert(`Không thực hiện được lệnh: ${err.message}`);
+      return null;
+    } finally {
+      buttonEl.textContent = oldText;
+      refreshAgvPanel();
+    }
+  }
+
+    async function postInstantAgvAction(actionType, buttonEl, successMessage) {
+    if (!selectedAgvId) {
+      alert('Chưa chọn AGV.');
+      return null;
+    }
+
+    const oldText = buttonEl.textContent;
+    buttonEl.disabled = true;
+    buttonEl.textContent = 'Đang gửi...';
+
+    try {
+      const res = await fetch('/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agv_id: selectedAgvId,
+          action_type: actionType
+        })
+      });
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {}
+
+      if (!res.ok) {
+        const msg = data?.detail || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+
+      statusEl.textContent = successMessage;
+      return data;
+    } catch (err) {
+      console.error('[AGV INSTANT ACTION] lỗi:', err);
+      alert(`Không thực hiện được lệnh ${actionType}: ${err.message}`);
+      return null;
+    } finally {
+      buttonEl.textContent = oldText;
+      refreshAgvPanel();
+    }
+  }
+
+    document.getElementById('btn-pause-agv').onclick = async () => {
+    const btn = document.getElementById('btn-pause-agv');
+    const data = await postInstantAgvAction(
+      'PAUSE',
+      btn,
+      `Đã gửi lệnh PAUSE tới ${selectedAgvId}`
+    );
+
+    if (data) {
+      if (targetAgvs[selectedAgvId]) {
+        targetAgvs[selectedAgvId].paused = true;
+      }
+      if (agvs[selectedAgvId]) {
+        agvs[selectedAgvId].paused = true;
+      }
+      refreshAgvPanel();
+    }
+  };
+
+  document.getElementById('btn-resume-agv').onclick = async () => {
+    const btn = document.getElementById('btn-resume-agv');
+    const data = await postInstantAgvAction(
+      'RESUME',
+      btn,
+      `Đã gửi lệnh RESUME tới ${selectedAgvId}`
+    );
+
+    if (data) {
+      if (targetAgvs[selectedAgvId]) {
+        targetAgvs[selectedAgvId].paused = false;
+      }
+      if (agvs[selectedAgvId]) {
+        agvs[selectedAgvId].paused = false;
+      }
+      refreshAgvPanel();
+    }
+  };
+
+  document.getElementById('btn-cancel-order').onclick = async () => {
+    const btn = document.getElementById('btn-cancel-order');
+    const data = await postAgvPanelAction(
+      '/api/agv/cancel-order',
+      btn,
+      () => `Đã gửi lệnh hủy cho ${selectedAgvId}`
+    );
+
+    if (data?.success) {
+      if (targetAgvs[selectedAgvId]) {
+        targetAgvs[selectedAgvId].orderId = '';
+      }
+
+      highlightSegments = [];
+      highlightOwner = null;
+      highlightDestination = null;
+      highlightDestCoord = null;
+
+      redrawDynamic();
+      refreshAgvPanel();
+    }
+  };
+
+  document.getElementById('btn-go-charge').onclick = async () => {
+    const btn = document.getElementById('btn-go-charge');
+    const data = await postAgvPanelAction(
+      '/api/agv/go-charge',
+      btn,
+      (data) => `Đã gửi ${selectedAgvId} đi sạc${data?.target_node ? ` (${data.target_node})` : ''}`
+    );
+
+    if (data?.success && Array.isArray(data.path)) {
+      setHighlightPathFromNodes(data.path, selectedAgvId);
+      refreshAgvPanel();
+    }
+  };
+
+  document.getElementById('btn-go-wait').onclick = async () => {
+    const btn = document.getElementById('btn-go-wait');
+    const data = await postAgvPanelAction(
+      '/api/agv/go-wait',
+      btn,
+      (data) => `Đã gửi ${selectedAgvId} về khu chờ${data?.target_node ? ` (${data.target_node})` : ''}`
+    );
+
+    if (data?.success && Array.isArray(data.path)) {
+      setHighlightPathFromNodes(data.path, selectedAgvId);
+      refreshAgvPanel();
+    }
+  };
+
+  // ==================== UPDATE AGV POSES (WS) ====================
+  function updateAGVPoses(newPoses) {
+    if (newPoses) {
+      Object.entries(newPoses).forEach(([id, pose]) => {
+        const prev = lastPoseByAgv[id] || targetAgvs[id];
+        const eps = 1e-3;
+        if (prev && Math.abs((pose.x ?? 0) - (prev.x ?? 0)) < eps && Math.abs((pose.y ?? 0) - (prev.y ?? 0)) < eps) {
+          stableCounts[id] = (stableCounts[id] || 0) + 1;
+        } else {
+          stableCounts[id] = 0;
+        }
+
+        lastPoseByAgv[id] = { x: pose.x ?? 0, y: pose.y ?? 0, theta: pose.theta ?? 0 };
+        agvLastUpdate[id] = Date.now();
+
+        if (!targetAgvs[id]) targetAgvs[id] = {};
+        targetAgvs[id] = { ...targetAgvs[id], ...pose };
+      });
+    }
+
+    if (highlightOwner && highlightDestCoord) {
+      const p = targetAgvs[highlightOwner];
+      if (p && isArrived(p, highlightDestCoord, ARRIVE_EPS)) {
+        highlightSegments = [];
+        highlightOwner = null;
+        highlightDestination = null;
+        highlightDestCoord = null;
+      }
+    }
+
+    refreshAgvSelect();
+
+    if (selectedAgvId) {
+      refreshAgvPanel();
+    }
+  }
+
+  function setupWebSocket() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+    ws.onopen = () => console.log("[WS] Connected.");
+    ws.onclose = () => {
+      console.log("[WS] Disconnected. Reconnecting in 5s...");
+      setTimeout(setupWebSocket, 5000);
+    };
+    ws.onerror = (err) => console.error("[WS] Error:", err);
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'agv_pose_update') {
+          updateAGVPoses(data.poses);
+
+        } else if (data.type === 'agv_state' && data.agv_id) {
+          const id = String(data.agv_id);
+          agvLastUpdate[id] = Date.now();
+          if (!targetAgvs[id]) targetAgvs[id] = {};
+
+          targetAgvs[id] = {
+            ...targetAgvs[id],
+            x: data.x ?? targetAgvs[id].x ?? 0,
+            y: data.y ?? targetAgvs[id].y ?? 0,
+            theta: data.theta ?? targetAgvs[id].theta ?? 0,
+            orderId: data.orderId ?? targetAgvs[id].orderId ?? '',
+            paused: data.paused ?? targetAgvs[id].paused ?? false,
+            battery: data.batteryCharge ?? targetAgvs[id].battery,
+            lastNodeId: data.lastNodeId ?? targetAgvs[id].lastNodeId
+          };
+
+          if (highlightOwner && highlightDestCoord && id === highlightOwner) {
+            if (isArrived(targetAgvs[id], highlightDestCoord, ARRIVE_EPS)) {
+              highlightSegments = [];
+              highlightOwner = null;
+              highlightDestination = null;
+              highlightDestCoord = null;
+            }
+          }
+
+          refreshAgvSelect();
+
+          if (selectedAgvId === id) {
+            refreshAgvPanel();
+          }
+        } else if (data.type === 'external_command' && data.action === 'MOVE' && Array.isArray(data.path)) {
+          setHighlightPathFromNodes(data.path, data.agv_id || null);
+        }
+      } catch (e) {
+        console.error("[WS] Lỗi xử lý dữ liệu:", e);
+      }
+    };
+  }
+
+  async function pollAgvHeartbeat() {
+    try {
+      const res = await fetch('/debug/agvs');
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = data?.agvs || {};
+
+      Object.entries(list).forEach(([id, info]) => {
+        if (!targetAgvs[id]) targetAgvs[id] = {};
+        targetAgvs[id] = {
+          ...targetAgvs[id],
+          x: info.x ?? targetAgvs[id].x ?? 0,
+          y: info.y ?? targetAgvs[id].y ?? 0,
+          theta: info.theta ?? targetAgvs[id].theta ?? 0,
+          lastNodeId: info.lastNodeId ?? targetAgvs[id].lastNodeId,
+          orderId: info.orderId ?? targetAgvs[id].orderId ?? '',
+          paused: info.paused ?? targetAgvs[id].paused ?? false
+        };
+
+        const ts = info.last_update ? Date.parse(info.last_update) : NaN;
+        if (!Number.isNaN(ts)) agvLastUpdate[id] = ts;
+      });
+
+      if (highlightOwner && highlightDestCoord) {
+        const p = targetAgvs[highlightOwner];
+        if (p && isArrived(p, highlightDestCoord, ARRIVE_EPS)) {
+          highlightSegments = [];
+          highlightOwner = null;
+          highlightDestination = null;
+          highlightDestCoord = null;
+        }
+      }
+
+      refreshAgvSelect();
+
+      if (selectedAgvId) {
+        refreshAgvPanel();
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  // ==================== INIT ====================
+  fetch('/api/maps/list')
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP Error ${r.status}`);
+      return r.json();
+    })
+    .then(data => {
+      if (Array.isArray(data)) {
+        data.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = m.name || m.mapName || m.id;
+          mapSelect.appendChild(opt);
+        });
+      } else {
+        console.warn('API /api/maps/list trả về dữ liệu không phải mảng:', data);
+      }
+    })
+    .catch(err => {
+      console.error('Không thể tải Map List:', err);
+      statusEl.textContent = 'Lỗi tải Map List (Kiểm tra console và server)';
+    });
+
+  setupWebSocket();
+  setInterval(pollAgvHeartbeat, 1000);
+  pollAgvHeartbeat();
+
+  startAnimLoop();
+
+});
+</script>
+</body>
+</html>
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574

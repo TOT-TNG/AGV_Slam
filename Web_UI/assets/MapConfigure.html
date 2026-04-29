@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cấu hình Bản đồ & Node</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: rgba(15, 23, 42, 0.96);
+      --panel2: rgba(30, 41, 59, 0.96);
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #ffffff;
+      --muted: #cbd5e1;
+      --empty: #94a3b8;
+      --conveyor: #0ea5e9;
+      --charger: #f59e0b;
+      --dropoff: #ef4444;
+      --home: #22c55e;
+      --buffer: #a855f7;
+      --parking: #14b8a6;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, Segoe UI, Roboto, Arial, sans-serif;
+    }
+
+    #app {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #left-panel {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: #020617;
+    }
+
+    #right-panel {
+      width: 380px;
+      min-width: 380px;
+      max-width: 380px;
+      height: 100%;
+      background: var(--panel2);
+      border-left: 1px solid var(--border);
+      box-shadow: -6px 0 24px rgba(0, 0, 0, 0.22);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ────────────────────────────────────────────────
+       CSS cho thanh top-bar có thể ẩn/hiện
+    ──────────────────────────────────────────────── */
+    #top-bar-wrapper {
+      position: absolute;
+      left: 16px;
+      right: 16px;
+      top: 16px;
+      z-index: 1000;
+      transition: transform 0.28s ease;
+    }
+
+    #top-bar {
+      padding: 10px 14px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(12px);
+    }
+
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #top-bar-toggle {
+      position: absolute;
+      right: 28px;
+      top: 70px; /* vị trí ban đầu khi thanh mở */
+      z-index: 1001;
+      width: 42px;
+      height: 34px;
+      border-radius: 0 0 10px 10px;
+      background: rgba(15, 23, 42, 0.96);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-top: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: top 0.28s ease, background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    #top-bar-toggle:hover {
+      background: rgba(30, 41, 59, 0.98);
+    }
+
+    #top-bar-toggle-icon {
+      font-size: 14px;
+      line-height: 1;
+      user-select: none;
+    }
+
+    body.topbar-collapsed #top-bar-wrapper {
+      transform: translateY(calc(-100% - 24px));
+    }
+
+    body.topbar-collapsed #top-bar-toggle {
+      top: 0;
+    }
+
+    body.topbar-collapsed #top-bar-toggle-icon {
+      transform: rotate(180deg);
+    }
+
+    #mapSelect option,
+select option {
+  color: #000000 !important;          /* chữ đen */
+  background-color: #ffffff !important; /* nền trắng */
+}
+
+/* Khi hover/chọn trong list (nền highlight mặc định thường xanh hoặc xám) */
+#mapSelect option:hover,
+select option:hover,
+#mapSelect option:checked,
+select option:checked {
+  background-color: #e0e0e0 !important;  /* xám nhạt khi hover */
+  color: #000000 !important;
+}
+
+    /* ────────────────────────────────────────────────
+       CSS còn lại giữ nguyên
+    ──────────────────────────────────────────────── */
+    select,
+    input[type="text"] {
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      outline: none;
+      font-size: 14px;
+    }
+
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #0ea5e9;
+      cursor: pointer;
+    }
+
+    .btn {
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      cursor: pointer;
+      transition: 0.2s;
+      font-size: 13px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      user-select: none;
+    }
+
+    .btn:hover { background: rgba(255, 255, 255, 0.18); }
+
+    .btn-primary {
+      background: #0ea5e9;
+      border-color: #0ea5e9;
+    }
+    .btn-primary:hover { background: #0284c7; }
+
+    .btn-danger {
+      background: #dc2626;
+      border-color: #dc2626;
+    }
+    .btn-danger:hover { background: #b91c1c; }
+
+    .field {
+  color: #000000;
+}
+
+.field label {
+  color: #000000;
+}
+
+.field select {
+  color: #000000;
+  background-color: #ffffff;
+}
+
+.field select option {
+  color: #000000;
+  background-color: #ffffff;
+}
+
+    #info {
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      font-size: 13px;
+      color: var(--muted);
+      min-width: 240px;
+    }
+
+    #map-container { position: absolute; inset: 0; overflow: hidden; }
+    #scene { width: 100%; height: 100%; position: relative; background: #020617; cursor: default; }
+
+    #map-inner {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform-origin: center center;
+      will-change: transform;
+      user-select: none;
+    }
+
+    #map-canvas,
+    .layer-group,
+    .layer,
+    #overlay-canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+
+    .layer { pointer-events: none; }
+    #node-layer { pointer-events: auto; z-index: 60; cursor: pointer; }
+    #overlay-canvas { pointer-events: none; z-index: 50; }
+
+    .node-click {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 9999px;
+      border: 2px solid #ffffff;
+      transform: translate(-50%, -50%);
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+
+    .node-click:hover {
+      transform: translate(-50%, -50%) scale(1.12);
+      box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.22);
+    }
+
+    .node-click.selected {
+      border-color: #facc15;
+      box-shadow: 0 0 0 6px rgba(250, 204, 21, 0.22);
+    }
+
+    #config-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #config-header h2 { margin: 0 0 6px 0; font-size: 20px; font-weight: 700; }
+    #config-header p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    #config-body {
+      padding: 18px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 13px; color: #e2e8f0; font-weight: 600; }
+    .field small { color: #94a3b8; font-size: 12px; }
+
+    .readonly-box {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #fff;
+      word-break: break-word;
+    }
+
+    .actions-row { display: flex; gap: 10px; margin-top: 8px; }
+    .actions-row .btn { flex: 1; text-align: center; }
+
+    #save-status {
+      min-height: 20px;
+      font-size: 13px;
+      color: #cbd5e1;
+      margin-top: 4px;
+      white-space: pre-wrap;
+    }
+
+    .hint-box {
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #cbd5e1;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #e2e8f0; }
+
+    .legend-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 9999px;
+      border: 2px solid #fff;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <div id="left-panel">
+      <!-- Thanh công cụ có thể ẩn/hiện -->
+      <div id="top-bar-wrapper">
+        <div id="top-bar">
+          <div id="controls">
+            <select id="mapSelect">
+              <option value="">-- Chọn bản đồ --</option>
+            </select>
+
+            <div style="display:flex; align-items:center; gap:12px; background:rgba(255,255,255,0.08); padding:8px 12px; border-radius:10px;">
+              <label style="display:flex; align-items:center; gap:6px; margin:0;">
+                <input type="checkbox" id="flipMapX" checked>
+                <span>Lật X</span>
+              </label>
+              <label style="display:flex; align-items:center; gap:6px; margin:0;">
+                <input type="checkbox" id="flipMapY">
+                <span>Lật Y</span>
+              </label>
+            </div>
+
+            <div class="btn" id="resetView">Khôi phục khung nhìn</div>
+
+            <div id="info">
+              Trạng thái: <span id="status">Sẵn sàng</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nút toggle ẩn/hiện -->
+      <div id="top-bar-toggle" title="Ẩn / hiện thanh công cụ">
+        <span id="top-bar-toggle-icon">▲</span>
+      </div>
+
+      <div id="map-container">
+        <div id="scene">
+          <div id="map-inner">
+            <div id="map-layer" class="layer-group">
+              <canvas id="map-canvas"></canvas>
+            </div>
+            <div id="overlay-layer" class="layer-group">
+              <div id="node-layer" class="layer"></div>
+              <canvas id="overlay-canvas"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="right-panel">
+      <div id="config-header">
+        <h2>Cấu hình Node</h2>
+        <p>Nhấp chọn một node trên bản đồ để gán tên chức năng, loại vị trí và hành động mặc định.</p>
+      </div>
+
+      <div id="config-body">
+        <div class="hint-box">
+          Bạn có thể gán mỗi node thành một vị trí nghiệp vụ cụ thể, ví dụ:  
+          <b>Conveyor01</b>, <b>ChargeStation01</b>, <b>DropZoneA</b>, <b>HomeBase</b>, <b>BufferZone</b>, <b>ParkingSpot01</b>…
+        </div>
+
+        <div class="legend">
+          <div class="legend-item"><span class="legend-dot" style="background:var(--empty);"></span> Chưa gán chức năng</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--conveyor);"></span> Conveyor - Băng tải / Điểm nhận/gửi hàng</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--charger);"></span> Charger - Trạm sạc tự động</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--dropoff);"></span> Dropoff - Điểm thả hàng / Giao hàng</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--home);"></span> Home - Điểm về nhà / Vị trí gốc</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--buffer);"></span> Buffer - Khu vực chờ / Khu vực đệm</div>
+          <div class="legend-item"><span class="legend-dot" style="background:var(--parking);"></span> Parking - Khu vực đỗ xe / Đợi</div>
+        </div>
+
+        <div class="field">
+          <label>ID Bản đồ</label>
+          <div id="cfgMapId" class="readonly-box">—</div>
+        </div>
+
+        <div class="field">
+          <label>ID Node</label>
+          <div id="cfgNodeId" class="readonly-box">—</div>
+        </div>
+
+        <div class="field">
+          <label>Tọa độ (hệ tọa độ world)</label>
+          <div id="cfgNodeCoord" class="readonly-box">—</div>
+        </div>
+
+        <div class="field">
+          <label for="cfgFunctionName">Tên chức năng / Nhãn node</label>
+          <input id="cfgFunctionName" type="text" placeholder="Ví dụ: Conveyor01, ChargeA-01, DropZone-B, HomeBase" />
+          <small>Giá trị này sẽ được lưu vào trường <b>name</b> của node.</small>
+        </div>
+
+        <div class="field">
+          <label for="cfgLocationType">Loại vị trí</label>
+          <select id="cfgLocationType">
+            <option value="">-- Chọn loại vị trí --</option>
+            <option value="CONVEYOR">CONVEYOR - Băng tải / Điểm nhận/gửi</option>
+            <option value="CHARGER">CHARGER - Trạm sạc</option>
+            <option value="DROPOFF">DROPOFF - Điểm thả hàng</option>
+            <option value="HOME">HOME - Điểm về nhà / Vị trí gốc</option>
+            <option value="BUFFER">BUFFER - Khu vực chờ / Đệm</option>
+            <option value="PARKING">PARKING - Khu vực đỗ xe / Đợi</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="cfgDefaultAction">Hành động mặc định khi đến node</label>
+          <select id="cfgDefaultAction">
+            <option value="">-- Chọn hành động mặc định --</option>
+            <option value="PICKUP">PICKUP - Nhặt hàng lên xe</option>
+            <option value="DROP">DROP - Thả hàng xuống</option>
+            <option value="CHARGE">CHARGE - Sạc pin robot</option>
+            <option value="NONE">NONE - Không thực hiện hành động nào</option>
+          </select>
+        </div>
+
+        <div class="actions-row">
+          <div class="btn btn-primary" id="saveNodeBtn">Lưu cấu hình node</div>
+          <div class="btn btn-danger" id="clearNodeBtn">Xóa toàn bộ gán hiện tại</div>
+        </div>
+
+        <div id="save-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const API_BASE = "http://192.168.0.61:8000"; // ← Sửa IP/port backend nếu khác
+
+      const RES_DEFAULT = 0.05;
+
+      let originX = 0;
+      let originY = 0;
+      let resolution = RES_DEFAULT;
+      let mapRotation = 0;
+      let imgNatW = 0;
+      let imgNatH = 0;
+      let scaleView = 1;
+      let userZoom = 1;
+      let panX = 0;
+      let panY = 0;
+      let dragging = false;
+      let dragStart = { x: 0, y: 0 };
+      let panStart = { x: 0, y: 0 };
+      let mapData = null;
+      let currentMapId = null;
+      let selectedNode = null;
+
+      // ── DOM elements ────────────────────────────────────────
+      const topBarWrapper    = document.getElementById('top-bar-wrapper');
+      const topBar           = document.getElementById('top-bar');
+      const topBarToggle     = document.getElementById('top-bar-toggle');
+      const topBarToggleIcon = document.getElementById('top-bar-toggle-icon');
+
+      const mapSelect        = document.getElementById('mapSelect');
+      const statusEl         = document.getElementById('status');
+      const scene            = document.getElementById('scene');
+      const mapInner         = document.getElementById('map-inner');
+      const mapCanvas        = document.getElementById('map-canvas');
+      const overlayCanvas    = document.getElementById('overlay-canvas');
+      const nodeLayer        = document.getElementById('node-layer');
+      const resetBtn         = document.getElementById('resetView');
+      const flipMapX         = document.getElementById('flipMapX');
+      const flipMapY         = document.getElementById('flipMapY');
+
+      const cfgMapId         = document.getElementById('cfgMapId');
+      const cfgNodeId        = document.getElementById('cfgNodeId');
+      const cfgNodeCoord     = document.getElementById('cfgNodeCoord');
+      const cfgFunctionName  = document.getElementById('cfgFunctionName');
+      const cfgLocationType  = document.getElementById('cfgLocationType');
+      const cfgDefaultAction = document.getElementById('cfgDefaultAction');
+      const saveNodeBtn      = document.getElementById('saveNodeBtn');
+      const clearNodeBtn     = document.getElementById('clearNodeBtn');
+      const saveStatus       = document.getElementById('save-status');
+
+      // ── Hàm ẩn/hiện thanh top-bar ───────────────────────────
+      function updateTopBarTogglePosition() {
+        if (!topBar || !topBarToggle) return;
+        const collapsed = document.body.classList.contains('topbar-collapsed');
+        if (collapsed) {
+          topBarToggle.style.top = '0px';
+          topBarToggleIcon.textContent = '▼';
+        } else {
+          topBarToggle.style.top = `${16 + topBar.offsetHeight}px`;
+          topBarToggleIcon.textContent = '▲';
+        }
+      }
+
+      function toggleTopBar() {
+        document.body.classList.toggle('topbar-collapsed');
+        updateTopBarTogglePosition();
+      }
+
+      // ── Gắn sự kiện ẩn/hiện ────────────────────────────────
+      if (topBarToggle) {
+        topBarToggle.addEventListener('click', toggleTopBar);
+      }
+      window.addEventListener('resize', updateTopBarTogglePosition);
+      setTimeout(updateTopBarTogglePosition, 100); // Chờ DOM render xong
+
+      // ── Các hàm còn lại (giữ nguyên như code của bạn) ───────
+      function setStatus(message) {
+        statusEl.textContent = message;
+      }
+
+      function getNodeColor(point) {
+  const action = normalizeNodeAction(point.action);
+  const type = String(action.locationType || '').toUpperCase();
+
+  switch (type) {
+    case 'CONVEYOR':
+      return '#0ea5e9';
+    case 'CHARGER':
+      return '#f59e0b';
+    case 'DROPOFF':
+      return '#ef4444';
+    case 'HOME':
+      return '#22c55e';
+    case 'BUFFER':
+      return '#a855f7';
+    case 'PARKING':
+      return '#14b8a6';
+    default:
+      return '#94a3b8';
+  }
+}
+
+      function worldToPixel(wx, wy) {
+        const pxRelative = (wx - originX) / resolution;
+        const pyRelative = (wy - originY) / resolution;
+        const px = imgNatW - pyRelative;
+        const py = pxRelative;
+        return { x: px, y: py };
+      }
+
+      function applyRotation() {
+        const totalMapDeg = mapRotation * 180 / Math.PI;
+        const scaleX = flipMapX.checked ? -1 : 1;
+        const scaleY = flipMapY.checked ? -1 : 1;
+
+        // Chỉ ảnh nền bị lật
+        mapCanvas.style.transform = `scale(${scaleX}, ${scaleY}) rotate(${totalMapDeg}deg)`;
+
+        // Overlay giữ nguyên, không lật
+        overlayCanvas.style.transform = `rotate(${totalMapDeg}deg)`;
+        nodeLayer.style.transform = `rotate(${totalMapDeg}deg)`;
+      }
+
+      function applyTransform() {
+        const fullScale = scaleView * userZoom;
+        mapInner.style.transform =
+          `translate(-50%, -50%) scale(${fullScale}) translate(${panX}px, ${panY}px)`;
+        applyRotation();
+      }
+
+      function autoFit() {
+        if (!imgNatW || !imgNatH) return;
+        const rect = scene.getBoundingClientRect();
+        const sx = rect.width / imgNatW;
+        const sy = rect.height / imgNatH;
+        scaleView = Math.min(sx, sy) * 0.94;
+        userZoom = 1;
+        panX = 0;
+        panY = 0;
+        applyTransform();
+      }
+
+      function clearCanvas() {
+        const mapCtx = mapCanvas.getContext('2d');
+        const overlayCtx = overlayCanvas.getContext('2d');
+        mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        nodeLayer.innerHTML = '';
+      }
+
+      function normalizeNodeAction(rawAction) {
+        if (!rawAction) return {};
+
+        // Nếu backend trả string JSON
+        if (typeof rawAction === 'string') {
+            try {
+            rawAction = JSON.parse(rawAction);
+            } catch (e) {
+            console.warn('Không parse được action JSON:', rawAction);
+            return {};
+            }
+        }
+
+        if (typeof rawAction !== 'object' || rawAction === null) {
+            return {};
+        }
+
+        return {
+            locationType:
+            rawAction.locationType ||
+            rawAction.LocationType ||
+            rawAction.location_type ||
+            '',
+            defaultAction:
+            rawAction.defaultAction ||
+            rawAction.DefaultAction ||
+            rawAction.default_action ||
+            '',
+        };
+      }
+
+      function resetConfigPanel() {
+  selectedNode = null;
+  cfgMapId.textContent = currentMapId || '—';
+  cfgNodeId.textContent = '—';
+  cfgNodeCoord.textContent = '—';
+  cfgFunctionName.value = '';
+  cfgLocationType.value = '';
+  cfgDefaultAction.value = '';
+  saveStatus.textContent = '';
+  document.querySelectorAll('.node-click.selected').forEach((el) => {
+    el.classList.remove('selected');
+  });
+}
+
+      function fillConfigPanel(point) {
+  selectedNode = point;
+
+  const action = normalizeNodeAction(point.action);
+
+  cfgMapId.textContent = currentMapId || '—';
+  cfgNodeId.textContent = point.name_id ?? '—';
+  cfgNodeCoord.textContent = `(${Number(point.x ?? 0).toFixed(3)}, ${Number(point.y ?? 0).toFixed(3)})`;
+
+  cfgFunctionName.value = point.name || '';
+  cfgLocationType.value = action.locationType || '';
+  cfgDefaultAction.value = action.defaultAction || '';
+
+  console.log('[FILL NODE]', point);
+  console.log('[FILL ACTION PARSED]', action);
+
+  saveStatus.textContent = '';
+}
+
+      function drawMapImage(img) {
+        imgNatW = img.naturalWidth || img.width;
+        imgNatH = img.naturalHeight || img.height;
+        mapCanvas.width = imgNatW;
+        mapCanvas.height = imgNatH;
+        overlayCanvas.width = imgNatW;
+        overlayCanvas.height = imgNatH;
+        mapCanvas.style.width = imgNatW + 'px';
+        mapCanvas.style.height = imgNatH + 'px';
+        overlayCanvas.style.width = imgNatW + 'px';
+        overlayCanvas.style.height = imgNatH + 'px';
+        nodeLayer.style.width = imgNatW + 'px';
+        nodeLayer.style.height = imgNatH + 'px';
+
+        const ctx = mapCanvas.getContext('2d');
+        ctx.clearRect(0, 0, imgNatW, imgNatH);
+        ctx.drawImage(img, 0, 0, imgNatW, imgNatH);
+      }
+
+      function buildEdges(roads) {
+        const ctx = overlayCanvas.getContext('2d');
+        ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        ctx.strokeStyle = '#d1d5db';
+        ctx.lineWidth = 12;
+        ctx.lineCap = 'round';
+        roads.forEach((r) => {
+          const sx = r.point_start_x ?? (Array.isArray(r.point_start) ? r.point_start[0] : 0);
+          const sy = r.point_start_y ?? (Array.isArray(r.point_start) ? r.point_start[1] : 0);
+          const ex = r.point_end_x ?? (Array.isArray(r.point_end) ? r.point_end[0] : 0);
+          const ey = r.point_end_y ?? (Array.isArray(r.point_end) ? r.point_end[1] : 0);
+          const s = worldToPixel(Number(sx || 0), Number(sy || 0));
+          const e = worldToPixel(Number(ex || 0), Number(ey || 0));
+          ctx.beginPath();
+          ctx.moveTo(s.x, s.y);
+          ctx.lineTo(e.x, e.y);
+          ctx.stroke();
+        });
+      }
+
+      function buildBeziers(beziers) {
+        if (!Array.isArray(beziers) || beziers.length === 0) return;
+        const ctx = overlayCanvas.getContext('2d');
+        ctx.strokeStyle = '#d1d5db';
+        ctx.lineWidth = 12;
+        ctx.lineCap = 'round';
+        beziers.forEach((b) => {
+          const p0 = worldToPixel(
+            Number((b.point_start_x ?? (Array.isArray(b.point_start) ? b.point_start[0] : 0)) || 0),
+            Number((b.point_start_y ?? (Array.isArray(b.point_start) ? b.point_start[1] : 0)) || 0)
+          );
+          const p1 = worldToPixel(
+            Number((b.curve_point_start_x ?? (Array.isArray(b.curve_point_start) ? b.curve_point_start[0] : 0)) || 0),
+            Number((b.curve_point_start_y ?? (Array.isArray(b.curve_point_start) ? b.curve_point_start[1] : 0)) || 0)
+          );
+          const p2 = worldToPixel(
+            Number((b.curve_point_end_x ?? (Array.isArray(b.curve_point_end) ? b.curve_point_end[0] : 0)) || 0),
+            Number((b.curve_point_end_y ?? (Array.isArray(b.curve_point_end) ? b.curve_point_end[1] : 0)) || 0)
+          );
+          const p3 = worldToPixel(
+            Number((b.point_end_x ?? (Array.isArray(b.point_end) ? b.point_end[0] : 0)) || 0),
+            Number((b.point_end_y ?? (Array.isArray(b.point_end) ? b.point_end[1] : 0)) || 0)
+          );
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+          ctx.stroke();
+        });
+      }
+
+      function buildNodes(points) {
+  const ctx = overlayCanvas.getContext('2d');
+  nodeLayer.innerHTML = '';
+
+  points.forEach((p) => {
+    const pos = worldToPixel(Number(p.x ?? 0), Number(p.y ?? 0));
+    const color = getNodeColor(p);
+
+    console.log('[BUILD NODE]', p);
+    console.log('[BUILD NODE COLOR]', p.name_id, color, p.action);
+
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.arc(pos.x, pos.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    const div = document.createElement('div');
+    div.className = 'node-click';
+    div.style.left = `${pos.x}px`;
+    div.style.top = `${pos.y}px`;
+    div.style.background = color;
+    div.dataset.nodeId = p.name_id ?? '';
+    div.title = `${p.name_id ?? ''}${p.name ? ' - ' + p.name : ''}`;
+
+    div.addEventListener('click', () => {
+      document.querySelectorAll('.node-click.selected').forEach((el) => {
+        el.classList.remove('selected');
+      });
+      div.classList.add('selected');
+      fillConfigPanel(p);
+    });
+
+    nodeLayer.appendChild(div);
+  });
+}
+
+      async function loadMap(mapId) {
+        setStatus('Đang tải bản đồ...');
+        currentMapId = mapId;
+        resetConfigPanel();
+        clearCanvas();
+
+        try {
+          const res = await fetch(`${API_BASE}/api/maps/${mapId}`);
+          if (!res.ok) {
+            throw new Error(`Lỗi HTTP ${res.status}`);
+          }
+
+          const data = await res.json();
+          console.log("[DỮ LIỆU BẢN ĐỒ TRẢ VỀ]", data);
+
+          mapData = data;
+          const rm = data.robot_maps || {};
+
+          originX = Number(rm.x ?? data.origin_x ?? 0);
+          originY = Number(rm.y ?? data.origin_y ?? 0);
+          resolution = Number(rm.resolution ?? data.resolution ?? RES_DEFAULT);
+          mapRotation = Number(rm.theta ?? data.theta ?? 0);
+
+          let imgSrc = "";
+
+          if (rm.image && typeof rm.image === "string" && rm.image.trim() !== "") {
+            const raw = rm.image.trim();
+            if (raw.startsWith("data:image/")) {
+              imgSrc = raw;
+            } else {
+              imgSrc = `data:image/png;base64,${raw}`;
+            }
+          } else if (rm.image_path || data.image_path) {
+            const rawPath = rm.image_path || data.image_path;
+            if (/^https?:\/\//i.test(rawPath)) {
+              imgSrc = rawPath;
+            } else {
+              imgSrc = `${API_BASE}${rawPath.startsWith("/") ? "" : "/"}${rawPath}`;
+            }
+          }
+
+          console.log("[ĐƯỜNG DẪN ẢNH ĐANG LOAD]", imgSrc);
+
+          if (!imgSrc) {
+            throw new Error("Không tìm thấy dữ liệu ảnh trong robot_maps.image hoặc image_path");
+          }
+
+          const img = await new Promise((resolve, reject) => {
+            const i = new Image();
+            i.onload = () => resolve(i);
+            i.onerror = () => {
+              console.error("[LỖI TẢI ẢNH]", imgSrc);
+              reject(new Error("Không tải được ảnh bản đồ"));
+            };
+            i.src = imgSrc;
+          });
+
+          drawMapImage(img);
+
+          const points = data.robot_points || data.points || [];
+          const roads = data.robot_roads || data.roads || [];
+          const beziers = data.benziers || data.robot_benziers || data.beziers || [];
+
+          buildEdges(roads);
+          buildBeziers(beziers);
+          buildNodes(points);
+          autoFit();
+
+          setStatus(`Đã tải thành công bản đồ: ${rm.name || data.name || mapId}`);
+        } catch (err) {
+          console.error("Lỗi khi tải bản đồ:", err);
+          setStatus(`Lỗi tải bản đồ: ${err.message}`);
+        }
+      }
+
+      // ── Các event listener còn lại ──────────────────────────
+      scene.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const oldZoom = userZoom;
+        userZoom = Math.max(0.2, Math.min(10, userZoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+        const ratio = userZoom / oldZoom;
+        panX = panX * ratio;
+        panY = panY * ratio;
+        applyTransform();
+      });
+
+      scene.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        dragging = true;
+        dragStart = { x: e.clientX, y: e.clientY };
+        panStart = { x: panX, y: panY };
+        scene.style.cursor = 'grabbing';
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const dx = (e.clientX - dragStart.x) / (scaleView * userZoom);
+        const dy = (e.clientY - dragStart.y) / (scaleView * userZoom);
+        panX = panStart.x + dx;
+        panY = panStart.y + dy;
+        applyTransform();
+      });
+
+      window.addEventListener('mouseup', () => {
+        dragging = false;
+        scene.style.cursor = 'default';
+      });
+
+      resetBtn.addEventListener('click', autoFit);
+      flipMapX.addEventListener('change', applyTransform);
+      flipMapY.addEventListener('change', applyTransform);
+
+      mapSelect.addEventListener('change', (e) => {
+        if (e.target.value) {
+          loadMap(e.target.value);
+        }
+      });
+
+      saveNodeBtn.addEventListener('click', async () => {
+        if (!selectedNode || !currentMapId) {
+          saveStatus.textContent = 'Bạn chưa chọn node.';
+          return;
+        }
+
+        const payload = {
+          mapId: currentMapId,
+          nodeId: selectedNode.name_id,
+          config: {
+            name: cfgFunctionName.value.trim(),
+            locationType: cfgLocationType.value,
+            defaultAction: cfgDefaultAction.value
+          }
+        };
+
+        try {
+          saveStatus.textContent = 'Đang lưu cấu hình...';
+          const res = await fetch(`${API_BASE}/api/map/node/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          const result = await res.json();
+
+          if (!res.ok) {
+            throw new Error(result.detail || result.message || `Lỗi HTTP ${res.status}`);
+          }
+
+          selectedNode.name = payload.config.name;
+          selectedNode.action = {
+            locationType: payload.config.locationType,
+            defaultAction: payload.config.defaultAction
+          };
+
+          const points = mapData.robot_points || mapData.points || [];
+          console.log("[POINTS LOAD TỪ API]", points);
+          const roads = mapData.robot_roads || mapData.roads || [];
+          const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+
+          buildEdges(roads);
+          buildBeziers(beziers);
+          buildNodes(points);
+
+          saveStatus.textContent = 'Đã lưu cấu hình node thành công.';
+          setStatus(`Đã lưu node ${selectedNode.name_id}`);
+        } catch (err) {
+          console.error('Lỗi khi lưu cấu hình node:', err);
+          saveStatus.textContent = `Lỗi lưu: ${err.message}`;
+        }
+      });
+
+      clearNodeBtn.addEventListener('click', async () => {
+        if (!selectedNode || !currentMapId) {
+          saveStatus.textContent = 'Bạn chưa chọn node.';
+          return;
+        }
+
+        const payload = {
+          mapId: currentMapId,
+          nodeId: selectedNode.name_id
+        };
+
+        try {
+          saveStatus.textContent = 'Đang xóa gán...';
+          const res = await fetch(`${API_BASE}/api/map/node/config`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          const result = await res.json();
+
+          if (!res.ok) {
+            throw new Error(result.detail || result.message || `Lỗi HTTP ${res.status}`);
+          }
+
+          selectedNode.name = null;
+          selectedNode.action = null;
+
+          cfgFunctionName.value = '';
+          cfgLocationType.value = '';
+          cfgDefaultAction.value = '';
+
+          const points = mapData.robot_points || mapData.points || [];
+          const roads = mapData.robot_roads || mapData.roads || [];
+          const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+
+          buildEdges(roads);
+          buildBeziers(beziers);
+          buildNodes(points);
+
+          saveStatus.textContent = 'Đã xóa cấu hình node thành công.';
+          setStatus(`Đã xóa cấu hình node ${selectedNode.name_id}`);
+        } catch (err) {
+          console.error('Lỗi khi xóa cấu hình node:', err);
+          saveStatus.textContent = `Lỗi xóa: ${err.message}`;
+        }
+      });
+
+      fetch(`${API_BASE}/api/maps/list`)
+        .then((r) => {
+          if (!r.ok) {
+            throw new Error(`Lỗi HTTP ${r.status}`);
+          }
+          return r.json();
+        })
+        .then((data) => {
+          if (!Array.isArray(data)) {
+            throw new Error('Dữ liệu danh sách bản đồ trả về không đúng định dạng');
+          }
+          data.forEach((m) => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.name || m.mapName || m.id;
+            mapSelect.appendChild(opt);
+          });
+          setStatus('Đã tải xong danh sách bản đồ');
+        })
+        .catch((err) => {
+          console.error('Không tải được danh sách bản đồ:', err);
+          setStatus(`Lỗi tải danh sách bản đồ: ${err.message}`);
+        });
+    });
+  </script>
+</body>
+</html>

@@ -7,6 +7,7 @@ class MoveCommand(BaseModel):
     agv_id: str
     destination: str
     map_id: Optional[str] = None
+<<<<<<< HEAD
     path: Optional[List[str]] = None
 
 class ActionRequest(BaseModel):
@@ -15,6 +16,18 @@ class ActionRequest(BaseModel):
     serial_number: str
     action_type: str #Pause hoặc Resume 
 
+=======
+
+class ActionRequest(BaseModel):
+    agv_id: str
+    #manufacturer: str
+    #serial_number: str
+    action_type: str #Pause hoặc Resume 
+
+class PickRequest(BaseModel):
+    agv_id: str
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 # ----------------- NODE & EDGE SCHEMA -----------------
 class MapNode(BaseModel):
     id: str

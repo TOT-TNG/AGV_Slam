@@ -1,7 +1,13 @@
+<<<<<<< HEAD
 from dash import Dash, html, dcc, Input, Output, State, no_update
 import dash_bootstrap_components as dbc
 import dash
 
+=======
+import dash
+from dash import Dash, html, dcc, Input, Output, State, no_update
+import dash_bootstrap_components as dbc
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 from i18n import DEFAULT_LANG, normalize_lang
 from login import login_layout
 from home import home_layout, make_sidebar, make_topbar
@@ -10,6 +16,11 @@ from map_view import layout as map_view_layout
 from agv_manager import layout as agv_manager_layout
 from task_create import layout as task_create_layout
 from task_list import layout as task_list_layout
+<<<<<<< HEAD
+=======
+from map_configure import map_configure_layout
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 
 # Dash app
 app = Dash(
@@ -17,23 +28,35 @@ app = Dash(
     suppress_callback_exceptions=True,
     external_stylesheets=[
         dbc.themes.BOOTSTRAP,
+<<<<<<< HEAD
         # ✅ cần cho icon globe/caret trong topbar (bi bi-...)
+=======
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
         "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css",
     ],
 )
 server = app.server
 app.title = "TOT ACS"
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 # ==== ROUTING LAYOUT: shell cố định cho các trang nội bộ, login tách riêng ==== #
 app.layout = html.Div(
     [
         dcc.Location(id="url", refresh=False),
         dcc.Store(id="lang-menu-open", data=False, storage_type="memory"),
+<<<<<<< HEAD
 
         # global language store (local: giữ sau khi refresh)
         dcc.Store(id="lang-store", data=DEFAULT_LANG, storage_type="local"),
 
         # ✅ Toast thông báo reload (ổn định hơn ConfirmDialog)
+=======
+        dcc.Store(id="lang-store", data=DEFAULT_LANG, storage_type="local"),
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
         dbc.Toast(
             id="lang-toast",
             header="",
@@ -49,7 +72,11 @@ app.layout = html.Div(
                 "zIndex": 3000,
             },
         ),
+<<<<<<< HEAD
         # Assistant alert toast (global)
+=======
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
         html.Div(
             id="assistant-toast",
             className="assistant-toast idle",
@@ -71,6 +98,7 @@ app.layout = html.Div(
             data={"map_open": False, "task_open": False, "map_clicks": 0, "task_clicks": 0},
             storage_type="session",
         ),
+<<<<<<< HEAD
         html.Div(id="page-wrapper"),
         # Global language menu panel (teleport)
         html.Div(
@@ -78,6 +106,26 @@ app.layout = html.Div(
             children=[
                 html.Div("VIE", id="lang-item-vi", n_clicks=0, style={"padding": "10px 14px", "cursor": "pointer"}),
                 html.Div("ENG", id="lang-item-en", n_clicks=0, style={"padding": "10px 14px", "cursor": "pointer"}),
+=======
+
+        html.Div(id="page-wrapper"),
+
+        html.Div(
+            id="lang-menu-panel",
+            children=[
+                html.Div(
+                    "VIE",
+                    id="lang-item-vi",
+                    n_clicks=0,
+                    style={"padding": "10px 14px", "cursor": "pointer"},
+                ),
+                html.Div(
+                    "ENG",
+                    id="lang-item-en",
+                    n_clicks=0,
+                    style={"padding": "10px 14px", "cursor": "pointer"},
+                ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
             ],
             style={
                 "display": "none",
@@ -89,16 +137,24 @@ app.layout = html.Div(
                 "border": "1px solid rgba(255,255,255,0.12)",
                 "borderRadius": "12px",
                 "boxShadow": "0 10px 28px rgba(0,0,0,0.35)",
+<<<<<<< HEAD
                 "zIndex": "2147483647",   # MAX-ish
                 "overflow": "hidden",
             },
         ),
         '''dcc.Store(id="lang-menu-open", data=False, storage_type="memory"),'''
+=======
+                "zIndex": "2147483647",
+                "overflow": "hidden",
+            },
+        ),
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     ]
 )
 
 
 def _route_content(pathname, lang: str):
+<<<<<<< HEAD
     # NOTE: all pages below are factories: layout(lang)
     if pathname in ["/home", "/home/"]:
         return home_layout(lang)
@@ -110,6 +166,26 @@ def _route_content(pathname, lang: str):
         return agv_manager_layout(lang)
     if pathname in ["/task-manager", "/home/task-manager", "/task-list"]:
         return task_list_layout(lang)
+=======
+    if pathname in ["/home", "/home/"]:
+        return home_layout(lang)
+
+    if pathname in ["/create-map", "/home/create-map"]:
+        return create_map_layout(lang)
+
+    if pathname in ["/map-configure", "/home/map-configure"]:
+        return map_configure_layout()
+
+    if pathname in ["/map-view", "/home/map-view"]:
+        return map_view_layout(lang)
+
+    if pathname in ["/agv-manager", "/home/agv-manager"]:
+        return agv_manager_layout(lang)
+
+    if pathname in ["/task-manager", "/home/task-manager", "/task-list"]:
+        return task_list_layout(lang)
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     if pathname in ["/task-create", "/home/task-create"]:
         return task_create_layout(lang)
 
@@ -131,10 +207,17 @@ def display_page(pathname, lang):
     lang = normalize_lang(lang)
 
     if pathname in ["/", "/login"]:
+<<<<<<< HEAD
         # Trang login giữ nguyên, không kèm sidebar/topbar/nền
         return login_layout
 
     content = _route_content(pathname, lang)
+=======
+        return login_layout
+
+    content = _route_content(pathname, lang)
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     return html.Div(
         [
             html.Div(className="background-div"),
@@ -164,7 +247,10 @@ def display_page(pathname, lang):
 def set_language_from_menu(n_vi, n_en, current):
     trig = dash.callback_context.triggered_id
 
+<<<<<<< HEAD
     # ✅ Chỉ xử lý khi click THẬT (n_clicks > 0)
+=======
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     if trig == "lang-item-vi":
         if not n_vi or n_vi < 1:
             raise dash.exceptions.PreventUpdate
@@ -191,6 +277,10 @@ def set_language_from_menu(n_vi, n_en, current):
 
     return new_lang, True, header, msg
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 @app.callback(
     Output("lang-menu-panel", "style"),
     Output("lang-menu-open", "data"),
@@ -204,7 +294,10 @@ def toggle_lang_menu(n_toggle, n_vi, n_en, is_open):
     trig = dash.callback_context.triggered_id
     is_open = bool(is_open)
 
+<<<<<<< HEAD
     # ✅ Guard: tránh “kích ảo” khi re-render (n_clicks về 0)
+=======
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     if trig == "lang-toggle" and (not n_toggle or n_toggle < 1):
         raise dash.exceptions.PreventUpdate
     if trig == "lang-item-vi" and (not n_vi or n_vi < 1):
@@ -229,6 +322,7 @@ def toggle_lang_menu(n_toggle, n_vi, n_en, is_open):
         "border": "1px solid rgba(255,255,255,0.12)",
         "borderRadius": "12px",
         "boxShadow": "0 10px 28px rgba(0,0,0,0.35)",
+<<<<<<< HEAD
         "zIndex": "20000",        # ✅ cực cao để nổi trên mọi panel
         "overflow": "hidden",
     }
@@ -238,3 +332,14 @@ def toggle_lang_menu(n_toggle, n_vi, n_en, is_open):
 
 if __name__ == "__main__":
     app.run(host="192.168.88.253", port=8050, debug=True)
+=======
+        "zIndex": "20000",
+        "overflow": "hidden",
+    }
+
+    return style, is_open
+
+
+if __name__ == "__main__":
+    app.run(host="192.168.0.23", port=8050, debug=True, dev_tools_ui=False)
+>>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
