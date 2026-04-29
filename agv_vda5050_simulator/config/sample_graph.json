@@ -1,0 +1,80 @@
+{
+  "map_name": "sample_factory",
+  "width_m": 20.0,
+  "height_m": 12.0,
+  "layers": [
+    {"layer": 0, "name": "Floor 0"},
+    {"layer": 1, "name": "Floor 1"}
+  ],
+  "nodes": [
+    {"id": "N1", "x": 2.0, "y": 2.0, "type": "station"},
+    {"id": "N2", "x": 6.0, "y": 2.0, "type": "intersection"},
+    {"id": "N3", "x": 10.0, "y": 2.0, "type": "station"},
+    {"id": "N4", "x": 14.0, "y": 2.0, "type": "intersection"},
+    {"id": "N5", "x": 18.0, "y": 2.0, "type": "station"},
+
+    {"id": "N6", "x": 2.0, "y": 6.0, "type": "intersection"},
+    {"id": "N7", "x": 6.0, "y": 6.0, "type": "intersection"},
+    {"id": "N8", "x": 10.0, "y": 6.0, "type": "elevator"},
+    {"id": "N9", "x": 14.0, "y": 6.0, "type": "intersection"},
+    {"id": "N10", "x": 18.0, "y": 6.0, "type": "station"},
+
+    {"id": "N11", "x": 2.0, "y": 10.0, "type": "dock"},
+    {"id": "N12", "x": 6.0, "y": 10.0, "type": "intersection"},
+    {"id": "N13", "x": 10.0, "y": 10.0, "type": "station"},
+    {"id": "N14", "x": 14.0, "y": 10.0, "type": "intersection"},
+    {"id": "N15", "x": 18.0, "y": 10.0, "type": "dock"},
+
+    {"id": "N16", "x": 10.0, "y": 6.0, "type": "elevator", "layer": 1},
+    {"id": "N17", "x": 14.0, "y": 6.0, "type": "intersection", "layer": 1},
+    {"id": "N18", "x": 10.0, "y": 10.0, "type": "station", "layer": 1},
+    {"id": "N19", "x": 14.0, "y": 10.0, "type": "intersection", "layer": 1},
+    {"id": "N20", "x": 18.0, "y": 10.0, "type": "dock", "layer": 1}
+  ],
+  "edges": [
+    {"id": "E1", "from": "N1", "to": "N2", "bidirectional": true},
+    {"id": "E2", "from": "N2", "to": "N3", "bidirectional": true},
+    {"id": "E3", "from": "N3", "to": "N4", "bidirectional": true},
+    {"id": "E4", "from": "N4", "to": "N5", "bidirectional": true},
+
+    {"id": "E5", "from": "N6", "to": "N7", "bidirectional": true},
+    {"id": "E6", "from": "N7", "to": "N8", "bidirectional": true},
+    {"id": "E7", "from": "N8", "to": "N9", "bidirectional": true},
+    {"id": "E8", "from": "N9", "to": "N10", "bidirectional": true},
+
+    {"id": "E9", "from": "N11", "to": "N12", "bidirectional": true},
+    {"id": "E10", "from": "N12", "to": "N13", "bidirectional": true},
+    {"id": "E11", "from": "N13", "to": "N14", "bidirectional": true},
+    {"id": "E12", "from": "N14", "to": "N15", "bidirectional": true},
+
+    {"id": "E13", "from": "N1", "to": "N6", "bidirectional": true},
+    {"id": "E14", "from": "N6", "to": "N11", "bidirectional": true},
+    {"id": "E15", "from": "N2", "to": "N7", "bidirectional": true},
+    {"id": "E16", "from": "N7", "to": "N12", "bidirectional": true},
+    {"id": "E17", "from": "N3", "to": "N8", "bidirectional": true},
+    {"id": "E18", "from": "N8", "to": "N13", "bidirectional": true},
+    {"id": "E19", "from": "N4", "to": "N9", "bidirectional": true},
+    {"id": "E20", "from": "N9", "to": "N14", "bidirectional": true},
+    {"id": "E21", "from": "N5", "to": "N10", "bidirectional": true},
+    {"id": "E22", "from": "N10", "to": "N15", "bidirectional": true},
+
+    {"id": "E23", "from": "N16", "to": "N17", "bidirectional": true, "layer": 1},
+    {"id": "E24", "from": "N16", "to": "N18", "bidirectional": true, "layer": 1},
+    {"id": "E25", "from": "N18", "to": "N19", "bidirectional": true, "layer": 1},
+    {"id": "E26", "from": "N19", "to": "N20", "bidirectional": true, "layer": 1},
+    {"id": "E27", "from": "N17", "to": "N19", "bidirectional": true, "layer": 1}
+  ],
+  "elevators": [
+    {
+      "elevator_id": 1,
+      "node_id": "N8",
+      "floors": [0, 1],
+      "floor_nodes": {"0": "N8", "1": "N16"},
+      "current_floor": 0,
+      "target_floor": 0,
+      "door": "closed",
+      "status": "idle",
+      "travel_time_per_floor_s": 2.0
+    }
+  ]
+}

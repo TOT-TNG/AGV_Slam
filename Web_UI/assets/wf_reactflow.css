@@ -1,0 +1,129 @@
+/* Load ReactFlow CSS */
+@import url("https://unpkg.com/@xyflow/react@12.5.6/dist/base.css");
+@import url("https://unpkg.com/@xyflow/react@12.5.6/dist/style.css");
+
+/* ReactFlow mount */
+#wf-root {
+  width: 100%;
+  background: #f7f8fb;
+}
+
+/* ==== Node wrapper (để đặt số + nút x) ==== */
+.wf-nodewrap {
+  position: relative;
+  width: fit-content;
+}
+
+/* số thứ tự bên trái */
+.wf-order {
+  position: absolute;
+  left: -44px;
+  top: 14px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 800;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+}
+
+/* nút xoá */
+.wf-del {
+  position: absolute;
+  right: -10px;
+  top: -10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 18px;
+  line-height: 26px;
+  cursor: pointer;
+}
+.wf-del:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* ==== Node style gọn ==== */
+.wf-node {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.10);
+  min-width: 260px;
+}
+
+.wf-node__left {
+  background: linear-gradient(180deg, #2563eb, #1d4ed8);
+  color: #fff;
+  padding: 10px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.wf-node__title {
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 1.15;
+}
+
+.wf-node__right * {
+  color: #111827 !important; /* đen */
+}
+
+.wf-step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.wf-step__idx {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wf-step__pill {
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: #fff;
+}
+
+/* ==== edges (mũi tên nổi) ==== */
+.react-flow__edges {
+  z-index: 50 !important;
+  pointer-events: none;
+}
+.react-flow__nodes {
+  z-index: 10 !important;
+}
+
+.wf-edge-path {
+  stroke: #2563eb !important;
+  stroke-width: 3px !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+}
+.wf-edge-arrow {
+  fill: #2563eb !important;
+}

@@ -1,0 +1,709 @@
+{
+  "map_name": "new_map",
+  "width_m": 200.0,
+  "height_m": 200.0,
+  "layers": [
+    {
+      "layer": 0,
+      "name": "Floor 0"
+    },
+    {
+      "layer": 1,
+      "name": "Floor 1"
+    }
+  ],
+  "node_table": [
+    {
+      "node_id": "N1",
+      "x": 7.021,
+      "y": 10.01,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N10",
+      "x": 3.999,
+      "y": 15.787,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N11",
+      "x": 6.784,
+      "y": 14.809,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N12",
+      "x": 3.199,
+      "y": 13.328,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N13",
+      "x": 18.691,
+      "y": 13.417,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N14",
+      "x": 21.12,
+      "y": 10.455,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N15",
+      "x": 19.758,
+      "y": 8.026,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N16",
+      "x": 16.618,
+      "y": 13.269,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N17",
+      "x": 12.678,
+      "y": 15.49,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N18",
+      "x": 11.612,
+      "y": 3.879,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N19",
+      "x": 16.262,
+      "y": 3.731,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N2",
+      "x": 11.167,
+      "y": 13.061,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N20",
+      "x": 21.861,
+      "y": 4.205,
+      "node_type": "elevator",
+      "layer": 0
+    },
+    {
+      "node_id": "N21",
+      "x": 4.177,
+      "y": 4.708,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N22",
+      "x": 3.051,
+      "y": 8.144,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N23",
+      "x": 12.797,
+      "y": 7.493,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N24",
+      "x": 10.111,
+      "y": 7.978,
+      "node_type": "elevator",
+      "layer": 1
+    },
+    {
+      "node_id": "N25",
+      "x": 20.094,
+      "y": 19.948,
+      "node_type": "intersection",
+      "layer": 1
+    },
+    {
+      "node_id": "N26",
+      "x": 24.678,
+      "y": 13.225,
+      "node_type": "intersection",
+      "layer": 1
+    },
+    {
+      "node_id": "N27",
+      "x": 25.086,
+      "y": 7.112,
+      "node_type": "intersection",
+      "layer": 1
+    },
+    {
+      "node_id": "N28",
+      "x": 39.972,
+      "y": 17.083,
+      "node_type": "elevator",
+      "layer": 1
+    },
+    {
+      "node_id": "N3",
+      "x": 11.049,
+      "y": 17.149,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N4",
+      "x": 15.077,
+      "y": 17.653,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N5",
+      "x": 18.128,
+      "y": 15.224,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N6",
+      "x": 18.04,
+      "y": 19.933,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N7",
+      "x": 10.486,
+      "y": 19.637,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N8",
+      "x": 6.961,
+      "y": 18.452,
+      "node_type": "intersection",
+      "layer": 0
+    },
+    {
+      "node_id": "N9",
+      "x": 5.184,
+      "y": 21.029,
+      "node_type": "elevator",
+      "layer": 0
+    }
+  ],
+  "line_table": [
+    {
+      "edge_id": "E1",
+      "from_node": "N1",
+      "to_node": "N12",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E10",
+      "from_node": "N17",
+      "to_node": "N2",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E11",
+      "from_node": "N2",
+      "to_node": "N1",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E12",
+      "from_node": "N17",
+      "to_node": "N4",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E13",
+      "from_node": "N17",
+      "to_node": "N16",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E14",
+      "from_node": "N16",
+      "to_node": "N5",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E15",
+      "from_node": "N4",
+      "to_node": "N5",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E16",
+      "from_node": "N5",
+      "to_node": "N13",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E17",
+      "from_node": "N13",
+      "to_node": "N14",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E18",
+      "from_node": "N14",
+      "to_node": "N15",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E19",
+      "from_node": "N15",
+      "to_node": "N16",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E2",
+      "from_node": "N10",
+      "to_node": "N12",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E20",
+      "from_node": "N16",
+      "to_node": "N13",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E21",
+      "from_node": "N13",
+      "to_node": "N15",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E22",
+      "from_node": "N14",
+      "to_node": "N16",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E23",
+      "from_node": "N4",
+      "to_node": "N6",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E24",
+      "from_node": "N5",
+      "to_node": "N6",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E25",
+      "from_node": "N7",
+      "to_node": "N3",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E26",
+      "from_node": "N6",
+      "to_node": "N7",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E27",
+      "from_node": "N3",
+      "to_node": "N4",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E28",
+      "from_node": "N7",
+      "to_node": "N9",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E29",
+      "from_node": "N8",
+      "to_node": "N9",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E3",
+      "from_node": "N11",
+      "to_node": "N1",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E30",
+      "from_node": "N8",
+      "to_node": "N7",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E31",
+      "from_node": "N22",
+      "to_node": "N12",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E32",
+      "from_node": "N22",
+      "to_node": "N1",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E33",
+      "from_node": "N22",
+      "to_node": "N21",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E34",
+      "from_node": "N21",
+      "to_node": "N23",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E35",
+      "from_node": "N23",
+      "to_node": "N18",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E36",
+      "from_node": "N18",
+      "to_node": "N19",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E37",
+      "from_node": "N19",
+      "to_node": "N20",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E38",
+      "from_node": "N20",
+      "to_node": "N15",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E39",
+      "from_node": "N15",
+      "to_node": "N19",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E4",
+      "from_node": "N11",
+      "to_node": "N2",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E40",
+      "from_node": "N19",
+      "to_node": "N23",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E41",
+      "from_node": "N23",
+      "to_node": "N16",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E42",
+      "from_node": "N1",
+      "to_node": "N23",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E44",
+      "from_node": "N24",
+      "to_node": "N25",
+      "bidirectional": true,
+      "layer": 1
+    },
+    {
+      "edge_id": "E45",
+      "from_node": "N25",
+      "to_node": "N26",
+      "bidirectional": true,
+      "layer": 1
+    },
+    {
+      "edge_id": "E46",
+      "from_node": "N26",
+      "to_node": "N27",
+      "bidirectional": true,
+      "layer": 1
+    },
+    {
+      "edge_id": "E47",
+      "from_node": "N24",
+      "to_node": "N27",
+      "bidirectional": true,
+      "layer": 1
+    },
+    {
+      "edge_id": "E48",
+      "from_node": "N24",
+      "to_node": "N26",
+      "bidirectional": true,
+      "layer": 1
+    },
+    {
+      "edge_id": "E49",
+      "from_node": "N25",
+      "to_node": "N28",
+      "bidirectional": true,
+      "layer": 1
+    },
+    {
+      "edge_id": "E5",
+      "from_node": "N10",
+      "to_node": "N8",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E50",
+      "from_node": "N28",
+      "to_node": "N27",
+      "bidirectional": true,
+      "layer": 1
+    },
+    {
+      "edge_id": "E51",
+      "from_node": "N26",
+      "to_node": "N28",
+      "bidirectional": true,
+      "layer": 1
+    },
+    {
+      "edge_id": "E6",
+      "from_node": "N11",
+      "to_node": "N10",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E7",
+      "from_node": "N8",
+      "to_node": "N3",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E8",
+      "from_node": "N11",
+      "to_node": "N3",
+      "bidirectional": true,
+      "layer": 0
+    },
+    {
+      "edge_id": "E9",
+      "from_node": "N3",
+      "to_node": "N17",
+      "bidirectional": true,
+      "layer": 0
+    }
+  ],
+  "bezier_table": [
+    {
+      "edge_id": "E43",
+      "from_node": "N16",
+      "to_node": "N19",
+      "bidirectional": true,
+      "layer": 0,
+      "control1_x": 14.765,
+      "control1_y": 7.995,
+      "control2_x": 18.765,
+      "control2_y": 6.821
+    }
+  ],
+  "agvs": [
+    {
+      "agv_id": "AGV01",
+      "agv_type": "SLAM",
+      "length": 0.9,
+      "width": 0.65,
+      "stop_distance": 0.9,
+      "start_node": "N1",
+      "last_node_id": "N1",
+      "max_speed": 0.8,
+      "max_accel": 0.5,
+      "color": [
+        40,
+        220,
+        80
+      ],
+      "battery": 97.8,
+      "charging": false,
+      "battery_current": -5.0,
+      "loads": [],
+      "layer": 0,
+      "pose": {
+        "x": 7.021,
+        "y": 10.01,
+        "theta": 0.0
+      }
+    },
+    {
+      "agv_id": "AGV02",
+      "agv_type": "QR",
+      "length": 0.85,
+      "width": 0.6,
+      "stop_distance": 0.7,
+      "start_node": "N2",
+      "last_node_id": "N2",
+      "max_speed": 0.9,
+      "max_accel": 0.55,
+      "color": [
+        70,
+        150,
+        255
+      ],
+      "battery": 97.8,
+      "charging": false,
+      "battery_current": -5.0,
+      "loads": [],
+      "layer": 0,
+      "pose": {
+        "x": 11.167,
+        "y": 13.061,
+        "theta": 0.0
+      }
+    },
+    {
+      "agv_id": "AGV03",
+      "agv_type": "LINE",
+      "length": 1.0,
+      "width": 0.7,
+      "stop_distance": 1.0,
+      "start_node": "N3",
+      "last_node_id": "N3",
+      "max_speed": 0.75,
+      "max_accel": 0.45,
+      "color": [
+        255,
+        180,
+        50
+      ],
+      "battery": 97.8,
+      "charging": false,
+      "battery_current": -5.0,
+      "loads": [],
+      "layer": 0,
+      "pose": {
+        "x": 11.049,
+        "y": 17.149,
+        "theta": 0.0
+      }
+    }
+  ],
+  "humans": [],
+  "elevators": [
+    {
+      "elevator_id": 1,
+      "current_floor": 0,
+      "target_floor": 0,
+      "door": "closed",
+      "status": "idle",
+      "occupied_by": "",
+      "node_id": "N20",
+      "floors": [
+        0,
+        1
+      ],
+      "floor_nodes": {
+        "0": "N20",
+        "1": "N24"
+      },
+      "travel_time_per_floor_s": 2.0
+    },
+    {
+      "elevator_id": 2,
+      "current_floor": 1,
+      "target_floor": 1,
+      "door": "closed",
+      "status": "idle",
+      "occupied_by": "",
+      "node_id": "N9",
+      "floors": [
+        0,
+        1
+      ],
+      "floor_nodes": {
+        "0": "N9",
+        "1": "N28"
+      },
+      "travel_time_per_floor_s": 2.0
+    },
+    {
+      "elevator_id": 3,
+      "current_floor": 0,
+      "target_floor": 0,
+      "door": "closed",
+      "status": "idle",
+      "occupied_by": "",
+      "node_id": "N20",
+      "floors": [],
+      "floor_nodes": {},
+      "travel_time_per_floor_s": 2.0
+    }
+  ]
+}

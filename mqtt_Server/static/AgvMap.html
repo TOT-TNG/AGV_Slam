@@ -1,0 +1,1450 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AGV Map Viewer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --bg:#0f172a; --panel: rgba(15,23,42,0.95); }
+  html,body { height:100%; margin:0; background:var(--bg); color:#fff; font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial; overflow:hidden; }
+ 
+ /* ======================================= */
+ /* Cáº¬P NHáº¬T TOPBAR & TOGGLE BUTTON */
+ /* ======================================= */
+ 
+ /* CONTAINER CHá»¨A THANH ÄIá»€U KHIá»‚N (Sáº¼ TRÆ¯á»¢T) */
+ #top-bar-wrapper {
+  position: fixed; left: 0; right: 0; top: 0; 
+  z-index: 1200;
+  transition: transform 0.3s ease-in-out;
+  transform: translateY(0); 
+ }
+ 
+ #top-bar {
+  height: auto; 
+  display: flex; align-items: center; justify-content: space-between; 
+  padding: 12px 16px; 
+  background: var(--panel); 
+  box-shadow: 0 6px 30px rgba(0,0,0,0.6); 
+  backdrop-filter: blur(12px);
+  flex-wrap: wrap; 
+  gap: 12px;
+ }
+ 
+ /* NÃšT MÅ¨I TÃŠN (Cá» Äá»ŠNH, KHÃ”NG TRÆ¯á»¢T CÃ™NG TOPBAR) */
+ #top-bar-toggle {
+  position: fixed; /* Ráº¥t quan trá»ng: DÃ¹ng fixed Ä‘á»ƒ luÃ´n neo vÃ o viewport */
+  top: var(--top-bar-height-computed, 100px); /* Vá»‹ trÃ­ ban Ä‘áº§u: DÆ°á»›i Topbar */
+  right: 20px; 
+  width: 50px; 
+  height: 35px; 
+  background: #FF5252; /* MÃ€U Äá»Ž Ná»”I Báº¬T */
+  color: #fff;
+  border-radius: 0 0 10px 10px; 
+  cursor: pointer; 
+  display: flex; justify-content: center; align-items: center;
+  box-shadow: 0 6px 20px rgba(255, 82, 82, 0.5); 
+  transition: top 0.3s ease-in-out, transform 0.3s ease-in-out, box-shadow 0.3s, background 0.2s; 
+  z-index: 1201; /* LuÃ´n ná»•i trÃªn Topbar */
+ }
+ #top-bar-toggle:hover {
+   background: #e64a4a;
+ }
+
+ /* Tráº¡ng thÃ¡i áº©n: Dá»‹ch chuyá»ƒn container lÃªn trÃªn */
+ .topbar-hidden #top-bar-wrapper {
+   /* TrÆ°á»£t Topbar lÃªn báº±ng Ä‘Ãºng chiá»u cao Topbar */
+   transform: translateY(calc(-1 * var(--top-bar-height-computed, 100px))); 
+ }
+
+ /* KHI áº¨N: Di chuyá»ƒn nÃºt mÅ©i tÃªn lÃªn vá»‹ trÃ­ 0px trÃªn viewport */
+ .topbar-hidden #top-bar-toggle {
+   /* Di chuyá»ƒn nÃºt lÃªn báº±ng cÃ¡ch thay Ä‘á»•i thuá»™c tÃ­nh TOP */
+   top: 0;
+   
+   /* Xoay mÅ©i tÃªn hÆ°á»›ng lÃªn */
+   transform: rotate(180deg);
+   
+   /* Cáº­p nháº­t láº¡i shadow cho ná»•i báº­t hÆ¡n khi á»Ÿ mÃ©p mÃ n hÃ¬nh */
+   box-shadow: 0 0 20px rgba(255, 82, 82, 1); 
+ }
+ 
+ /* Tráº¡ng thÃ¡i hiá»‡n: NÃºt mÅ©i tÃªn á»Ÿ vá»‹ trÃ­ dÆ°á»›i Topbar (top: H) vÃ  hÆ°á»›ng xuá»‘ng */
+ #top-bar-toggle:not(.topbar-hidden-btn) {
+   transform: rotate(0deg);
+ }
+
+ /* ======================================= */
+ /* CÃC STYLE Gá»C (GIá»® NGUYÃŠN LOGIC) */
+ /* ======================================= */
+
+ #controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+ select, input[type=number], input[type=checkbox] {
+  padding:6px 10px; border-radius:8px; background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.1);
+ }
+ .btn {
+  padding:6px 12px; border-radius:10px; background:rgba(255,255,255,0.1); cursor:pointer; transition:all 0.2s; font-size:13px;
+ }
+ .btn:hover { background:rgba(255,255,255,0.2); }
+ .btn-red { background:#dc2626; }
+ .btn-red:hover { background:#b91c1c; }
+ 
+ #map-container { position:fixed; left:0; right:0; top:0; bottom:0; overflow:hidden; }
+ #scene { width:100%; height:100%; position:relative; background:#020617; }
+ #map-inner {
+  position:absolute; left:50%; top:50%; transform-origin:center center;
+  will-change:transform; user-select:none;
+ }
+ #map-canvas, .layer-group, .layer, #overlay-canvas { position:absolute; left:0; top:0; }
+ .layer { pointer-events:none; }
+ /* nâng canvas overlay (AGV + highlight) lên cao nhất, vẫn không nhận pointer */
+ #overlay-canvas { pointer-events:none; z-index: 80; }
+ /* node DOM để click nhưng dưới overlay-canvas */
+#node-layer { pointer-events:auto; z-index: 60; cursor: pointer; }
+#agv-layer { pointer-events:none; z-index: 70; } /* AGV click layer (icons enable their own pointer) */
+
+.agv-click {
+  position:absolute;
+  width:28px;
+  height:28px;
+  transform:translate(-50%,-50%);
+  cursor:pointer;
+  pointer-events:auto; /* allow click on icon while layer stays transparent elsewhere */
+}
+ 
+.node-click {
+  position:absolute; width:18px; height:18px; border-radius:9999px;
+  background:rgba(59,130,246,0.2); border:2px solid #fff;
+  transform:translate(-50%,-50%); cursor:pointer;
+  transition:transform 0.15s ease, box-shadow 0.15s ease;
+}
+.node-click:hover {
+  transform:translate(-50%,-50%) scale(1.1);
+  box-shadow:0 0 0 6px rgba(59,130,246,0.25);
+}
+
+.modal-backdrop {
+  position:fixed; inset:0; background:rgba(0,0,0,0.55);
+  display:flex; align-items:center; justify-content:center;
+  z-index:1300; backdrop-filter: blur(6px);
+}
+.modal-card {
+  background:rgba(15,23,42,0.95); border:1px solid rgba(255,255,255,0.08);
+  border-radius:14px; padding:18px; width:320px; box-shadow:0 20px 60px rgba(0,0,0,0.4);
+}
+.modal-card h3 { margin:0 0 8px 0; font-size:18px; font-weight:700; }
+.modal-card .meta { font-size:13px; color:#cbd5e1; margin-bottom:12px; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+.btn-primary { background:#0ea5e9; color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer; }
+.btn-primary:hover { background:#0284c7; }
+.btn-ghost { background:rgba(255,255,255,0.08); color:#e2e8f0; padding:8px 12px; border-radius:10px; cursor:pointer; }
+.btn-ghost:hover { background:rgba(255,255,255,0.15); }
+ #node-layer { pointer-events:auto; } /* cho phép click node */
+ 
+.node-click {
+  position:absolute; width:18px; height:18px; border-radius:9999px;
+  background:rgba(59,130,246,0.2); border:2px solid #fff;
+  transform:translate(-50%,-50%); cursor:pointer;
+  transition:transform 0.15s ease, box-shadow 0.15s ease;
+}
+.node-click:hover {
+  transform:translate(-50%,-50%) scale(1.1);
+  box-shadow:0 0 0 6px rgba(59,130,246,0.25);
+}
+
+.modal-backdrop {
+  position:fixed; inset:0; background:rgba(0,0,0,0.55);
+  display:flex; align-items:center; justify-content:center;
+  z-index:1300; backdrop-filter: blur(6px);
+}
+.modal-card {
+  background:rgba(15,23,42,0.95); border:1px solid rgba(255,255,255,0.08);
+  border-radius:14px; padding:18px; width:320px; box-shadow:0 20px 60px rgba(0,0,0,0.4);
+}
+.modal-card h3 { margin:0 0 8px 0; font-size:18px; font-weight:700; }
+.modal-card .meta { font-size:13px; color:#cbd5e1; margin-bottom:12px; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+.btn-primary { background:#0ea5e9; color:#fff; padding:8px 12px; border-radius:10px; cursor:pointer; }
+.btn-primary:hover { background:#0284c7; }
+.btn-ghost { background:rgba(255,255,255,0.08); color:#e2e8f0; padding:8px 12px; border-radius:10px; cursor:pointer; }
+.btn-ghost:hover { background:rgba(255,255,255,0.15); }
+ 
+.node {
+  position:absolute; width:10px; height:10px; border-radius:50%;
+  background:#ff4d4d; border:1px solid #fff;
+  transform:translate(-50%,-50%);
+  z-index:30; 
+  cursor:pointer;
+}
+ .node .label {
+  display: none; 
+ }
+
+.edge {
+  position:absolute; height:8px; transform-origin:0 50%; background:#3b82f6; border-radius:4px; z-index:10;
+ }
+ #info { padding:6px 12px; background:rgba(255,255,255,0.1); border-radius:8px; font-size:13px; }
+</style>
+</head>
+<body>
+ 
+ <div id="top-bar-wrapper">
+  <div id="top-bar">
+    <div id="controls">
+      <select id="mapSelect"><option value="">-- Chọn bản đồ --</option></select>
+      <div id="info">Trạng thái: <span id="status">Sẵn sàng</span></div>
+
+      <div style="display:flex; align-items:center; gap:8px; background:rgba(255,255,255,0.08); padding:6px 12px; border-radius:10px;">
+        <span>Xoay map:</span>
+        <input type="number" id="manualRotate" value="0" step="1" min="-360" max="360" style="width:70px;">
+        <span>°</span>
+        <div class="btn" id="applyRotate">Áp dụng</div>
+        <div class="btn btn-red" id="resetRotate">Reset</div>
+      </div>
+
+      <div style="display:flex; gap:6px;">
+        <div class="btn" onclick="setRotate(90)">+90°</div>
+        <div class="btn" onclick="setRotate(-90)">-90°</div>
+        <div class="btn" onclick="setRotate(180)">180°</div>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:6px;">
+        <span>Map:</span>
+        <label><input type="checkbox" id="flipMapX"> Lật X</label>
+        <label><input type="checkbox" id="flipMapY"> Lật Y</label>
+      </div>
+
+      <div class="btn" id="resetView">Reset View</div>
+      <div class="btn" id="fullscreen">Fullscreen</div>
+    </div>
+  </div>
+ </div>
+ 
+<div id="top-bar-toggle">
+   <span style="font-size: 16px;">&#9660;</span> 
+ </div>
+
+
+ <div id="map-container">
+  <div id="scene">
+   <div id="map-inner">
+    <div id="map-layer" class="layer-group">
+     <canvas id="map-canvas"></canvas>
+    </div>
+    
+    <div id="overlay-layer" class="layer-group">
+     <div id="edge-layer" class="layer"></div>
+     <div id="node-layer" class="layer"></div> 
+     <div id="agv-layer" class="layer"></div> 
+     <canvas id="overlay-canvas"></canvas>
+    </div>
+   </div>
+   <div id="agv-label-layer" class="layer"></div>   </div>
+ </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+// ==================== BIáº¾N TOÃ€N Cá»¤C ====================
+const RES_DEFAULT = 0.05;
+let originX = 0, originY = 0, resolution = RES_DEFAULT;
+let mapRotation = 0;
+let userMapRotationDeg = 0;
+let imgNatW = 0, imgNatH = 0;
+let scaleView = 1, userZoom = 1, panX = 0, panY = 0;
+let dragging = false, dragStart = {}, panStart = {};
+let mapData = null;
+let currentImg = null;
+let agvs = {}; // Biến lưu trữ vị trí AGV
+let highlightSegments = []; // array of segments {type:'line'|'bezier', points:[{x,y}...]}
+let highlightOwner = null; // agv_id đang được highlight đường đi
+let highlightDestination = null; // node đích của highlight
+let highlightDestCoord = null; // tọa độ đích
+let lastPoseByAgv = {}; // lưu pose lần trước để kiểm tra đứng yên
+let stableCounts = {}; // số lần liên tiếp pose không đổi
+let agvLastUpdate = {}; // thời gian cập nhật pose cuối
+let ws = null;
+// DOM
+const mapSelect = document.getElementById('mapSelect');
+const agvSelect = document.createElement('select');
+agvSelect.id = 'agvSelect';
+agvSelect.style.padding = '6px 10px';
+agvSelect.style.borderRadius = '8px';
+agvSelect.style.background = 'rgba(255,255,255,0.08)';
+agvSelect.style.color = '#fff';
+agvSelect.style.border = '1px solid rgba(255,255,255,0.1)';
+
+const statusEl = document.getElementById('status');
+const scene = document.getElementById('scene');
+const mapInner = document.getElementById('map-inner');
+const mapCanvas = document.getElementById('map-canvas');
+const overlayCanvas = document.getElementById('overlay-canvas');
+const mapLayerEl = document.getElementById('map-layer');
+const overlayLayerEl = document.getElementById('overlay-layer');
+const flipMapX = document.getElementById('flipMapX');
+const flipMapY = document.getElementById('flipMapY');
+const nodeLayer = document.getElementById('node-layer');
+const edgeLayer = document.getElementById('edge-layer');
+const agvLayer = document.getElementById('agv-layer');
+const manualRotateInput = document.getElementById('manualRotate');
+const applyRotateBtn = document.getElementById('applyRotate');
+const resetRotateBtn = document.getElementById('resetRotate');
+const resetBtn = document.getElementById('resetView');
+const fullscreenBtn = document.getElementById('fullscreen');
+const controlsEl = document.getElementById('controls');
+if (controlsEl && !document.getElementById('agvSelectContainer')) {
+  const wrap = document.createElement('div');
+  wrap.id = 'agvSelectContainer';
+  wrap.style.display = 'flex';
+  wrap.style.alignItems = 'center';
+  wrap.style.gap = '6px';
+  const label = document.createElement('span');
+  label.textContent = 'AGV:';
+  wrap.appendChild(label);
+  wrap.appendChild(agvSelect);
+  controlsEl.appendChild(wrap);
+}
+
+const toggleSimBtn = document.createElement('div');
+toggleSimBtn.className = 'btn';
+toggleSimBtn.id = 'toggleSim';
+toggleSimBtn.textContent = 'Bật mô phỏng';
+document.getElementById('controls').appendChild(toggleSimBtn);
+let nodeModal = null;
+let agvModal = null;
+let simulationMode = false;
+let simAnimations = {};
+let simEdgeLocks = {};
+let simActiveEdge = {};
+
+function clearAgvLocks(agvId) {
+  Object.keys(simEdgeLocks).forEach(k => { if (simEdgeLocks[k] === agvId) delete simEdgeLocks[k]; });
+}
+
+function setEdgeLock(agvId, a, b) {
+  clearAgvLocks(agvId);
+  if (!a || !b) return false;
+  const key1 = `${a}->${b}`;
+  const key2 = `${b}->${a}`;
+  if ((simEdgeLocks[key1] && simEdgeLocks[key1] !== agvId) ||
+      (simEdgeLocks[key2] && simEdgeLocks[key2] !== agvId)) {
+    return false;
+  }
+  simEdgeLocks[key1] = agvId;
+  simEdgeLocks[key2] = agvId;
+  simActiveEdge[agvId] = { a, b };
+  console.log('[SIM] lock edge', agvId, a, b, simEdgeLocks);
+  return true;
+}
+//let simActiveEdge = {};
+// ÄÃ£ sá»­a tÃªn biáº¿n DOM: topBarContainer thÃ nh topBarWrapper
+const topBarWrapper = document.getElementById('top-bar-wrapper');
+const topBar = document.getElementById('top-bar');
+const toggleButton = document.getElementById('top-bar-toggle');
+
+//let nodeModal = null;
+
+// ==================== CHá»¨C NÄ‚NG áº¨N/HIá»†N TOPBAR (ÄÃƒ FIX TRIá»†T Äá»‚) ====================
+// 1. Láº¥y chiá»u cao thá»±c táº¿ cá»§a Topbar vÃ  thiáº¿t láº­p biáº¿n CSS
+function updateTopbarHeight() {
+  const height = topBar.offsetHeight; 
+  // Thiáº¿t láº­p biáº¿n CSS cho CSS tÃ­nh toÃ¡n vá»‹ trÃ­ nÃºt toggle vÃ  dá»‹ch chuyá»ƒn container khi áº©n
+  document.documentElement.style.setProperty('--top-bar-height-computed', `${height}px`);
+}
+
+// 2. Xá»­ lÃ½ sá»± kiá»‡n click
+toggleButton.onclick = () => {
+  // LuÃ´n tÃ­nh láº¡i chiá»u cao trÆ°á»›c khi áº©n/hiá»‡n Ä‘á»ƒ Ä‘áº£m báº£o Ä‘á»™ chÃ­nh xÃ¡c
+  updateTopbarHeight(); 
+  
+  // Toggle class trÃªn BODY hoáº·c DOCUMENT ELEMENT Ä‘á»ƒ kÃ­ch hoáº¡t CSS
+  document.documentElement.classList.toggle('topbar-hidden');
+};
+
+// Cháº¡y láº§n Ä‘áº§u vÃ  khi resize
+window.addEventListener('load', updateTopbarHeight);
+window.addEventListener('resize', updateTopbarHeight);
+setTimeout(updateTopbarHeight, 100); 
+// =================================================================
+
+
+// ==================== CHUYá»‚N Äá»”I Tá»ŒA Äá»˜ PIXEL ====================
+function worldToPixel(wx, wy) {
+ const px_relative = (wx - originX) / resolution;
+ const py_relative = (wy - originY) / resolution;
+ const px = imgNatW - py_relative;
+ const py = px_relative;
+ return { x: px, y: py };
+}
+
+function applyOverlayFlip(px, py) {
+ return { x: px, y: py };
+}
+
+
+// ==================== XOAY áº¢NH + BÃ™ NGÆ¯á»¢C OVERLAY ====================
+function applyMapAndOverlayRotation() {
+ const totalMapDeg = mapRotation * 180 / Math.PI + userMapRotationDeg;
+ const overlayDeg = mapRotation * 180 / Math.PI - userMapRotationDeg; 
+
+ mapCanvas.style.transform = `
+  scale(${flipMapX.checked ? -1 : 1}, ${flipMapY.checked ? -1 : 1})
+  rotate(${totalMapDeg}deg)
+ `;
+
+ const overlayTransform = `rotate(${overlayDeg}deg)`;
+ overlayCanvas.style.transform = overlayTransform;
+}
+
+// Chuyen theta tu do sang rad neu nhan bang do; giu nguyen neu da la rad
+function toRad(theta) {
+ return Math.abs(theta) > 2 * Math.PI ? theta * Math.PI / 180 : theta;
+}
+
+function drawHighlight() {
+ const ctx = overlayCanvas.getContext('2d');
+ if (!highlightSegments || !highlightSegments.length) return;
+ highlightSegments.forEach(seg => {
+  ctx.save();
+   ctx.strokeStyle = '#0ea5e9';
+   ctx.lineWidth = EDGE_WIDTH_PX + 4;
+   ctx.lineCap = 'round';
+ ctx.shadowColor = 'rgba(14,165,233,0.7)';
+ ctx.shadowBlur = 10;
+ ctx.beginPath();
+    if (seg.type === 'bezier' && seg.points.length === 4) {
+      let p0 = worldToPixel(seg.points[0].x, seg.points[0].y); p0 = applyOverlayFlip(p0.x, p0.y);
+      let p1 = worldToPixel(seg.points[1].x, seg.points[1].y); p1 = applyOverlayFlip(p1.x, p1.y);
+      let p2 = worldToPixel(seg.points[2].x, seg.points[2].y); p2 = applyOverlayFlip(p2.x, p2.y);
+      let p3 = worldToPixel(seg.points[3].x, seg.points[3].y); p3 = applyOverlayFlip(p3.x, p3.y);
+      ctx.moveTo(p0.x, p0.y);
+      ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+      ctx.stroke();
+    } else {
+      // line/polyline
+      let p0 = worldToPixel(seg.points[0].x, seg.points[0].y); p0 = applyOverlayFlip(p0.x, p0.y);
+      ctx.moveTo(p0.x, p0.y);
+      for (let i = 1; i < seg.points.length; i++) {
+        let p = worldToPixel(seg.points[i].x, seg.points[i].y); p = applyOverlayFlip(p.x, p.y);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+}
+
+function buildHighlightFromPair(a, b) {
+  const roads = mapData.robot_roads || mapData.roads || [];
+  const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+  const matchEdge = roads.find(r => String(r.id_source) === a && String(r.id_dest) === b);
+  if (matchEdge) {
+    return {
+      type: 'line',
+      points: [
+        { x: matchEdge.point_start_x ?? matchEdge.point_start?.[0] ?? 0, y: matchEdge.point_start_y ?? matchEdge.point_start?.[1] ?? 0 },
+        { x: matchEdge.point_end_x ?? matchEdge.point_end?.[0] ?? 0, y: matchEdge.point_end_y ?? matchEdge.point_end?.[1] ?? 0 }
+      ]
+    };
+  }
+  const matchBz = beziers.find(bz => String(bz.id_source) === a && String(bz.id_dest) === b);
+  if (matchBz) {
+    return {
+      type: 'bezier',
+      points: [
+        { x: matchBz.point_start_x ?? matchBz.point_start?.[0] ?? 0, y: matchBz.point_start_y ?? matchBz.point_start?.[1] ?? 0 },
+        { x: matchBz.curve_point_start_x ?? matchBz.curve_point_start?.[0] ?? 0, y: matchBz.curve_point_start_y ?? matchBz.curve_point_start?.[1] ?? 0 },
+        { x: matchBz.curve_point_end_x ?? matchBz.curve_point_end?.[0] ?? 0, y: matchBz.curve_point_end_y ?? matchBz.curve_point_end?.[1] ?? 0 },
+        { x: matchBz.point_end_x ?? matchBz.point_end?.[0] ?? 0, y: matchBz.point_end_y ?? matchBz.point_end?.[1] ?? 0 }
+      ]
+    };
+  }
+  return null;
+}
+
+function setHighlightPathFromNodes(nodeIds, ownerId = null) {
+ highlightOwner = ownerId || highlightOwner;
+ if (ownerId) stableCounts[ownerId] = 0;
+ const destId = Array.isArray(nodeIds) && nodeIds.length ? String(nodeIds[nodeIds.length - 1]) : null;
+ highlightDestination = destId;
+ if (!mapData || !Array.isArray(nodeIds)) { highlightSegments = []; highlightDestCoord = null; return; }
+ const segs = [];
+ const pts = mapData.robot_points || mapData.points || [];
+ const lookup = {};
+ pts.forEach(p => {
+   const id = String(p.name_id ?? p.id ?? p.name ?? '');
+   lookup[id] = { x: p.x ?? 0, y: p.y ?? 0 };
+ });
+ const roads = mapData.robot_roads || mapData.roads || [];
+ roads.forEach(r => {
+   const sid = String(r.id_source ?? r.source ?? '');
+   const did = String(r.id_dest ?? r.dest ?? '');
+   if (!lookup[sid]) lookup[sid] = { x: r.point_start_x ?? r.point_start?.[0] ?? 0, y: r.point_start_y ?? r.point_start?.[1] ?? 0 };
+   if (!lookup[did]) lookup[did] = { x: r.point_end_x ?? r.point_end?.[0] ?? 0, y: r.point_end_y ?? r.point_end?.[1] ?? 0 };
+ });
+ const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+ beziers.forEach(b => {
+   const sid = String(b.id_source ?? b.source ?? '');
+   const did = String(b.id_dest ?? b.dest ?? '');
+   if (!lookup[sid]) lookup[sid] = { x: b.point_start_x ?? b.point_start?.[0] ?? 0, y: b.point_start_y ?? b.point_start?.[1] ?? 0 };
+   if (!lookup[did]) lookup[did] = { x: b.point_end_x ?? b.point_end?.[0] ?? 0, y: b.point_end_y ?? b.point_end?.[1] ?? 0 };
+ });
+ // vẽ theo từng cặp node để giữ đúng hình học (ưu tiên bezier/edge)
+ for (let i = 0; i < nodeIds.length - 1; i++) {
+   const a = String(nodeIds[i]);
+   const b = String(nodeIds[i + 1]);
+   let seg = buildHighlightFromPair(a, b);
+   if (!seg) {
+     const pa = lookup[a];
+     const pb = lookup[b];
+     if (pa && pb) {
+       seg = { type: 'line', points: [pa, pb] };
+     }
+   }
+   if (seg) segs.push(seg);
+ }
+ highlightSegments = segs;
+ highlightDestCoord = destId && lookup[destId] ? lookup[destId] : null;
+ console.log(`[HIGHLIGHT] Segments: ${highlightSegments.length}, destCoord=${JSON.stringify(highlightDestCoord)}`);
+ rebuildAllOverlay();
+}
+
+function setHighlightPath(start, dest) {
+ highlightOwner = null;
+ highlightDestination = null;
+ highlightDestCoord = null;
+ highlightSegments = (start && dest) ? [{ type: 'line', points: [start, dest] }] : [];
+ rebuildAllOverlay();
+}
+
+function applyTransform() {
+ const fullScale = scaleView * userZoom;
+ mapInner.style.transform = `translate(-50%,-50%) scale(${fullScale}) translate(${panX}px,${panY}px)`;
+ applyMapAndOverlayRotation();
+}
+
+function autoFit() {
+ const rect = scene.getBoundingClientRect();
+ const sx = rect.width / imgNatW;
+ const sy = rect.height / imgNatH;
+ scaleView = Math.min(sx, sy) * 0.94;
+ userZoom = 1; panX = panY = 0;
+ applyTransform();
+}
+
+// ==================== HÃ€M Váº¼ ICON AGV (Xanh Äáº­m, Viá»n Tráº¯ng) ====================
+function drawAgvIcon(ctx, x, y, theta, color = '#0A57A4') {
+  const size = 16; 
+  const radius = 2; 
+  const arrowColor = '#ffffff'; 
+  
+  ctx.save();
+  
+  ctx.translate(x, y);
+  ctx.rotate(theta); 
+
+  // 1. Váº½ thÃ¢n AGV (HÃ¬nh chá»¯ nháº­t bo trÃ²n)
+  ctx.beginPath();
+  ctx.moveTo(-size / 2 + radius, -size / 2);
+  ctx.lineTo(size / 2 - radius, -size / 2);
+  ctx.arcTo(size / 2, -size / 2, size / 2, -size / 2 + radius, radius);
+  ctx.lineTo(size / 2, size / 2 - radius);
+  ctx.arcTo(size / 2, size / 2, size / 2 - radius, size / 2, radius);
+  ctx.lineTo(-size / 2 + radius, size / 2);
+  ctx.arcTo(-size / 2, size / 2, -size / 2, size / 2 - radius, radius);
+  ctx.lineTo(-size / 2, -size / 2 + radius);
+  ctx.arcTo(-size / 2, -size / 2, -size / 2 + radius, -size / 2, radius);
+  ctx.closePath();
+  
+  ctx.fillStyle = color;
+  ctx.strokeStyle = '#FFFFFF'; // Viá»n Tráº¯ng
+  ctx.lineWidth = 2.0; 
+  
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+  ctx.shadowBlur = 8;
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0; 
+  
+  // 2. Váº½ MÅ©i tÃªn (Direction)
+  ctx.fillStyle = arrowColor;
+  ctx.beginPath();
+  ctx.moveTo(0, -size / 2 + 2); 
+  ctx.lineTo(-3.5, -size / 2 + 8); 
+  ctx.lineTo(3.5, -size / 2 + 8);
+  ctx.closePath();
+  ctx.fill();
+  
+  ctx.restore();
+}
+
+// ==================== RENDER ====================
+function clearLayers() {
+ if (!mapCanvas || !overlayCanvas) return;
+ nodeLayer.innerHTML = '';
+ if (agvLayer) agvLayer.innerHTML = '';
+ mapCanvas.getContext('2d').clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+ // XÃ³a toÃ n bá»™ Overlay Canvas, bao gá»“m Ä‘Æ°á»ng, Ä‘iá»ƒm vÃ  AGV
+ overlayCanvas.getContext('2d').clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+}
+
+function drawMapImage(img) {
+ currentImg = img;
+ imgNatW = img.naturalWidth || img.width;
+ imgNatH = img.naturalHeight || img.height;
+
+ mapCanvas.width = imgNatW; mapCanvas.height = imgNatH;
+ overlayCanvas.width = imgNatW; overlayCanvas.height = imgNatH; 
+ 
+ mapCanvas.style.width = imgNatW + 'px'; mapCanvas.style.height = imgNatH + 'px';
+ overlayCanvas.style.width = imgNatW + 'px'; overlayCanvas.style.height = imgNatH + 'px';
+
+ [mapLayerEl, overlayLayerEl].forEach(el => {
+  el.style.width = imgNatW + 'px'; el.style.height = imgNatH + 'px';
+ });
+ [nodeLayer, edgeLayer, agvLayer].forEach(el => {
+  if (el) { el.style.width = imgNatW + 'px'; el.style.height = imgNatH + 'px'; }
+ });
+ // đảm bảo các layer DOM có kích thước để bắt sự kiện
+ [nodeLayer, edgeLayer, agvLayer].forEach(el => {
+  if (el) {
+    el.style.width = imgNatW + 'px';
+    el.style.height = imgNatH + 'px';
+  }
+ });
+
+ const ctx = mapCanvas.getContext('2d');
+ ctx.drawImage(img, 0, 0, imgNatW, imgNatH);
+}
+
+// ==================== BUILD OVERLAY ====================
+function buildNodes(points) {
+ const ctx = overlayCanvas.getContext('2d');
+ ctx.save();
+ ctx.globalCompositeOperation = 'source-over';
+ ctx.fillStyle = '#ff4d4d';
+ ctx.strokeStyle = '#ffffff';
+ ctx.lineWidth = 2.0;
+ 
+ nodeLayer.innerHTML = '';
+ 
+ const nodeRadius = 7;
+
+ points.forEach(p => {
+  const wx = p.x ?? p[0] ?? 0;
+  const wy = p.y ?? p[1] ?? 0;
+  let { x, y } = worldToPixel(wx, wy);
+  ({ x, y } = applyOverlayFlip(x, y));
+  // Ve node tren canvas (khong tao DOM de khong che AGV)
+  ctx.beginPath();
+  ctx.arc(x, y, nodeRadius, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.stroke();
+
+  // Tao DOM clickable de double click
+  const nodeId = p.name_id ?? p.name ?? p.id ?? '';
+  const nodeName = p.name ?? p.name_id ?? nodeId;
+ const div = document.createElement('div');
+ div.className = 'node-click';
+ div.style.left = `${x}px`;
+ div.style.top = `${y}px`;
+  div.dataset.nodeId = nodeId;
+  div.dataset.nodeName = nodeName;
+  div.dataset.x = wx;
+  div.dataset.y = wy;
+  div.title = `${nodeName || 'Node'} (${wx.toFixed(2)}, ${wy.toFixed(2)})`;
+  div.onmouseenter = () => console.log(`[NODE] hover ${nodeId} @ (${wx}, ${wy})`);
+  div.addEventListener('dblclick', () => {
+    console.log(`[NODE] doubleclick ${nodeId}`);
+    openNodeModal({ id: nodeId, name: nodeName, x: wx, y: wy });
+  });
+  nodeLayer.appendChild(div);
+});
+ctx.restore();
+}
+
+const EDGE_COLOR = '#d1d5db'; // light smoke gray for base edges
+const EDGE_WIDTH_PX = 16;
+//let nodeModal = null;
+function buildEdges(roads) {
+ const ctx = overlayCanvas.getContext('2d');
+ ctx.lineCap = 'round';
+ 
+ roads.forEach(r => {
+  const sx = r.point_start_x ?? r.point_start?.[0] ?? 0;
+  const sy = r.point_start_y ?? r.point_start?.[1] ?? 0;
+  const ex = r.point_end_x ?? r.point_end?.[0] ?? 0;
+  const ey = r.point_end_y ?? r.point_end?.[1] ?? 0;
+
+ let s = worldToPixel(sx, sy); s = applyOverlayFlip(s.x, s.y);
+ let e = worldToPixel(ex, ey); e = applyOverlayFlip(e.x, e.y);
+
+ ctx.strokeStyle = EDGE_COLOR;
+ ctx.lineWidth = EDGE_WIDTH_PX;
+ ctx.beginPath();
+ ctx.moveTo(s.x, s.y);
+ ctx.lineTo(e.x, e.y);
+ ctx.stroke();
+});
+}
+
+
+function buildBeziers(beziers) {
+ if (!Array.isArray(beziers) || beziers.length === 0) return;
+
+ const ctx = overlayCanvas.getContext('2d');
+ ctx.strokeStyle = EDGE_COLOR;
+ ctx.lineWidth = EDGE_WIDTH_PX;
+ ctx.lineCap = 'round';
+
+ for (const b of beziers) {
+  const pts = ['point_start', 'curve_point_start', 'curve_point_end', 'point_end'].map(key => {
+   const x = b[key + '_x'] ?? b[key]?.[0] ?? 0;
+   const y = b[key + '_y'] ?? b[key]?.[1] ?? 0;
+   let pt = worldToPixel(x, y);
+   return applyOverlayFlip(pt.x, pt.y);
+  });
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  ctx.bezierCurveTo(pts[1].x, pts[1].y, pts[2].x, pts[2].y, pts[3].x, pts[3].y);
+  ctx.stroke();
+ }
+}
+
+function placeAGVAt(mx, my, theta = 0, agvId = 'AGV') {
+ const ctx = overlayCanvas.getContext('2d');
+ 
+ let { x, y } = worldToPixel(mx, my);
+ ({ x, y } = applyOverlayFlip(x, y));
+ 
+ const agvThetaRad = toRad(theta);
+ const headingFix = Math.PI; // quay 180Â° Ä‘á»ƒ mÅ©i tÃªn cÃ¹ng chiá»u tiáº¿n
+ const totalRotationRad = agvThetaRad + headingFix + mapRotation - (userMapRotationDeg * Math.PI / 180);
+
+ const status = getAgvStatus(id);
+    const offline = (status || '').toLowerCase().includes('m?t') || (status || '').toLowerCase().includes('mat');
+    const fillColor = offline ? '#9ca3af' : '#0A57A4';
+    drawAgvIcon(ctx, x, y, totalRotationRad, fillColor);
+}
+
+// Bá»” SUNG: HÃ€M RENDER Táº¤T Cáº¢ AGV Tá»ª BIáº¾N AGVS
+function renderAGVs() {
+  if (!overlayCanvas) return;
+  const ctx = overlayCanvas.getContext('2d');
+  if (agvLayer) agvLayer.innerHTML = '';
+  Object.entries(agvs).forEach(([id, pose]) => {
+    const mx = pose.x ?? 0;
+    const my = pose.y ?? 0;
+    const mtheta = pose.theta ?? 0;
+    let { x, y } = worldToPixel(mx, my);
+    ({ x, y } = applyOverlayFlip(x, y));
+    const agvThetaRad = toRad(mtheta);
+    const headingFix = Math.PI; // quay 180? ?? m?i t?n c?ng chi?u ti?n
+    const totalRotationRad = agvThetaRad + headingFix + mapRotation - (userMapRotationDeg * Math.PI / 180);
+    const status = getAgvStatus(id);
+    const statusLow = (status || '').toLowerCase();
+    const offline = statusLow.includes('mất') || statusLow.includes('mat');
+    const fillColor = offline ? '#9ca3af' : '#0A57A4';
+    drawAgvIcon(ctx, x, y, totalRotationRad, fillColor);
+    if (agvLayer) {
+      const div = document.createElement('div');
+      div.className = 'agv-click';
+      div.style.left = `${x}px`;
+      div.style.top = `${y}px`;
+      div.title = `${id} (${mx.toFixed(2)}, ${my.toFixed(2)})`;
+      div.onmouseenter = () => console.log(`[AGV] hover ${id}`);
+      div.ondblclick = () => {
+        console.log(`[AGV] doubleclick ${id}`);
+        openAgvModal(id);
+      };
+      agvLayer.appendChild(div);
+    }
+  });
+}
+//==================== XOAY MAP TÃ™Y Ã ====================
+  window.setRotate = (deg) => { 
+  manualRotateInput.value = deg;
+  applyRotateBtn.click();
+}
+applyRotateBtn.onclick = () => {
+ userMapRotationDeg = parseFloat(manualRotateInput.value) || 0;
+ rebuildAllOverlay();
+ applyTransform();
+};
+
+resetRotateBtn.onclick = () => {
+ manualRotateInput.value = 0;
+ userMapRotationDeg = 0;
+ rebuildAllOverlay();
+ applyTransform();
+};
+
+manualRotateInput.addEventListener('keydown', e => e.key === 'Enter' && applyRotateBtn.click());
+
+// ==================== REBUILD KHI FLIP HOáº¶C XOAY ====================
+function rebuildAllOverlay() {
+ if (!mapData) return;
+ // Cáº§n clearLayers á»Ÿ Ä‘Ã¢y Ä‘á»ƒ xÃ³a táº¥t cáº£ cÃ¡c lá»›p (bao gá»“m AGV, Points, Edges)
+ clearLayers(); 
+ 
+ if(currentImg) drawMapImage(currentImg);
+ 
+ const points = mapData.robot_points || mapData.points || mapData.poses || [];
+ const roads = mapData.robot_roads || mapData.roads || [];
+ const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+ 
+ buildEdges(roads);
+ if (beziers.length) buildBeziers(beziers);
+ buildNodes(points);
+ 
+ // Bá»” SUNG: Váº½ táº¥t cáº£ AGV (Sau khi váº½ cÃ¡c lá»›p tÄ©nh)
+ 
+ drawHighlight();
+ renderAGVs();
+
+ if (points.length > 0 && Object.keys(agvs).length === 0) {
+  const firstNode = points[0];
+  const defaultAgvId = "AGV_01"; // báº¡n cÃ³ thá»ƒ Ä‘á»•i thÃ nh "TNG001", "Robot1", v.v.
+
+  agvs[defaultAgvId] = {
+    x: firstNode.x ?? firstNode[0] ?? 0,
+    y: firstNode.y ?? firstNode[1] ?? 0,
+    theta: firstNode.theta ?? 0
+  };
+  agvLastUpdate[defaultAgvId] = Date.now();
+
+  // Váº½ ngay láº­p tá»©c
+  drawHighlight();
+  renderAGVs();
+
+  console.log(`[DEFAULT] AGV ${defaultAgvId} Ä‘Æ°á»£c Ä‘áº·t á»Ÿ node Ä‘áº§u tiÃªn:`, agvs[defaultAgvId]);
+}
+}
+
+[flipMapX, flipMapY].forEach(cb => { 
+ cb.addEventListener('change', () => { rebuildAllOverlay(); applyTransform(); });
+});
+
+// ==================== LOAD MAP ====================
+async function loadMap(mapId) {
+ statusEl.textContent = 'Dang tai...';
+ mapSelect.disabled = true;
+ clearLayers();
+ agvs = {}; // Reset AGV khi tai map moi
+ lastPoseByAgv = {};
+ stableCounts = {};
+ agvLastUpdate = {};
+
+ try {
+  const res = await fetch(`http://192.168.88.253:8000/api/maps/${mapId}`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  mapData = data;
+  mapData.id = mapId; // LÆ°u ID map
+
+  const rm = data.robot_maps || {};
+  originX = Number(rm.x ?? data.origin_x ?? 0);
+  originY = Number(rm.y ?? data.origin_y ?? 0);
+  resolution = Number(rm.resolution ?? data.resolution ?? RES_DEFAULT);
+  mapRotation = Number(rm.theta ?? data.theta ?? 0);
+
+  const imgSrc = rm.image ? `data:image/png;base64,${rm.image}` : (rm.image_path || data.image_path || '');
+  if (!imgSrc) throw new Error('KhÃ´ng cÃ³ áº£nh');
+
+  const img = await new Promise((rs, rj) => {
+   const i = new Image();
+   i.onload = () => rs(i);
+   i.onerror = rj;
+   i.src = imgSrc;
+  });
+
+  drawMapImage(img);
+  rebuildAllOverlay();
+  userMapRotationDeg = 0;
+  manualRotateInput.value = 0;
+  autoFit();
+  statusEl.textContent = `${rm.name || data.name || mapId} â€“ ${imgNatW}Ã—${imgNatH}px â€“ res=${resolution.toFixed(4)}`;
+ } catch (err) {
+  statusEl.textContent = 'Lá»—i: ' + err.message;
+  console.error(err);
+ } finally {
+  mapSelect.disabled = false;
+ }
+}
+
+
+// ==================== INTERACTION ====================
+scene.addEventListener('wheel', e => {
+ e.preventDefault();
+ const rect = scene.getBoundingClientRect();
+ const mx = e.clientX - rect.left;
+ const my = e.clientY - rect.top;
+ const oldZoom = userZoom;
+ userZoom = Math.max(0.2, Math.min(10, userZoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+
+ const ratio = userZoom / oldZoom;
+ panX = panX * ratio + mx / (scaleView * oldZoom) * (1 - ratio);
+ panY = panY * ratio + my / (scaleView * oldZoom) * (1 - ratio);
+ applyTransform();
+});
+
+scene.addEventListener('mousedown', e => {
+ if (e.button !== 0) return;
+ dragging = true;
+ dragStart = { x: e.clientX, y: e.clientY };
+ panStart = { x: panX, y: panY };
+ scene.style.cursor = 'grabbing';
+});
+window.addEventListener('mousemove', e => {
+ if (!dragging) return;
+ const dx = (e.clientX - dragStart.x) / (scaleView * userZoom);
+ const dy = (e.clientY - dragStart.y) / (scaleView * userZoom);
+ panX = panStart.x + dx;
+ panY = panStart.y + dy;
+ applyTransform();
+});
+window.addEventListener('mouseup', () => { dragging = false; scene.style.cursor = 'default'; });
+
+resetBtn.onclick = autoFit;
+fullscreenBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+mapSelect.onchange = e => e.target.value && loadMap(e.target.value);
+
+// Modal hi?n th? th?ng tin node + g?i l?nh
+function ensureNodeModal() {
+  if (nodeModal) return;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.style.display = 'none';
+  const card = document.createElement('div');
+  card.className = 'modal-card';
+  card.innerHTML = `
+    <h3 id="modal-title">Điểm</h3>
+    <div class="meta" id="modal-meta"></div>
+    <div class="modal-actions">
+      <div class="btn-ghost" id="modal-close">Đóng</div>
+      <div class="btn-primary" id="modal-go">Đi tới điểm này</div>
+    </div>
+  `;
+  backdrop.appendChild(card);
+  document.body.appendChild(backdrop);
+  nodeModal = { backdrop, card };
+  card.querySelector('#modal-close').onclick = () => backdrop.style.display = 'none';
+}
+
+function openNodeModal(info) {
+  ensureNodeModal();
+  nodeModal.card.querySelector('#modal-title').textContent = info.name || info.id || 'Điểm';
+  nodeModal.card.querySelector('#modal-meta').textContent = `ID: ${info.id || '—'} · (${info.x.toFixed(3)}, ${info.y.toFixed(3)})`;
+  nodeModal.card.querySelector('#modal-go').onclick = () => {
+    nodeModal.backdrop.style.display = 'none';
+    sendMoveOrder(info);
+  };
+  nodeModal.backdrop.style.display = 'flex';
+}
+
+
+
+function ensureAgvModal() {
+  if (agvModal) return;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.style.display = 'none';
+  const card = document.createElement('div');
+  card.className = 'modal-card';
+  card.innerHTML = `
+    <h3 id="agv-modal-title">AGV</h3>
+    <div class="meta" id="agv-modal-meta"></div>
+    <div class="meta" id="agv-modal-status"></div>
+    <div class="meta" style="margin-bottom:16px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <div style="width:22px; text-align:center;">??</div>
+        <div style="flex:1; height:10px; background:rgba(255,255,255,0.12); border-radius:6px; overflow:hidden;">
+          <div class="battery-bar-fill" style="height:100%; width:0; background:#22c55e;"></div>
+        </div>
+        <span id="agv-modal-battery" style="width:48px; text-align:right;">--%</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <div class="btn-ghost" id="agv-modal-close">Đóng</div>
+    </div>
+  `;
+  backdrop.appendChild(card);
+  document.body.appendChild(backdrop);
+  agvModal = { backdrop, card };
+  card.querySelector('#agv-modal-close').onclick = () => backdrop.style.display = 'none';
+}
+
+function getAgvStatus(id) {
+  const now = Date.now();
+  const last = agvLastUpdate[id] || 0;
+  if (!last || now - last > 1500) return 'Mất kết nối'; // offline nếu quá 1.5s không cập nhật
+  const moving = (stableCounts[id] ?? 0) < 2;
+  return moving ? 'Đang hoạt động' : 'Rảnh';
+}
+
+
+function refreshAgvSelect() {
+  if (!agvSelect) return;
+  const current = agvSelect.value;
+  agvSelect.innerHTML = '';
+  Object.keys(agvs).forEach(id => {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = id;
+    agvSelect.appendChild(opt);
+  });
+  if (current && Object.keys(agvs).includes(current)) {
+    agvSelect.value = current;
+  }
+}
+
+function openAgvModal(agvId) {
+  ensureAgvModal();
+  const pose = agvs[agvId] || {};
+  const metaEl = agvModal.card.querySelector('#agv-modal-meta');
+  const statusEl = agvModal.card.querySelector('#agv-modal-status');
+  const batteryEl = agvModal.card.querySelector('#agv-modal-battery');
+  const bar = agvModal.card.querySelector('.battery-bar-fill');
+
+  agvModal.card.querySelector('#agv-modal-title').textContent = agvId || 'AGV';
+  metaEl.textContent = `Vị trí: (${(pose.x ?? 0).toFixed(3)}, ${(pose.y ?? 0).toFixed(3)}) | Gốc: ${(pose.theta ?? 0).toFixed(2)}`;
+  statusEl.textContent = `Trạng thái: ${getAgvStatus(agvId)}`;
+
+  const batteryRaw = pose.battery ?? pose.batteryState?.batteryCharge ?? pose.pin ?? pose.pin_percent ?? pose.batteryLevel;
+  const batteryVal = (batteryRaw === undefined || batteryRaw === null || Number.isNaN(Number(batteryRaw)))
+    ? null : Math.round(Number(batteryRaw));
+  if (batteryVal === null) {
+    batteryEl.textContent = '50%';
+    if (bar) bar.style.width = '50%';
+  } else {
+    batteryEl.textContent = `${batteryVal}%`;
+    const width = Math.max(0, Math.min(100, batteryVal));
+    if (bar) {
+      bar.style.width = `${width}%`;
+      bar.style.background = batteryVal < 20 ? '#ef4444' : (batteryVal < 50 ? '#f59e0b' : '#22c55e');
+    }
+  }
+
+  agvModal.backdrop.style.display = 'flex';
+}
+
+// ==================== MÔ PHỎNG ====================
+function buildPointLookup() {
+  const pts = mapData?.robot_points || mapData?.points || mapData?.poses || [];
+  const lookup = {};
+  pts.forEach(p => {
+    const id = String(p.name_id ?? p.id ?? p.name ?? '');
+    lookup[id] = { x: p.x ?? p[0] ?? 0, y: p.y ?? p[1] ?? 0 };
+  });
+  return lookup;
+}
+
+function buildAdjacency(agvId) {
+  const adj = {};
+  const add = (a, b) => {
+    if (!adj[a]) adj[a] = new Set();
+    adj[a].add(b);
+  };
+  const roads = mapData?.robot_roads || mapData?.roads || [];
+  const beziers = mapData?.benziers || mapData?.robot_benziers || mapData?.beziers || [];
+  [...roads, ...beziers].forEach(r => {
+    const a = String(r.id_source ?? r.source ?? '');
+    const b = String(r.id_dest ?? r.dest ?? '');
+    if (!a || !b) return;
+    const key1 = `${a}->${b}`;
+    const key2 = `${b}->${a}`;
+    const blocked1 = simEdgeLocks[key1] && simEdgeLocks[key1] !== agvId;
+    const blocked2 = simEdgeLocks[key2] && simEdgeLocks[key2] !== agvId;
+    const activeBlocked1 = Object.entries(simActiveEdge).some(([id, edge]) => id !== agvId && edge.a === a && edge.b === b);
+    const activeBlocked2 = Object.entries(simActiveEdge).some(([id, edge]) => id !== agvId && edge.a === b && edge.b === a);
+    if (!blocked1 && !activeBlocked1) add(a, b);
+    if (!blocked2 && !activeBlocked2) add(b, a);
+  });
+  return adj;
+}
+
+function shortestPathClient(startId, destId, agvId) {
+  if (!startId || !destId) return null;
+  const adj = buildAdjacency(agvId);
+  const q = [startId];
+  const visited = new Set([startId]);
+  const parent = {};
+  while (q.length) {
+    const cur = q.shift();
+    if (cur === destId) break;
+    (adj[cur] || []).forEach(n => {
+      if (!visited.has(n)) {
+        visited.add(n);
+        parent[n] = cur;
+        q.push(n);
+      }
+    });
+  }
+  if (!visited.has(destId)) return null;
+  const path = [];
+  let cur = destId;
+  while (cur !== undefined) {
+    path.unshift(cur);
+    cur = parent[cur];
+  }
+  return path;
+}
+
+function nearestNodeId(x, y) {
+  const pts = buildPointLookup();
+  let best = null;
+  let bestDist = Infinity;
+  Object.entries(pts).forEach(([id, p]) => {
+    const dx = (p.x ?? 0) - x;
+    const dy = (p.y ?? 0) - y;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) { bestDist = d; best = id; }
+  });
+  return best;
+}
+
+function setSimStatus(on) {
+  simulationMode = on;
+  toggleSimBtn.textContent = on ? 'Tắt mô phỏng' : 'Bật mô phỏng';
+  statusEl.textContent = on ? 'Mô phỏng' : 'Sẵn sàng';
+}
+
+function stopSimAnimations() {
+  Object.values(simAnimations).forEach(a => cancelAnimationFrame(a));
+  simAnimations = {};
+}
+
+function enableSimulation() {
+  if (!mapData) { alert('Hãy chọn map trước.'); return; }
+  stopSimAnimations();
+  simEdgeLocks = {};
+  simActiveEdge = {};
+  agvs = {};
+  const pts = buildPointLookup();
+  const ids = Object.keys(pts);
+  if (!ids.length) { alert('Map chưa có điểm.'); return; }
+  const first = ids[0];
+  const second = ids[1] || ids[0];
+  agvs['SIM-1'] = { x: pts[first].x, y: pts[first].y, theta: 0, lastNodeId: first, last_update: new Date().toISOString() };
+  agvs['SIM-2'] = { x: pts[second].x, y: pts[second].y, theta: 0, lastNodeId: second, last_update: new Date().toISOString() };
+  agvLastUpdate['SIM-1'] = Date.now();
+  agvLastUpdate['SIM-2'] = Date.now();
+  lastPoseByAgv['SIM-1'] = { x: pts[first].x, y: pts[first].y, theta: 0 };
+  lastPoseByAgv['SIM-2'] = { x: pts[second].x, y: pts[second].y, theta: 0 };
+  setSimStatus(true);
+  refreshAgvSelect();
+  rebuildAllOverlay();
+}
+
+function disableSimulation() {
+  simEdgeLocks = {};
+  simActiveEdge = {};
+  stopSimAnimations();
+  simulationMode = false;
+  setSimStatus(false);
+}
+
+toggleSimBtn.onclick = () => {
+  simulationMode ? disableSimulation() : enableSimulation();
+};
+
+function animateSimMove(agvId, points, pathNodes) {
+  if (!points || points.length < 2) return;
+  let idx = 0; let lastTs = null;
+  if (pathNodes && pathNodes[0] && pathNodes[1]) {
+    if (!setEdgeLock(agvId, pathNodes[0], pathNodes[1])) {
+      console.log('[SIM] cannot lock first edge', agvId, pathNodes[0], pathNodes[1]);
+      return;
+    }
+  }
+  const step = (ts) => {
+    if (lastTs === null) lastTs = ts;
+    const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0.016);
+    lastTs = ts;
+    const p0 = points[idx];
+    const p1 = points[idx + 1];
+    const dx = p1.x - p0.x;
+    const dy = p1.y - p0.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    // l?u edge hi?n t?i ?? block runtime
+    if (pathNodes && pathNodes[idx] && pathNodes[idx+1]) {
+      simActiveEdge[agvId] = { a: pathNodes[idx], b: pathNodes[idx+1] };
+    }
+    if (dist < 1e-6) {
+      idx++;
+      if (idx >= points.length - 1) { cleanup(); return; }
+      simAnimations[agvId] = requestAnimationFrame(step);
+      return;
+    }
+    const speed = Math.max(0.6, dist * 0.3);
+    const stepDist = speed * dt;
+    const t = Math.min(1, stepDist / dist);
+    const newX = p0.x + dx * t;
+    const newY = p0.y + dy * t;
+    const theta = Math.atan2(dy, dx);
+    points[idx] = { ...p0, x: newX, y: newY };
+    agvs[agvId] = { x: newX, y: newY, theta, lastNodeId: p0.nodeId || agvs[agvId]?.lastNodeId, last_update: new Date().toISOString() };
+    agvLastUpdate[agvId] = Date.now();
+    rebuildAllOverlay();
+    if (t >= 0.999) {
+      idx++;
+      if (pathNodes && pathNodes[idx] && pathNodes[idx+1]) {
+        if (!setEdgeLock(agvId, pathNodes[idx], pathNodes[idx+1])) {
+          console.log('[SIM] next segment locked, stop', agvId);
+          cleanup();
+          return;
+        }
+      }
+    }
+    if (idx >= points.length - 1) { cleanup(); return; }
+    simAnimations[agvId] = requestAnimationFrame(step);
+  };
+  const cleanup = () => {
+    if (simAnimations[agvId]) cancelAnimationFrame(simAnimations[agvId]);
+    delete simAnimations[agvId];
+    delete simActiveEdge[agvId];
+    clearAgvLocks(agvId);
+  };
+  simAnimations[agvId] = requestAnimationFrame(step);
+}
+
+function sampleBezierPoints(p0, p1, p2, p3, steps = 30) {
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const mt = 1 - t;
+    const x = mt * mt * mt * p0.x + 3 * mt * mt * t * p1.x + 3 * mt * t * t * p2.x + t * t * t * p3.x;
+    const y = mt * mt * mt * p0.y + 3 * mt * mt * t * p1.y + 3 * mt * t * t * p2.y + t * t * t * p3.y;
+    pts.push({ x, y });
+  }
+  return pts;
+}
+
+function getEdgePoints(a, b, lookup) {
+  const roads = mapData?.robot_roads || mapData?.roads || [];
+  const beziers = mapData?.benziers || mapData?.robot_benziers || mapData?.beziers || [];
+  const road = roads.find(r => String(r.id_source ?? r.source ?? '') === a && String(r.id_dest ?? r.dest ?? '') === b);
+  if (road) {
+    return [{ ...lookup[a], nodeId: a }, { ...lookup[b], nodeId: b }];
+  }
+  const bz = beziers.find(r => String(r.id_source ?? r.source ?? '') === a && String(r.id_dest ?? r.dest ?? '') === b);
+  if (bz) {
+    const p0 = { x: bz.point_start_x ?? bz.point_start?.[0] ?? lookup[a].x, y: bz.point_start_y ?? bz.point_start?.[1] ?? lookup[a].y };
+    const p1 = { x: bz.curve_point_start_x ?? bz.curve_point_start?.[0] ?? p0.x, y: bz.curve_point_start_y ?? bz.curve_point_start?.[1] ?? p0.y };
+    const p2 = { x: bz.curve_point_end_x ?? bz.curve_point_end?.[0] ?? lookup[b].x, y: bz.curve_point_end_y ?? bz.curve_point_end?.[1] ?? lookup[b].y };
+    const p3 = { x: bz.point_end_x ?? bz.point_end?.[0] ?? lookup[b].x, y: bz.point_end_y ?? bz.point_end?.[1] ?? lookup[b].y };
+    const pts = sampleBezierPoints(p0, p1, p2, p3, 30);
+    pts[0].nodeId = a; pts[pts.length - 1].nodeId = b;
+    return pts;
+  }
+  return [{ ...lookup[a], nodeId: a }, { ...lookup[b], nodeId: b }];
+}
+
+function pathToPoints(pathNodes, lookup) {
+  const pts = [];
+  for (let i = 0; i < pathNodes.length - 1; i++) {
+    const a = pathNodes[i];
+    const b = pathNodes[i + 1];
+    const seg = getEdgePoints(a, b, lookup);
+    if (pts.length) seg.shift();
+    pts.push(...seg);
+  }
+  return pts;
+}
+
+function findBlockedEdge(pathNodes, agvId) {
+  for (let i = 0; i < pathNodes.length - 1; i++) {
+    const a = pathNodes[i];
+    const b = pathNodes[i + 1];
+    const key1 = `${a}->${b}`;
+    const key2 = `${b}->${a}`;
+    const otherActive = Object.entries(simActiveEdge).some(([id, edge]) => id !== agvId && edge.a === a && edge.b === b);
+    if ((simEdgeLocks[key1] && simEdgeLocks[key1] !== agvId) ||
+        (simEdgeLocks[key2] && simEdgeLocks[key2] !== agvId) ||
+        otherActive) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function simulateMove(node, agvId) {
+  if (!mapData) { alert('Chua c? map'); return; }
+  const pts = buildPointLookup();
+  const destId = String(node.id || node.name || node.nodeId || '');
+  const destCoord = pts[destId];
+  if (!destCoord) { alert('Kh?ng t?m th?y ?i?m ??ch tr?n map.'); return; }
+  if (!agvId) {
+    const ids = Object.keys(agvs);
+    agvId = ids[0];
+  }
+  if (!agvId || !agvs[agvId]) { alert('Chua c? AGV m? ph?ng.'); return; }
+  const agvPose = agvs[agvId];
+  const startNode = agvPose.lastNodeId || nearestNodeId(agvPose.x ?? 0, agvPose.y ?? 0);
+
+  const safePath = shortestPathClient(String(startNode), destId, agvId);
+  console.log('[SIM] plan', { agvId, startNode, destId, safePath, locks: simEdgeLocks, active: simActiveEdge });
+  if (!safePath || safePath.length < 2) { alert('Kh?ng t?m th?y ???ng ?i.'); return; }
+  let pathNodes = safePath;
+  const blockedIdx = findBlockedEdge(pathNodes, agvId);
+  if (blockedIdx >= 0) {
+    const waitIdx = Math.max(0, blockedIdx - 2);
+    pathNodes = pathNodes.slice(0, waitIdx + 1);
+    if (pathNodes.length < 2) { alert('???ng ?ang b? chi?m, h?y th? l?i sau.'); return; }
+  }
+  if (pathNodes.length > 1) {
+    if (!setEdgeLock(agvId, pathNodes[0], pathNodes[1])) {
+      alert('Đường đang bị AGV khác khóa, thử lại sau hoặc chọn đường khác.');
+      return;
+    }
+  }
+  setHighlightPathFromNodes(pathNodes, agvId);
+  const pathPoints = pathToPoints(pathNodes, pts);
+  if (!pathPoints || pathPoints.length < 2) { alert('Kh?ng d?ng ???c ???ng ?i.'); return; }
+  animateSimMove(agvId, pathPoints, pathNodes);
+}
+async function sendMoveOrder(node) {
+  const agvIds = Object.keys(agvs);
+  if (!agvIds.length) {
+    alert('Chưa có AGV online.');
+    return;
+  }
+  const chosen = agvSelect?.value;
+  const agvId = chosen && agvIds.includes(chosen) ? chosen : agvIds[0];
+  if (simulationMode) {
+    simulateMove(node, agvId);
+    return;
+  }
+  try {
+    const res = await fetch('/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agv_id: agvId, destination: node.id || node.name })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    statusEl.textContent = `Đã gửi lệnh tới ${node.name || node.id} (AGV ${agvId})`;
+    if (Array.isArray(data.path)) {
+      setHighlightPathFromNodes(data.path, agvId);
+    } else {
+      const pose = agvs[agvId];
+      if (pose) {
+        setHighlightPath({ x: pose.x || 0, y: pose.y || 0 }, { x: node.x, y: node.y });
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Không gửi được lệnh: ' + err.message);
+  }
+}
+
+// // ====================// ==================== Bá»” SUNG: WEBSOCKET & Cáº¬P NHáº¬T AGV ====================
+
+// HÃ m cáº­p nháº­t vá»‹ trÃ­ AGV (ÄÆ°á»£c gá»i tá»« WebSocket)
+function updateAGVPoses(newPoses) {
+    if (newPoses) {
+        Object.entries(newPoses).forEach(([id, pose]) => {
+            const prev = lastPoseByAgv[id] || agvs[id];
+            const eps = 1e-3;
+            if (prev && Math.abs((pose.x ?? 0) - (prev.x ?? 0)) < eps && Math.abs((pose.y ?? 0) - (prev.y ?? 0)) < eps) {
+                stableCounts[id] = (stableCounts[id] || 0) + 1;
+            } else {
+                stableCounts[id] = 0;
+            }
+            lastPoseByAgv[id] = { x: pose.x ?? 0, y: pose.y ?? 0, theta: pose.theta ?? 0 };
+            agvLastUpdate[id] = Date.now();
+        });
+        agvs = newPoses;
+        if (highlightOwner && highlightDestCoord) {
+            const ownerPose = agvs[highlightOwner];
+            if (ownerPose) {
+                const poseX = ownerPose.x ?? 0;
+                const poseY = ownerPose.y ?? 0;
+                // Chỉ cần trùng phần nguyên của x và y
+                if (Math.floor(poseX) === Math.floor(highlightDestCoord.x) &&
+                    Math.floor(poseY) === Math.floor(highlightDestCoord.y)) {
+                    highlightSegments = [];
+                    highlightOwner = null;
+                    highlightDestination = null;
+                    highlightDestCoord = null;
+                    rebuildAllOverlay();
+                    return;
+                }
+            }
+        }
+    }
+    
+    if (!mapData || !overlayCanvas) return;
+
+    // Ch? x?a v? v? l?i AGV + highlight
+    const ctx = overlayCanvas.getContext('2d');
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    buildEdges(mapData.robot_roads || mapData.roads || []);
+    const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
+    if (beziers.length > 0) buildBeziers(beziers);
+    buildNodes(mapData.robot_points || mapData.points || mapData.poses || []);
+    drawHighlight();
+
+    renderAGVs();
+    refreshAgvSelect();
+}
+
+function setupWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket('ws://192.168.88.253:8000/ws');
+
+  ws.onopen = () => console.log("[WS] Connected.");
+
+  ws.onclose = () => { 
+    console.log("[WS] Disconnected. Reconnecting in 5s...");
+    setTimeout(setupWebSocket, 5000);
+  };
+
+  ws.onerror = (err) => console.error("[WS] Error:", err);
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'agv_pose_update') {
+        updateAGVPoses(data.poses);
+      } else if (data.type === 'external_command' && data.action === 'MOVE' && Array.isArray(data.path)) {
+        setHighlightPathFromNodes(data.path, data.agv_id || null);
+      }
+    } catch (e) {
+      console.error("[WS] Lỗi xử lý dữ liệu:", e);
+    }
+  };
+}
+
+// Load danh sÃ¡ch map
+fetch('http://192.168.88.253:8000/api/maps/list')
+ .then(r => {
+  if (!r.ok) {
+    throw new Error(`HTTP Error ${r.status}`);
+  }
+  return r.json();
+ })
+ .then(data => {
+  if (Array.isArray(data)) {
+   data.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name || m.mapName || m.id;
+    mapSelect.appendChild(opt);
+   });
+  } else {
+    console.warn('API /api/maps/list tráº£ vá» dá»¯ liá»‡u khÃ´ng pháº£i lÃ  máº£ng:', data);
+  }
+ })
+ .catch(err => {
+  console.error('KhÃ´ng thá»ƒ táº£i Map List:', err);
+  statusEl.textContent = 'Lá»—i táº£i Map List (Kiểm tra console và server)';
+ });
+setupWebSocket();
+});
+</script>
+</body>
+</html>

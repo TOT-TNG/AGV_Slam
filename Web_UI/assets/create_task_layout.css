@@ -1,0 +1,214 @@
+/* Wrapper layout */
+.task-create-wrapper {
+  display: grid;
+  grid-template-columns: 260px 1fr 320px;
+  gap: 16px;
+  padding: 16px;
+  height: calc(100vh - 120px);
+  box-sizing: border-box;
+}
+
+/* Panels */
+.task-panel {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  padding: 14px;
+  color: white;
+
+  /* IMPORTANT: đừng cắt edge/arrowhead của ReactFlow */
+  overflow: visible; /* was hidden */
+
+  display: flex;
+  flex-direction: column;
+}
+
+.task-panel * { color: white !important; }
+
+.left-panel { overflow-y: auto; }
+
+/* IMPORTANT: center panel không được overflow hidden, nếu không edge sẽ bị cắt */
+.center-panel {
+  position: relative;
+  overflow: visible; /* was hidden */
+  display: flex;
+  flex-direction: column;
+}
+
+.right-panel { overflow-y: auto; }
+
+.panel-title {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 12px;
+  color: white;
+}
+
+/* Task list tiles */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-tile {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: grab;
+}
+.task-tile:hover {
+  background: rgba(59, 130, 246, 0.14);
+}
+
+/* Workflow card */
+/*.workflow-card {
+  overflow: hidden; 
+  flex: 1;            
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(14, 165, 233, 0.05));
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.workflow-card-title {
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+/* Center panel = khung workflow duy nhất */
+.center-panel{
+  padding: 14px;
+  overflow: hidden;          /* không tràn */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Canvas workflow */
+#wf-root{
+  flex: 1;                   /* chiếm hết chiều cao còn lại */
+  background: #f7f8fb;
+  border-radius: 14px;
+  overflow: auto;            /* SCROLL Ở ĐÂY */
+}
+
+/* ReactFlow không được phá khung */
+#wf-root .react-flow,
+#wf-root .react-flow__renderer,
+#wf-root .react-flow__viewport,
+#wf-root .react-flow__pane{
+  overflow: visible;         /* để arrow không bị cắt */
+}
+
+/* ReactFlow mount area */
+#wf-root {
+  width: 100%;
+  height: 100%;
+  min-height: 560px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .task-create-wrapper { grid-template-columns: 1fr; height: auto; }
+  .task-panel { min-height: 0; }
+}
+/* Cho phép flex con được scroll (QUAN TRỌNG) */
+.center-panel { min-height: 0; }
+.workflow-card { min-height: 0; }
+
+/* wf-scroll đang gắn trực tiếp lên #wf-root trong python */
+.wf-scroll{
+  flex: 1;
+  min-height: 0;      /* QUAN TRỌNG trong flex column */
+  overflow: auto;     /* BẬT SCROLL */
+  background: #f7f8fb;
+  border-radius: 12px;
+}
+
+/* #wf-root hiện đang height:100% -> giữ, nhưng bỏ min-height cứng để scroll “đúng” */
+#wf-root{
+  width: 100%;
+  height: auto;
+  min-height: 0;      /* thay vì 560px */
+}
+.right-panel,
+.right-panel *{
+  color: #fff !important;
+}
+
+/* các control của bootstrap hay bị chữ đen */
+.right-panel .form-label,
+.right-panel label,
+.right-panel .form-check-label{
+  color: #fff !important;
+}
+
+.right-panel input,
+.right-panel select,
+.right-panel textarea{
+  color: #fff !important;
+  background: rgba(0,0,0,.18) !important;
+  border: 1px solid rgba(255,255,255,.22) !important;
+}
+/* Panel phải: chữ trắng, nhưng giữ checkbox rõ */
+.right-panel, .right-panel * { color: #fff !important; }
+
+.right-panel .form-check-input {
+  accent-color: #2563eb;
+  border-color: rgba(255,255,255,.5) !important;
+}
+.right-panel .form-check-input:checked {
+  background-color: #2563eb !important;
+  border-color: #2563eb !important;
+}
+/* Checkbox rõ ràng + dấu tick đẹp */
+.right-panel .form-check-input{
+  width: 18px;
+  height: 18px;
+  margin-top: 0.15rem;
+  accent-color: #2563eb;        /* modern browsers */
+  border: 1px solid rgba(255,255,255,.55) !important;
+  background-color: rgba(0,0,0,.15) !important;
+}
+.right-panel .form-check-input:checked{
+  background-color: #2563eb !important;
+  border-color: #2563eb !important;
+}
+.right-panel .form-check-label{
+  color: #fff !important;
+}
+/* ===== Fix tick trắng cho checkbox Bootstrap ===== */
+.right-panel .form-check-input {
+  width: 18px;
+  height: 18px;
+  margin-top: 0.15rem;
+  border: 1px solid rgba(255,255,255,.55) !important;
+  background-color: rgba(0,0,0,.15) !important;
+}
+
+/* khi checked: nền xanh + tick trắng (svg) */
+.right-panel .form-check-input:checked {
+  border-color: #2563eb !important;
+  background-color: #2563eb !important;
+
+  /* ép icon tick trắng */
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10l3 3 6-7'/%3e%3c/svg%3e") !important;
+}
+
+/* label trắng */
+.right-panel .form-check-label,
+.right-panel label,
+.right-panel .form-label {
+  color: #fff !important;
+}
+
+/* dropdown/text cũng trắng */
+.right-panel .form-select,
+.right-panel .form-control {
+  color: #fff !important;
+}

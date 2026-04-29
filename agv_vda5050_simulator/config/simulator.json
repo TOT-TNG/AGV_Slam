@@ -1,0 +1,118 @@
+{
+  "manufacturer": "tot",
+  "mqtt": {
+    "enabled": true,
+    "host": "192.168.88.253",
+    "port": 1883,
+    "keepalive": 30,
+    "interface_name": "uagv",
+    "major_version": "v3"
+  },
+  "api": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8088
+  },
+  "ui": {
+    "width": 1400,
+    "height": 900,
+    "fps": 60,
+    "pixels_per_meter": 55.0,
+    "panel_width": 300
+  },
+  "simulation": {
+    "tick_hz": 20,
+    "state_publish_hz": 1.0,
+    "connection_publish_hz": 0.2,
+    "visualization_publish_hz": 1.0,
+    "battery_drain_per_second": 0.005,
+    "default_stop_distance": 0.9,
+    "default_size": {
+      "length": 0.9,
+      "width": 0.65
+    }
+  },
+  "map": {
+    "map_id": "93e3ba66-0f9a-4267-95a1-71872f181779",
+    "graph_file": "config/sample_graph.json",
+    "background": "assets/generated_map.png"
+  },
+  "map_upload": {
+    "url": "http://192.168.88.253:8000/api/agv/map/upload-full",
+    "timeout_s": 10.0,
+    "wrap_map_info": true,
+    "id": 0,
+    "origin_x": 0.0,
+    "origin_y": 0.0,
+    "theta": 0.0,
+    "layer": 0,
+    "road_width": 0.95,
+    "default_speed": 0.3
+  },
+  "elevators": [
+    {
+      "elevator_id": 1,
+      "node_id": "N8",
+      "floors": [
+        0,
+        1
+      ],
+      "floor_nodes": {
+        "0": "N8",
+        "1": "N16"
+      },
+      "current_floor": 0,
+      "target_floor": 0,
+      "door": "closed",
+      "status": "idle",
+      "travel_time_per_floor_s": 2.0
+    }
+  ],
+  "agvs": [
+    {
+      "agv_id": "AGV01",
+      "agv_type": "SLAM",
+      "length": 0.9,
+      "width": 0.65,
+      "stop_distance": 0.9,
+      "start_node": "N1",
+      "max_speed": 0.8,
+      "max_accel": 0.5,
+      "color": [
+        40,
+        220,
+        80
+      ]
+    },
+    {
+      "agv_id": "AGV02",
+      "agv_type": "QR",
+      "length": 0.85,
+      "width": 0.6,
+      "stop_distance": 0.7,
+      "start_node": "N3",
+      "max_speed": 0.9,
+      "max_accel": 0.55,
+      "color": [
+        70,
+        150,
+        255
+      ]
+    },
+    {
+      "agv_id": "AGV03",
+      "agv_type": "LINE",
+      "length": 1.0,
+      "width": 0.7,
+      "stop_distance": 1.0,
+      "start_node": "N5",
+      "max_speed": 0.75,
+      "max_accel": 0.45,
+      "color": [
+        255,
+        180,
+        50
+      ]
+    }
+  ]
+}
