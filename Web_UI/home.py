@@ -78,7 +78,7 @@ def make_sidebar(lang: str):
                                     html.Div(t(lang, "menu.map.configure", "Map Configure"), id="submenu-setup-map", className="submenu-item"),
                                     html.A(
                                         t(lang, "menu.map.agvmap", "AGV Map"),
-                                        href="http://192.168.88.253:8000/AgvMap.html",
+                                        href="http://192.168.0.103:8000/AgvMap.html",
 =======
                                     html.Div(
                                         t(lang, "menu.map.create", "Create Map"),

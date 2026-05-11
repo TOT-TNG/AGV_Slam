@@ -3,17 +3,11 @@ import json
 import datetime
 import time
 import uuid
-<<<<<<< HEAD
-import math
-import paho.mqtt.client as mqtt
-from agv_manager import AGVManager
-import asyncio
-from fastapi import FastAPI
-=======
 import os
 import math
 import re
 import asyncio
+import builtins
 from urllib.parse import unquote
 
 import psycopg2
@@ -23,26 +17,119 @@ import paho.mqtt.client as mqtt
 from agv_manager import AGVManager
 from fastapi import FastAPI
 from map_manager import MapManager
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 
 # ==========================
 # MQTT Configuration
 # ==========================
-<<<<<<< HEAD
-BROKER = "192.168.88.253"
-PORT = 1883
-QOS = 0
-UAGV_INTERFACE_NAME = "uagv"
-UAGV_MAJOR_VERSION = "v3"
-
-agv_manager = AGVManager()
-=======
-BROKER = "192.168.0.61"
-PORT = 1883
-QOS = 0
+BROKER = os.getenv("MQTT_BROKER", "192.168.0.103").strip()
+PORT = int(os.getenv("MQTT_PORT", "1883"))
+QOS = int(os.getenv("MQTT_QOS", "0"))
+UAGV_INTERFACE_NAME = os.getenv("UAGV_INTERFACE_NAME", "uagv").strip() or "uagv"
+UAGV_MAJOR_VERSION = os.getenv("UAGV_MAJOR_VERSION", "v3").strip() or "v3"
+UAGV_MANUFACTURER = os.getenv("UAGV_MANUFACTURER", "tot").strip() or "tot"
 
 agv_manager = AGVManager()
 map_manager = MapManager()
+_map_id_cache: dict[str, str] = {}
+_mqtt_stopping = False
+MQTT_VERBOSE_LOG = os.getenv("MQTT_VERBOSE_LOG", "0").strip().lower() in {"1", "true", "yes", "on"}
+_last_state_log_ts: dict[str, float] = {}
+_last_filtered_log_ts: dict[str, float] = {}
+_recent_published_action_ids: dict[str, float] = {}
+_last_instant_action_sent: dict[tuple[str, str], float] = {}
+_last_traffic_control_action: dict[str, str] = {}
+_pending_reroute_apply: dict[str, dict[str, object]] = {}
+_pending_head_on_assignments: dict[str, dict[str, object]] = {}
+INSTANT_ACTION_COOLDOWN_SEC = float(os.getenv("INSTANT_ACTION_COOLDOWN_SEC", "10.0"))
+REROUTE_APPLY_HOLD_SEC = float(os.getenv("REROUTE_APPLY_HOLD_SEC", "8.0"))
+
+
+def print(*args, **kwargs):
+    text = " ".join(str(arg) for arg in args)
+    now = time.time()
+
+    if "[MQTT] Raw payload:" in text and not MQTT_VERBOSE_LOG:
+        return
+
+    if "[MQTT]" in text and "topic:" in text and not MQTT_VERBOSE_LOG:
+        return
+
+    if "[STATE] AGV " in text and "MQTT THẬT" in text:
+        key = "state_banner"
+        if now - _last_filtered_log_ts.get(key, 0.0) < 2.0:
+            return
+        _last_filtered_log_ts[key] = now
+
+    if text.startswith("   ") and not MQTT_VERBOSE_LOG:
+        return
+
+    if "[DB] resolve_map_id_sync" in text or "[DB] ensure_map_loaded_sync" in text:
+        if now - _last_filtered_log_ts.get(text, 0.0) < 5.0:
+            return
+        _last_filtered_log_ts[text] = now
+
+    builtins.print(*args, **kwargs)
+
+
+def _remember_pending_reroute_apply(
+    agv_id: str,
+    order_id: str,
+    order_update_id: int,
+    route_edges: list[str],
+) -> None:
+    _pending_reroute_apply[str(agv_id)] = {
+        "order_id": str(order_id or "").strip(),
+        "order_update_id": int(order_update_id or 0),
+        "route_edges": [str(edge_id).strip() for edge_id in route_edges if str(edge_id or "").strip()],
+        "since": time.time(),
+    }
+
+
+def _remember_head_on_assignment(winner: str, loser: str, resource_node: str | None = None) -> None:
+    _pending_head_on_assignments[str(winner)] = {
+        "winner": str(winner),
+        "loser": str(loser),
+        "resource_node": str(resource_node) if resource_node else None,
+        "since": time.time(),
+    }
+
+
+def _get_head_on_assignment(winner: str) -> dict | None:
+    return _pending_head_on_assignments.get(str(winner))
+
+
+def _clear_head_on_assignment(winner: str) -> None:
+    _pending_head_on_assignments.pop(str(winner), None)
+
+
+def _clear_pending_reroute_apply(agv_id: str) -> None:
+    _pending_reroute_apply.pop(str(agv_id), None)
+
+
+def _is_pending_reroute_applied(agv_id: str, state_data: dict) -> bool:
+    guard = _pending_reroute_apply.get(str(agv_id))
+    if not guard:
+        return True
+
+    current_order_id = str(state_data.get("orderId") or "").strip()
+    try:
+        current_update_id = int(state_data.get("orderUpdateId") or 0)
+    except Exception:
+        current_update_id = 0
+
+    expected_order_id = str(guard.get("order_id") or "").strip()
+    expected_update_id = int(guard.get("order_update_id") or 0)
+    if current_order_id == expected_order_id and current_update_id >= expected_update_id:
+        _clear_pending_reroute_apply(agv_id)
+        return True
+
+    if time.time() - float(guard.get("since") or 0.0) >= REROUTE_APPLY_HOLD_SEC:
+        print(
+            f"[REROUTE] Hold timeout waiting order ack from {agv_id} "
+            f"| expected={expected_order_id}/{expected_update_id} "
+            f"| current={current_order_id}/{current_update_id}"
+        )
+    return False
 
 # ==========================
 # APP REFERENCE (FIX import main)
@@ -60,7 +147,14 @@ def get_app():
         raise RuntimeError("MQTT app chưa được set. Hãy gọi set_app(app) từ main.py trước start_mqtt().")
     return _mqtt_app
 
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
+
+def _is_app_shutting_down() -> bool:
+    try:
+        app = get_app()
+        return bool(getattr(app.state, "shutting_down", False))
+    except Exception:
+        return False
+
 
 # ==========================
 # ALERT STATE (assistant)
@@ -76,17 +170,6 @@ _last_pos = {}
 _stuck_count = {}
 _last_alert_ts = {}
 _last_error_signature = {}
-<<<<<<< HEAD
-_last_state_log_signature = {}
-
-
-def _normalize_node_id(value) -> str:
-    text = str(value or "").strip()
-    if len(text) >= 2 and text[0] in {"N", "n"} and text[1:].isdigit():
-        return text[1:]
-    return text
-
-=======
 
 # ==========================
 # PostgreSQL Configuration
@@ -119,6 +202,7 @@ def debug_pg_target():
             """)
             rows = cur.fetchall()
             print(f"[DB] Visible tables: {rows}")
+        return True
     except Exception as e:
         print(f"[DB] debug_pg_target failed: {e}")
         try:
@@ -208,7 +292,7 @@ def lookup_to_team_by_boxcode(box_code: str) -> str | None:
             pass
         return None
 
-def resolve_map_id_sync(raw_map: str) -> str | None:
+def _legacy_resolve_map_id_sync_unused(raw_map: str) -> str | None:
     """
     Chuyển đổi raw_map (mapCurrent hoặc map_id từ AGV) thành map_id thật trong database.
     Gọi đồng bộ từ thread MQTT.
@@ -234,6 +318,119 @@ def resolve_map_id_sync(raw_map: str) -> str | None:
     except Exception as e:
         print(f"[DB] resolve_map_id_sync thất bại cho raw_map={raw_map}: {e}")
         return raw_map
+
+
+def _legacy_ensure_map_loaded_sync_unused(raw_map: str) -> str | None:
+    """
+    Resolve raw_map từ MQTT sang map_id thật và đảm bảo graph đã được load
+    vào shared MapManager trước khi traffic xử lý telemetry.
+    """
+    raw_map = str(raw_map or "").strip()
+    if not raw_map:
+        return None
+
+    try:
+        app = get_app()
+        loop = getattr(app.state, "loop", None)
+        pool = getattr(app.state, "db_pool", None)
+
+        if not loop or not loop.is_running() or pool is None:
+            return resolve_map_id_sync(raw_map) or raw_map
+
+        resolved_map_id = resolve_map_id_sync(raw_map) or raw_map
+
+        if (
+            str(map_manager.current_map_id) != str(resolved_map_id)
+            or map_manager.graph.number_of_nodes() == 0
+        ):
+            fut = asyncio.run_coroutine_threadsafe(
+                map_manager.load_from_db(pool, str(resolved_map_id)),
+                loop,
+            )
+            fut.result(timeout=5)
+
+        return str(resolved_map_id)
+    except Exception as e:
+        print(f"[DB] ensure_map_loaded_sync thất bại cho raw_map={raw_map}: {e}")
+        return resolve_map_id_sync(raw_map) or raw_map
+
+def resolve_map_id_sync(raw_map: str) -> str | None:
+    """
+    Chuyen doi raw_map tu MQTT thanh map_id that trong database.
+    Co cache va bo qua DB khi app dang shutdown.
+    """
+    raw_map = str(raw_map or "").strip()
+    if not raw_map:
+        return None
+
+    cached = _map_id_cache.get(raw_map)
+    if cached:
+        return cached
+
+    try:
+        if _mqtt_stopping or _is_app_shutting_down():
+            return raw_map
+
+        app = get_app()
+        loop = getattr(app.state, "loop", None)
+        pool = getattr(app.state, "db_pool", None)
+
+        if not loop or not loop.is_running() or pool is None:
+            return raw_map
+
+        fut = asyncio.run_coroutine_threadsafe(
+            map_manager.resolve_map_id(pool, raw_map),
+            loop,
+        )
+        resolved = fut.result(timeout=5)
+        resolved_value = str(resolved).strip() if resolved else raw_map
+        if resolved_value:
+            _map_id_cache[raw_map] = resolved_value
+        return resolved_value
+    except Exception as e:
+        if not (_mqtt_stopping or _is_app_shutting_down()):
+            detail = str(e) or e.__class__.__name__
+            print(f"[DB] resolve_map_id_sync that bai cho raw_map={raw_map}: {detail}")
+        return raw_map
+
+
+def ensure_map_loaded_sync(raw_map: str) -> str | None:
+    """
+    Resolve raw_map va dam bao shared MapManager da load xong graph.
+    """
+    raw_map = str(raw_map or "").strip()
+    if not raw_map:
+        return None
+
+    try:
+        if _mqtt_stopping or _is_app_shutting_down():
+            return _map_id_cache.get(raw_map) or raw_map
+
+        app = get_app()
+        loop = getattr(app.state, "loop", None)
+        pool = getattr(app.state, "db_pool", None)
+
+        if not loop or not loop.is_running() or pool is None:
+            return _map_id_cache.get(raw_map) or resolve_map_id_sync(raw_map) or raw_map
+
+        resolved_map_id = _map_id_cache.get(raw_map) or resolve_map_id_sync(raw_map) or raw_map
+        _map_id_cache[raw_map] = str(resolved_map_id)
+
+        if str(map_manager.current_map_id) == str(resolved_map_id) and map_manager.graph.number_of_nodes() > 0:
+            return str(resolved_map_id)
+
+        fut = asyncio.run_coroutine_threadsafe(
+            map_manager.load_from_db(pool, str(resolved_map_id)),
+            loop,
+        )
+        fut.result(timeout=5)
+        return str(resolved_map_id)
+    except Exception as e:
+        if not (_mqtt_stopping or _is_app_shutting_down()):
+            detail = str(e) or e.__class__.__name__
+            print(f"[DB] ensure_map_loaded_sync that bai cho raw_map={raw_map}: {detail}")
+        return _map_id_cache.get(raw_map) or resolve_map_id_sync(raw_map) or raw_map
+
 
 def build_pickup_name_candidates(conv_id: str) -> list[str]:
     """
@@ -861,9 +1058,11 @@ def build_order_with_path(agv_id: str, route_nodes: list, route_edges: list, end
 
 
 def send_generated_order(agv_id: str, order: dict):
-    topic = f"vda5050/agv/{agv_id}/order"
     payload_str = json.dumps(order, ensure_ascii=False)
-    result = client.publish(topic, payload_str, qos=1)
+    results = []
+    for topic in _publish_topic_candidates(agv_id, "order"):
+        result = client.publish(topic, payload_str, qos=1)
+        results.append((topic, result.rc))
     print(f"[MQTT] AUTO ORDER SENT -> {agv_id} | orderId={order.get('orderId')} | status={result.rc}")
     print(json.dumps(order, indent=2, ensure_ascii=False))
 
@@ -1063,7 +1262,6 @@ def handle_camera_scan_message(msg):
 # ==========================
 # ALERT HELPERS
 # ==========================
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 def _should_emit(agv_id: str, key: str, now_ts: float, cooldown: int = ALERT_COOLDOWN_SEC) -> bool:
     last = _last_alert_ts.get((agv_id, key), 0)
     if now_ts - last < cooldown:
@@ -1071,19 +1269,13 @@ def _should_emit(agv_id: str, key: str, now_ts: float, cooldown: int = ALERT_COO
     _last_alert_ts[(agv_id, key)] = now_ts
     return True
 
-<<<<<<< HEAD
-=======
 
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 def _emit_alert(agv_id: str, title: str, message: str, level: str = "warning"):
     app = get_app()
     ws_func = app.state.send_websocket_update
     if not ws_func:
         return
-<<<<<<< HEAD
-=======
 
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
     payload = {
         "type": "assistant_alert",
         "agv_id": agv_id,
@@ -1092,12 +1284,6 @@ def _emit_alert(agv_id: str, title: str, message: str, level: str = "warning"):
         "message": message,
         "timestamp": datetime.datetime.now().isoformat()
     }
-<<<<<<< HEAD
-    async def send_ws():
-        await ws_func(payload)
-    run_async_in_thread(send_ws())
-
-=======
 
     async def send_ws():
         await ws_func(payload)
@@ -1105,7 +1291,6 @@ def _emit_alert(agv_id: str, title: str, message: str, level: str = "warning"):
     run_async_in_thread(send_ws())
 
 
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 def detect_alerts(agv_id: str, state_data: dict):
     now_ts = time.time()
 
@@ -1163,42 +1348,6 @@ def detect_alerts(agv_id: str, state_data: dict):
         _stuck_count[agv_id] = 0
         _last_pos[agv_id] = (x, y)
 
-<<<<<<< HEAD
-# ==========================
-# ==========================
-# LẤY APP TỪ MAIN MÀ KHÔNG GÂY CIRCULAR IMPORT
-# ==========================
-def get_app():
-    import main
-    return main.app
-# ==========================
-# CHẠY ASYNC TRONG THREAD MQTT (FIX NO EVENT LOOP)
-# ==========================
-def run_async_in_thread(coro):
-    """??y coroutine v? ??ng event loop ch?nh c?a FastAPI khi ?ang ? thread MQTT."""
-    try:
-        app = get_app()
-        app_loop = getattr(app.state, "loop", None)
-        if app_loop and app_loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(coro, app_loop)
-
-            def _report_error(done_future):
-                try:
-                    done_future.result()
-                except Exception as exc:
-                    print(f"[MQTT] Async task failed: {exc}")
-
-            future.add_done_callback(_report_error)
-            return
-    except Exception as exc:
-        print(f"[MQTT] Cannot schedule on app loop, fallback to local loop: {exc}")
-
-    new_loop = asyncio.new_event_loop()
-    try:
-        new_loop.run_until_complete(coro)
-    finally:
-        new_loop.close()
-=======
 
 # ==========================
 # APP / ASYNC HELPERS
@@ -1214,7 +1363,6 @@ def run_async_in_thread(coro):
     else:
         asyncio.run(coro)
 
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 
 # ==========================
 # MQTT Event Handlers
@@ -1223,39 +1371,18 @@ def on_connect(client, userdata, flags, rc):
     print(f"[MQTT] Connected with result code {rc}")
     client.subscribe("vda5050/agv/+/state", qos=QOS)
     print("[MQTT] Subscribed: vda5050/agv/+/state")
-<<<<<<< HEAD
-    client.subscribe("vda5050/agv/+/instantActions", qos=QOS)
-    print("[MQTT] Subscribed: vda5050/agv/+/instantActions")
-    client.subscribe("vda5050/agv/+/order", qos=QOS)
-    print("[MQTT] Subscribed: vda5050/agv/+/order")
     client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/state", qos=QOS)
     print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/state")
-    client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/instantActions", qos=QOS)
-    print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/instantActions")
-    client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/order", qos=QOS)
-    print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/order")  # ĐÃ SUBSCRIBE
-
-
-def _parse_topic(topic: str):
-    topic_parts = topic.split("/")
-    if len(topic_parts) >= 4 and topic_parts[0] == "vda5050" and topic_parts[1] == "agv":
-        return topic_parts, topic_parts[2], topic_parts[3]
-    if len(topic_parts) >= 5 and topic_parts[0] == UAGV_INTERFACE_NAME and topic_parts[1] == UAGV_MAJOR_VERSION:
-        return topic_parts, topic_parts[3], topic_parts[4]
-    return topic_parts, None, None
-
-
-def on_message(client, userdata, msg):
-    topic_parts, agv_id, message_kind = _parse_topic(msg.topic)
-
-    try:
-=======
 
     client.subscribe("vda5050/agv/+/instantActions", qos=QOS)
     print("[MQTT] Subscribed: vda5050/agv/+/instantActions")
+    client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/instantActions", qos=QOS)
+    print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/instantActions")
 
     client.subscribe("vda5050/agv/+/order", qos=QOS)
     print("[MQTT] Subscribed: vda5050/agv/+/order")
+    client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/order", qos=QOS)
+    print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/order")
 
     # Camera băng tải
     client.subscribe("convQR/+/+/+/pub", qos=QOS)
@@ -1271,10 +1398,35 @@ def build_charge_name_candidates() -> list[str]:
 def build_wait_name_candidates() -> list[str]:
     return ["WAIT", "Wait", "Waiting", "Khu chờ", "Cho", "Chờ"]
 
+def _parse_agv_topic(topic_parts: list[str]) -> tuple[str | None, str | None]:
+    if len(topic_parts) >= 4 and topic_parts[0] == "vda5050" and topic_parts[1] == "agv":
+        return topic_parts[2], topic_parts[3]
+    if (
+        len(topic_parts) >= 5
+        and topic_parts[0] == UAGV_INTERFACE_NAME
+        and topic_parts[1] == UAGV_MAJOR_VERSION
+    ):
+        return topic_parts[3], topic_parts[4]
+    return None, None
+
+
+def _publish_topic_candidates(agv_id: str, suffix: str, manufacturer: str | None = None) -> list[str]:
+    maker = (manufacturer or UAGV_MANUFACTURER).strip() or UAGV_MANUFACTURER
+    return [
+        f"vda5050/agv/{agv_id}/{suffix}",
+        f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/{maker}/{agv_id}/{suffix}",
+    ]
+
+
 def on_message(client, userdata, msg):
+    if _mqtt_stopping or _is_app_shutting_down():
+        return
+
     topic_parts = msg.topic.split("/")
+    agv_id, message_kind = _parse_agv_topic(topic_parts)
     print(f"[MQTT] Nhận tin từ topic: {msg.topic}")
-    print(f"[MQTT] Raw payload: {msg.payload!r}")
+    if MQTT_VERBOSE_LOG:
+        print(f"[MQTT] Raw payload: {msg.payload!r}")
 
     try:
         # ✅ Handle camera topic first
@@ -1287,7 +1439,6 @@ def on_message(client, userdata, msg):
             handle_camera_scan_message(msg)
             return
 
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
         # === DECODE PAYLOAD ===
         try:
             payload = json.loads(msg.payload.decode("utf-8"))
@@ -1296,16 +1447,12 @@ def on_message(client, userdata, msg):
             return
 
         # === XỬ LÝ STATE ===
-<<<<<<< HEAD
         if message_kind == "state" and agv_id:
-=======
-        if len(topic_parts) >= 4 and topic_parts[3] == "state":
-            agv_id = topic_parts[2]
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
             agv_ip = "from_mqtt"
 
             pos = payload.get("agvPosition", {}) or {}
-            map_id = payload.get("mapCurrent") or pos.get("mapId") or ""
+            raw_map_id = payload.get("mapCurrent") or pos.get("mapId") or ""
+            resolved_map_id = resolve_map_id_sync(str(raw_map_id)) if raw_map_id else None
 
             # Mạnh tay chuẩn hóa toạ độ nhận được
             x = (
@@ -1348,32 +1495,9 @@ def on_message(client, userdata, msg):
                 "x": x,
                 "y": y,
                 "theta": theta,
-                "map_id": str(map_id)
+                "map_id": str(resolved_map_id or raw_map_id or "").strip()
             }
 
-<<<<<<< HEAD
-            # CẬP NHẬT AGV
-            agv_manager.update_status(agv_id, state_data)
-            detect_alerts(agv_id, state_data)
-            app = get_app()
-            traffic_handler = getattr(app.state, "handle_traffic_state_update", None)
-            if traffic_handler:
-                async def sync_traffic():
-                    await traffic_handler(agv_id, state_data)
-                run_async_in_thread(sync_traffic())
-
-            state_log_signature = (
-                str(state_data.get("lastNodeId") or ""),
-                str(state_data.get("orderId") or ""),
-                bool(state_data.get("paused")),
-            )
-            if _last_state_log_signature.get(agv_id) != state_log_signature:
-                _last_state_log_signature[agv_id] = state_log_signature
-                print(
-                    f"[STATE] {agv_id} | node={state_data['lastNodeId'] or '-'} "
-                    f"| order={state_data['orderId'] or '-'} | paused={state_data['paused']}"
-                )
-=======
             state_data["last_update_ts"] = time.time()
             state_data["last_seen_mono"] = time.monotonic()
             state_data["last_update"] = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -1406,7 +1530,6 @@ def on_message(client, userdata, msg):
                         _pending_drop_orders.pop(agv_id, None)
             except Exception as e:
                 print(f"[DISPATCH] Pending drop handling failed: {e}")
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 
             # === GỬI WEBSOCKET ===
             app = get_app()
@@ -1428,12 +1551,12 @@ def on_message(client, userdata, msg):
                 run_async_in_thread(send_ws())
 
             # === BROADCAST POSE REALTIME LÊN DASHBOARD ===
-            if map_id is not None:
+            if raw_map_id is not None:
                 try:
                     from main import broadcast_agv_pose
 
                     async def send_pose():
-                        await broadcast_agv_pose(agv_id, float(x), float(y), float(theta), str(map_id))
+                        await broadcast_agv_pose(agv_id, float(x), float(y), float(theta), str(raw_map_id))
 
                     run_async_in_thread(send_pose())
                 except Exception as e:
@@ -1442,133 +1565,244 @@ def on_message(client, userdata, msg):
             # === GIẢI PHÓNG KHÓA ĐƯỜNG KHI ORDER KẾT THÚC ===
             try:
                 order_status = (payload.get("orderStatus") or "").upper()
-<<<<<<< HEAD
-                all_nodes_finished = payload.get("nodeStates") and all(ns.get("nodeStatus") == "FINISHED" for ns in payload["nodeStates"])
-                should_release = order_status in ["FINISHED", "CANCELED", "ABORTED"]
-                # Some AGVs only report completed nodeStates for already-passed nodes while the mission is still active.
-                if not should_release and all_nodes_finished and not payload.get("orderId"):
-                    should_release = True
-                if should_release:
-                    traffic_engine = getattr(app.state, "traffic_engine", None)
-                    if traffic_engine:
-                        traffic_engine.release_agv(agv_id)
-                    agv_manager.clear_pending_path(agv_id)
-                    agv_manager.set_last_control_action(agv_id, None)
-=======
+                information_items = payload.get("information") or []
+                info_statuses = {
+                    str(item.get("infoType") or "").upper()
+                    for item in information_items
+                    if isinstance(item, dict)
+                }
                 all_nodes_finished = payload.get("nodeStates") and all(
                     ns.get("nodeStatus") in ["FINISHED", "DONE"] or ns.get("state") in ["FINISHED", "DONE"]
                     for ns in payload["nodeStates"]
                 )
-                if order_status in ["FINISHED", "CANCELED", "ABORTED"] or all_nodes_finished:
-                    from main import edge_coordinator
+                finished_from_info = bool(
+                    {"ORDER_FINISHED", "ORDER_CANCELED", "ORDER_ABORTED"} & info_statuses
+                )
+                route_is_finished = (
+                    order_status in ["FINISHED", "CANCELED", "ABORTED"]
+                    or all_nodes_finished
+                    or finished_from_info
+                )
+                if route_is_finished:
+                    from main import edge_coordinator, traffic_engine
                     edge_coordinator.release(agv_id)
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
-                    print(f"[COORD] Released locks for {agv_id} | status={order_status or 'ALL_NODES_FINISHED'}")
+                    traffic_engine.complete_route(agv_id)
+                    release_reason = order_status or ("INFO_STATUS" if finished_from_info else "ALL_NODES_FINISHED")
+                    print(f"[COORD] Released route reservations for {agv_id} | status={release_reason}")
             except Exception as e:
                 print(f"[COORD] Release failed for {agv_id}: {e}")
 
-<<<<<<< HEAD
-            # === TỰ ĐỘNG GỬI ORDER UPDATE KHI HOÀN THÀNH NODE ===
-            if False and payload.get("nodeStates"):
-                for ns in payload["nodeStates"]:
-                    if ns.get("nodeStatus") == "FINISHED":
-                        node_id = ns["nodeId"]
-                        print(f"[AUTO UPDATE] AGV {agv_id} HOÀN THÀNH node: {node_id}")
-
-                        pending_path = agv_manager.get_pending_path(agv_id)
-                        if pending_path and len(pending_path) > 1:
-                            next_destination = pending_path[-1]
-                            print(f"[AUTO UPDATE] Gửi order update đến: {next_destination}")
-
-                            from model import MoveCommand
-                            cmd = MoveCommand(agv_id=agv_id, destination=next_destination)
-
-                            move_func = app.state.move_agv_func
-                            if move_func:
-                                async def send_move():
-                                    await move_func(cmd)
-                                run_async_in_thread(send_move())
-                                print(f"[AUTO UPDATE] ĐÃ GỬI order update tự động cho {agv_id}")
-
         # === XỬ LÝ LỆNH MOVE TỪ MQTT EXPLORER ===
-        elif message_kind == "order" and agv_id:
-            if len(topic_parts) >= 2 and topic_parts[0] == "vda5050" and topic_parts[1] == "agv":
-                return
             try:
-                inbound_order_id = str(payload.get("orderId") or "").strip()
-                inbound_update_id = int(payload.get("orderUpdateId") or 0)
-                current_order = agv_manager.get_order(agv_id)
-                if (
-                    inbound_order_id
-                    and inbound_order_id == str(current_order.get("order_id") or "").strip()
-                    and inbound_update_id == int(current_order.get("order_update_id") or 0)
-                ):
-                    return
+                if state_data.get("map_id") or raw_map_id:
+                    from traffic_core import Telemetry, HealthState, TrafficState, TrafficAction, RerouteStrategy
+                    from main import (
+                        traffic_engine,
+                        ensure_traffic_topology_from_loaded_map,
+                        sync_traffic_route_from_state,
+                        build_order_for_traffic_route,
+                    )
 
-                nodes = payload.get("nodes") or []
-                if not nodes:
-                    return
+                    traffic_map_id = ensure_traffic_topology_from_loaded_map(
+                        str(state_data.get("map_id") or raw_map_id)
+                    )
+                    sync_traffic_route_from_state(
+                        agv_id=agv_id,
+                        map_id=traffic_map_id,
+                        node_states=payload.get("nodeStates") or [],
+                        current_hint_node=state_data.get("lastNodeId"),
+                        allow_rehydrate=not route_is_finished,
+                    )
 
-                ordered_nodes = sorted(
-                    [node for node in nodes if isinstance(node, dict)],
-                    key=lambda item: int(item.get("sequenceId", 10**9)),
-                )
-                node_path = []
-                for node in ordered_nodes:
-                    node_id = _normalize_node_id(node.get("nodeId"))
-                    if not node_id:
-                        continue
-                    if node_path and node_path[-1] == node_id:
-                        continue
-                    node_path.append(node_id)
+                    velocity = payload.get("velocity") or {}
+                    speed = abs(float(velocity.get("vx") or velocity.get("speed") or 0.0))
+                    traffic_state = TrafficState.MOVING if speed > 0.01 else TrafficState.IDLE
+                    if state_data.get("paused"):
+                        traffic_state = TrafficState.WAITING
+                    health_state = HealthState.OK
+                    if state_data.get("error"):
+                        health_state = HealthState.ERROR
 
-                destination = node_path[-1] if node_path else ""
-                if not destination:
-                    return
+                    engine_result = traffic_engine.handle_telemetry(
+                        traffic_map_id,
+                        Telemetry(
+                            agv_id=agv_id,
+                            x=float(x),
+                            y=float(y),
+                            speed=speed,
+                            heading_deg=float(theta),
+                            timestamp=time.time(),
+                            health_state=health_state,
+                            traffic_state=traffic_state,
+                        ),
+                    )
+                    if MQTT_VERBOSE_LOG and engine_result.decision is not None:
+                        print(
+                            f"[TRAFFIC] {agv_id} | action={engine_result.decision.action.value} | "
+                            f"reason={engine_result.decision.reason} | related={engine_result.decision.related_agv_id}"
+                        )
 
-                raw_map = (
-                    payload.get("map_id")
-                    or payload.get("mapCurrent")
-                    or ((payload.get("agvPosition") or {}).get("mapId"))
-                )
+                    map_control_results = traffic_engine.evaluate_map_controls(traffic_map_id)
+                    if (
+                        engine_result.reroute_result is not None
+                        and engine_result.reroute_result.success
+                        and engine_result.reroute_result.route is not None
+                        and engine_result.reroute_result.strategy != RerouteStrategy.SPEED_ONLY
+                    ):
+                        # Preserve the immediate successful reroute found during the
+                        # telemetry-triggered evaluation. A subsequent map-wide
+                        # reevaluation in the same tick can otherwise downgrade it
+                        # back to WAIT before the reroute order is published.
+                        map_control_results[agv_id] = engine_result
 
-                from model import MoveCommand
+                    hold_for_reroute: set[str] = set()
+                    for source_agv_id, source_result in map_control_results.items():
+                        source_state_data = agv_manager.get_agv(source_agv_id) or {}
+                        source_decision = source_result.decision
+                        source_reroute_result = source_result.reroute_result
+                        related_agv_id = str(source_decision.related_agv_id or "").strip() if source_decision is not None else ""
+                        conflict_id = str(source_decision.related_conflict_id or "").strip() if source_decision is not None else ""
+                        decision_reason = str(source_decision.reason or "").lower() if source_decision is not None else ""
 
-                cmd = MoveCommand(
-                    agv_id=agv_id,
-                    destination=destination,
-                    map_id=str(raw_map).strip() if raw_map else None,
-                )
-                agv_manager.set_pending_destination(agv_id, destination, str(raw_map).strip() if raw_map else None)
-                agv_manager.clear_pending_path(agv_id)
+                        if related_agv_id and (
+                            (
+                                source_decision is not None
+                                and source_decision.action in {TrafficAction.WAIT, TrafficAction.STOP, TrafficAction.REROUTE}
+                                and (
+                                    conflict_id.startswith(
+                                        (
+                                            "planned_head_on_",
+                                            "forced_head_on_",
+                                            "direct_head_on_",
+                                            "immediate_head_on_",
+                                            "direct_overlap_",
+                                        )
+                                    )
+                                    or "head-on" in decision_reason
+                                    or "corridor" in decision_reason
+                                    or "reroute" in decision_reason
+                                )
+                            )
+                            or not _is_pending_reroute_applied(source_agv_id, source_state_data)
+                        ):
+                            hold_for_reroute.add(related_agv_id)
 
-                app = get_app()
-                move_func = getattr(app.state, "move_agv_func", None)
-                if move_func is None:
-                    return
+                        if (
+                            source_decision is None
+                            or source_reroute_result is None
+                            or not source_reroute_result.success
+                            or source_reroute_result.route is None
+                            or source_reroute_result.strategy == RerouteStrategy.SPEED_ONLY
+                        ):
+                            continue
+                        if related_agv_id:
+                            hold_for_reroute.add(related_agv_id)
 
-                async def send_move():
-                    await move_func(cmd)
+                    for target_agv_id, target_result in map_control_results.items():
+                        target_state_data = agv_manager.get_agv(target_agv_id) or {}
+                        target_decision = target_result.decision
+                        target_reroute_result = target_result.reroute_result
 
-                run_async_in_thread(send_move())
-                print(
-                    f"[ORDER MQTT] {agv_id} | destination={destination} "
-                    f"| requested_path={node_path if node_path else [destination]} "
-                    f"| map={str(raw_map).strip() if raw_map else '-'}"
-                )
+                        if target_decision is not None and MQTT_VERBOSE_LOG:
+                            print(
+                                f"[TRAFFIC MAP] {target_agv_id} | action={target_decision.action.value} | "
+                                f"reason={target_decision.reason} | related={target_decision.related_agv_id}"
+                            )
 
+                        if (
+                            target_reroute_result is not None
+                            and target_reroute_result.success
+                            and target_reroute_result.route is not None
+                            and target_reroute_result.strategy != RerouteStrategy.SPEED_ONLY
+                        ):
+                            next_order_id = str(target_state_data.get("orderId") or uuid.uuid4())
+                            next_update_id = int(target_state_data.get("orderUpdateId") or 0) + 1
+                            reroute_order, reroute_path = build_order_for_traffic_route(
+                                target_agv_id,
+                                target_reroute_result.route,
+                                target_state_data,
+                                order_id=next_order_id,
+                                order_update_id=next_update_id,
+                            )
+                            if MQTT_VERBOSE_LOG:
+                                print(f"[REROUTE] {target_agv_id} | reason={target_reroute_result.reason} | path={reroute_path}")
+                            _remember_pending_reroute_apply(
+                                target_agv_id,
+                                next_order_id,
+                                next_update_id,
+                                [segment.edge_id for segment in target_reroute_result.route.segments],
+                            )
+                            send_order(target_agv_id, reroute_order)
+                            traffic_engine.activate_route(
+                                target_agv_id,
+                                str(traffic_map_id),
+                                target_reroute_result.route,
+                            )
+                            # Do not resume in the same control tick as reroute issuance.
+                            # Let the next traffic evaluation validate the new route first,
+                            # then resume only if the updated route is truly clear.
+                            continue
+
+                        if target_agv_id in hold_for_reroute:
+                            if not target_state_data.get("paused"):
+                                _send_traffic_control_action(target_agv_id, "PAUSE")
+                            continue
+
+                        if not _is_pending_reroute_applied(target_agv_id, target_state_data):
+                            if not target_state_data.get("paused"):
+                                _send_traffic_control_action(target_agv_id, "PAUSE")
+                            continue
+
+                        if target_decision is None:
+                            continue
+
+                        target_action_state = target_state_data.get("actionState") or {}
+                        sim_pause_hold = bool(target_action_state.get("simPauseHold"))
+                        if not target_state_data.get("paused"):
+                            _last_traffic_control_action.pop(target_agv_id, None)
+                        if target_decision.action in {TrafficAction.WAIT, TrafficAction.STOP}:
+                            if not target_state_data.get("paused"):
+                                _send_traffic_control_action(target_agv_id, "PAUSE")
+                        elif target_decision.action == TrafficAction.PROCEED:
+                            if target_state_data.get("paused") and not sim_pause_hold:
+                                # If there was a recent head-on assignment involving this AGV,
+                                # gate RESUME until 1) the loser has applied the reroute (order ack),
+                                # and 2) the contested resource/node is no longer held by the loser.
+                                headon = _get_head_on_assignment(target_agv_id)
+                                if headon:
+                                    loser = headon.get("loser")
+                                    resource_node = headon.get("resource_node")
+                                    loser_state = agv_manager.get_agv(loser) or {}
+                                    # Wait for loser to acknowledge/apply the reroute order
+                                    if not _is_pending_reroute_applied(loser, loser_state):
+                                        continue
+                                    # If a resource node was identified, ensure loser no longer
+                                    # effectively holds that node before allowing RESUME.
+                                    if resource_node:
+                                        try:
+                                            from types import SimpleNamespace
+
+                                            loser_state_obj = SimpleNamespace(
+                                                agv_id=loser,
+                                                x=float(loser_state.get("x", 0) or 0),
+                                                y=float(loser_state.get("y", 0) or 0),
+                                                current_node=loser_state.get("lastNodeId") or loser_state.get("current_node"),
+                                                last_reached_node=loser_state.get("last_reached_node") or loser_state.get("lastReachedNode"),
+                                                current_edge=loser_state.get("currentEdge") or loser_state.get("current_edge"),
+                                            )
+                                            # If loser still holds the resource, do not resume winner yet
+                                            if traffic_engine._agv_effectively_holds_node(str(traffic_map_id), loser_state_obj, resource_node):
+                                                continue
+                                        except Exception:
+                                            # On any unexpected error, be conservative and continue holding
+                                            continue
+                                    # All guards passed -> clear head-on record and resume
+                                    _clear_head_on_assignment(target_agv_id)
+                                _send_traffic_control_action(target_agv_id, "RESUME")
             except Exception as e:
-                print(f"[ORDER MQTT] L?i x? l? order: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"[TRAFFIC] Integration failed for {agv_id}: {e}")
 
-        elif "move" in topic_parts:
-            agv_id = agv_id or (topic_parts[2] if len(topic_parts) > 2 else "")
-=======
-        # === XỬ LÝ LỆNH MOVE TỪ MQTT EXPLORER ===
-        elif "move" in topic_parts:
-            agv_id = topic_parts[2]
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
+        elif "move" in topic_parts and agv_id:
             print(f"[MOVE COMMAND] Nhận lệnh di chuyển cho AGV: {agv_id}")
 
             try:
@@ -1651,12 +1885,14 @@ def on_message(client, userdata, msg):
                 traceback.print_exc()
 
         # === XỬ LÝ INSTANT ACTIONS ===
-<<<<<<< HEAD
         elif message_kind == "instantActions" and agv_id:
-=======
-        elif len(topic_parts) >= 4 and topic_parts[3] == "instantActions":
-            agv_id = topic_parts[2]
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
+            action_ids = [
+                str(item.get("actionId") or "").strip()
+                for item in (payload.get("actions") or [])
+                if isinstance(item, dict)
+            ]
+            if action_ids and all(action_id in _recent_published_action_ids for action_id in action_ids if action_id):
+                return
             print(f"[ACTION] AGV {agv_id} nhận instantActions:")
             print(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -1686,82 +1922,45 @@ def on_message(client, userdata, msg):
 client = mqtt.Client(client_id=f"server_{uuid.uuid4().hex[:8]}", clean_session=True)
 client.on_connect = on_connect
 client.on_message = on_message
+client.socket_timeout = float(os.getenv("MQTT_SOCKET_TIMEOUT_SEC", "5"))
 
 
-<<<<<<< HEAD
-def _publish_topic_candidates(agv_id: str, suffix: str) -> list[str]:
-    agv_info = agv_manager.get_agv(agv_id, {}) or {}
-    manufacturer = str(agv_info.get("manufacturer") or "tot")
-    return [
-        f"vda5050/agv/{agv_id}/{suffix}",
-        f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/{manufacturer}/{agv_id}/{suffix}",
-    ]
-
-
-=======
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 def start_mqtt():
+    global _mqtt_stopping
     try:
+        _mqtt_stopping = False
         client.connect(BROKER, PORT, keepalive=60)
         client.loop_start()
+        return True
         print(f"[MQTT] Đã kết nối và lắng nghe trên {BROKER}:{PORT}")
     except Exception as e:
-<<<<<<< HEAD
-        print(f"[MQTT] LỖI KẾT NỘI BROKER: {e}")
-=======
+        print(f"[MQTT] Broker connect error: {e}")
+        print(f"[MQTT] Broker config: host={BROKER} port={PORT}")
+        return False
         print(f"[MQTT] LỖI KẾT NỐI BROKER: {e}")
 
 
 def stop_mqtt():
-    global client
+    global client, _mqtt_stopping
     if client:
+        _mqtt_stopping = True
         print("[MQTT] Stopping...")
         try:
             client.disconnect()
         finally:
             client.loop_stop()
         print("[MQTT] Stopped")
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
 
 
 # ==========================
 # ORDER & ACTION Sending
 # ==========================
 def send_order(agv_id: str, order: dict):
-<<<<<<< HEAD
     payload_str = json.dumps(order, ensure_ascii=False)
-    result_codes = []
+    results = []
     for topic in _publish_topic_candidates(agv_id, "order"):
         result = client.publish(topic, payload_str, qos=1)
-        result_codes.append(f"{topic} rc={result.rc}")
-    print(f"[ORDER OUT] {agv_id} | orderId={order.get('orderId')} | {' | '.join(result_codes)}")
-
-
-def send_instant_action(agv_id: str, action_type: str):
-    if action_type not in ["PAUSE", "RESUME"]:
-        print(f"[MQTT] Hành động không hợp lệ: {action_type}")
-        return
-
-    action_msg = {
-        "headerId": int(time.time()),
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "version": "1.1",
-        "manufacturer": "AGVCorp",
-        "serialNumber": agv_id,
-        "actions": [{
-            "actionId": str(uuid.uuid4()),
-            "actionType": action_type,
-            "blockingType": "HARD" if action_type == "PAUSE" else "SOFT"
-        }]
-    }
-    payload = json.dumps(action_msg, ensure_ascii=False)
-    for topic in _publish_topic_candidates(agv_id, "instantActions"):
-        client.publish(topic, payload, qos=0)
-    print(f"[MQTT] ĐÃ GỬI instantAction → {agv_id}: {action_type}")
-=======
-    topic = f"vda5050/agv/{agv_id}/order"
-    payload_str = json.dumps(order, ensure_ascii=False)
-    result = client.publish(topic, payload_str, qos=1)
+        results.append((topic, result.rc))
     print(f"[MQTT] ĐÃ GỬI order → {agv_id} | orderId={order.get('orderId')} | status={result.rc}")
 
 
@@ -1776,11 +1975,16 @@ def send_instant_action(agv_id: str, action_type: str):
         print(f"[MQTT] Hành động không hợp lệ: {action}")
         return False
 
+    cooldown_key = (str(agv_id), action)
+    now_ts = time.time()
+    if action in {"PAUSE", "RESUME"}:
+        last_sent = _last_instant_action_sent.get(cooldown_key, 0.0)
+        if now_ts - last_sent < INSTANT_ACTION_COOLDOWN_SEC:
+            return True
+
     agv_state = agv_manager.get_agv(agv_id) or {}
     manufacturer = agv_state.get("manufacturer") or "TNG:TOT"
     serial_number = agv_state.get("serialNumber") or agv_id
-
-    topic = f"vda5050/agv/{agv_id}/instantActions"
 
     action_msg = {
         "headerId": int(time.time() * 1000),
@@ -1796,14 +2000,67 @@ def send_instant_action(agv_id: str, action_type: str):
         }]
     }
 
+    stale_action_ids = [
+        action_id
+        for action_id, ts in _recent_published_action_ids.items()
+        if now_ts - ts > 10.0
+    ]
+    for action_id in stale_action_ids:
+        _recent_published_action_ids.pop(action_id, None)
+
+    for item in action_msg.get("actions") or []:
+        action_id = str(item.get("actionId") or "").strip()
+        if action_id:
+            _recent_published_action_ids[action_id] = now_ts
+    _last_instant_action_sent[cooldown_key] = now_ts
+
     payload = json.dumps(action_msg, ensure_ascii=False)
-    result = client.publish(topic, payload, qos=1)
+    results = []
+    # Try publish with small retry/backoff to improve reliability in lossy networks
+    for topic in _publish_topic_candidates(agv_id, "instantActions"):
+        published = False
+        last_rc = None
+        attempts = 0
+        while not published and attempts < 3:
+            try:
+                info = client.publish(topic, payload, qos=1)
+                last_rc = getattr(info, "rc", None)
+                # wait a short time for the client to complete publish
+                try:
+                    info.wait_for_publish(timeout=2.0)
+                except Exception:
+                    pass
+                # Consider published if info reports success or client confirms
+                published = getattr(info, "is_published", lambda: False)() if hasattr(info, "is_published") else (last_rc == 0)
+            except Exception as e:
+                print(f"[MQTT] publish error for topic={topic}: {e}")
+                published = False
+            if not published:
+                attempts += 1
+                time.sleep(0.15 * attempts)
+        results.append((topic, 0 if published else (last_rc or 1)))
 
     print(f"[MQTT] ĐÃ GỬI instantAction → {agv_id}: {action}")
-    print(f"[MQTT] Topic: {topic}")
+    print(f"[MQTT] Topics: {results}")
     print(json.dumps(action_msg, indent=2, ensure_ascii=False))
 
-    return result.rc == 0
+    return any(rc == 0 for _, rc in results)
+
+
+def _send_traffic_control_action(agv_id: str, action_type: str) -> bool:
+    action = str(action_type or "").upper().strip()
+    if not action:
+        return False
+
+    if _last_traffic_control_action.get(agv_id) == action:
+        return True
+
+    sent = send_instant_action(agv_id, action)
+    if sent:
+        _last_traffic_control_action[agv_id] = action
+    return sent
+
+
 def send_pick_action(agv_id: str):
     topic = f"vda5050/agv/{agv_id}/order"
     agv_state = agv_manager.get_agv(agv_id) or {}
@@ -1894,4 +2151,3 @@ def get_agv_special_targets(agv_id: str) -> dict:
         result["wait_error"] = str(e)
 
     return result
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574

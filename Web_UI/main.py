@@ -331,7 +331,7 @@ def toggle_lang_menu(n_toggle, n_vi, n_en, is_open):
 
 
 if __name__ == "__main__":
-    app.run(host="192.168.88.253", port=8050, debug=True)
+    app.run(host="192.168.0.103", port=8050, debug=True)
 =======
         "zIndex": "20000",
         "overflow": "hidden",

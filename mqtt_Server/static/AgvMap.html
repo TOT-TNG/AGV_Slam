@@ -1302,7 +1302,7 @@ async function loadMap(mapId) {
  agvLastUpdate = {};
 
  try {
-  const res = await fetch(`http://192.168.88.253:8000/api/maps/${mapId}`);
+  const res = await fetch(`http://192.168.1.19:8000/api/maps/${mapId}`);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
   mapData = data;
@@ -1858,7 +1858,7 @@ function updateAGVPoses(newPoses) {
 
 function setupWebSocket() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket('ws://192.168.88.253:8000/ws');
+  ws = new WebSocket('ws://192.168.1.19:8000/ws');
 
   ws.onopen = () => console.log("[WS] Connected.");
 
@@ -1885,7 +1885,7 @@ function setupWebSocket() {
 }
 
 // Load danh sÃ¡ch map
-fetch('http://192.168.88.253:8000/api/maps/list')
+fetch('http://192.168.1.19:8000/api/maps/list')
  .then(r => {
   if (!r.ok) {
     throw new Error(`HTTP Error ${r.status}`);

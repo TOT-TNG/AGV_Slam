@@ -225,6 +225,10 @@ class TrajectoryPredictor:
         eta_by_node: Dict[str, float] = {}
         eta_by_edge: Dict[str, float] = {}
 
+        if state.paused:
+            self._predict_stationary(now, state, windows)
+            return PredictedTrajectory(state.agv_id, now, self.horizon_s, windows, eta_by_node, eta_by_edge)
+
         if route is None or not route.segments:
             self._predict_stationary(now, state, windows)
             return PredictedTrajectory(state.agv_id, now, self.horizon_s, windows, eta_by_node, eta_by_edge)
@@ -338,8 +342,9 @@ class TrajectoryPredictor:
 
 
 class ConflictPredictor:
-    def __init__(self, safety_gap_s: float = 0.35) -> None:
+    def __init__(self, safety_gap_s: float = 0.35, junction_approach_lock_s: float = 1.25) -> None:
         self.safety_gap_s = safety_gap_s
+        self.junction_approach_lock_s = junction_approach_lock_s
 
     def detect(self, trajectories: Dict[str, PredictedTrajectory]) -> List[PredictedConflict]:
         conflicts: List[PredictedConflict] = []
@@ -396,7 +401,54 @@ class ConflictPredictor:
                     results.append(
                         self._make_conflict(kind, left.agv_id, right.agv_id, left_physical, overlap, detail)
                     )
+        existing_node_ids = {
+            conflict.conflict_id
+            for conflict in results
+            if conflict.kind == ConflictKind.NODE
+        }
+        for shared_node in sorted(set(left.eta_by_node.keys()) & set(right.eta_by_node.keys())):
+            left_eta = left.eta_by_node.get(shared_node)
+            right_eta = right.eta_by_node.get(shared_node)
+            if left_eta is None or right_eta is None:
+                continue
+            left_incoming = self._incoming_edge_to_node(left, shared_node)
+            right_incoming = self._incoming_edge_to_node(right, shared_node)
+            if left_incoming is None or right_incoming is None:
+                continue
+            left_from, left_to = left_incoming
+            right_from, right_to = right_incoming
+            if left_to != shared_node or right_to != shared_node:
+                continue
+            if left_from == right_from:
+                continue
+
+            overlap = (
+                min(left.generated_at + left_eta, right.generated_at + right_eta) - self.junction_approach_lock_s,
+                max(left.generated_at + left_eta, right.generated_at + right_eta) + self.safety_gap_s,
+            )
+            if overlap[1] <= overlap[0]:
+                continue
+            conflict = self._make_conflict(
+                ConflictKind.NODE,
+                left.agv_id,
+                right.agv_id,
+                shared_node,
+                overlap,
+                f"Approach lock on junction node {shared_node} from incoming edges {left_from}->{shared_node} and {right_from}->{shared_node}",
+            )
+            if conflict.conflict_id not in existing_node_ids:
+                results.append(conflict)
+                existing_node_ids.add(conflict.conflict_id)
         return results
+
+    @staticmethod
+    def _incoming_edge_to_node(trajectory: PredictedTrajectory, node_id: str) -> Optional[Tuple[str, str]]:
+        for window in trajectory.windows:
+            if window.resource_type != "EDGE":
+                continue
+            if window.to_node == node_id and window.from_node and window.to_node:
+                return window.from_node, window.to_node
+        return None
 
     def _make_conflict(
         self,
@@ -439,11 +491,12 @@ class SpeedControlPolicy:
         crawl_speed: float = 0.2,
         min_speed: float = 0.1,
         stop_distance_buffer_s: float = 0.5,
-        winner_gap_s: float = 0.35,
+        winner_gap_s: float = 0.8,
     ) -> None:
         self.crawl_speed = crawl_speed
         self.min_speed = min_speed
         self.stop_distance_buffer_s = stop_distance_buffer_s
+        # 0.8s matches traffic_core hysteresis; prevents WAIT/PROCEED oscillation due to ETA noise
         self.winner_gap_s = winner_gap_s
 
     def recommend(
