@@ -322,17 +322,6 @@ def toggle_lang_menu(n_toggle, n_vi, n_en, is_open):
         "border": "1px solid rgba(255,255,255,0.12)",
         "borderRadius": "12px",
         "boxShadow": "0 10px 28px rgba(0,0,0,0.35)",
-<<<<<<< HEAD
-        "zIndex": "20000",        # ✅ cực cao để nổi trên mọi panel
-        "overflow": "hidden",
-    }
-    return style, is_open
-
-
-
-if __name__ == "__main__":
-    app.run(host="192.168.0.103", port=8050, debug=True)
-=======
         "zIndex": "20000",
         "overflow": "hidden",
     }
@@ -341,5 +330,4 @@ if __name__ == "__main__":
 
 
 if __name__ == "__main__":
-    app.run(host="192.168.0.23", port=8050, debug=True, dev_tools_ui=False)
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
+    app.run(host="192.168.0.81", port=8050, debug=True, dev_tools_ui=False)

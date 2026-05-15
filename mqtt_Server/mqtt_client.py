@@ -21,7 +21,7 @@ from map_manager import MapManager
 # ==========================
 # MQTT Configuration
 # ==========================
-BROKER = os.getenv("MQTT_BROKER", "192.168.0.103").strip()
+BROKER = os.getenv("MQTT_BROKER", "192.168.0.81").strip()
 PORT = int(os.getenv("MQTT_PORT", "1883"))
 QOS = int(os.getenv("MQTT_QOS", "0"))
 UAGV_INTERFACE_NAME = os.getenv("UAGV_INTERFACE_NAME", "uagv").strip() or "uagv"
@@ -40,7 +40,17 @@ _last_instant_action_sent: dict[tuple[str, str], float] = {}
 _last_traffic_control_action: dict[str, str] = {}
 _pending_reroute_apply: dict[str, dict[str, object]] = {}
 _pending_head_on_assignments: dict[str, dict[str, object]] = {}
+_peer_stop_states: dict[str, dict] = {}         # agv_id -> {"peer_id": str, "since": float}
+_peer_stop_resolved_pairs: set = set()          # frozenset({agv_a, agv_b}) pairs already resolved this cycle
+# Proactive node blocking: track which node each AGV is currently heading to
+# {agv_id: to_node_str}  — updated every time AGV's current_edge changes
+_agv_incoming_node: dict[str, str] = {}
+# Pairs already proactively rerouted this reservation cycle: frozenset({incoming_agv_id, affected_agv_id})
+_proactive_rerouted_pairs: set = set()
+# Idle-block proactive reroute dedup: frozenset({"agv@vN", "idle_other_node"}) — keyed by route version
+_idle_block_proactive_done: set = set()
 INSTANT_ACTION_COOLDOWN_SEC = float(os.getenv("INSTANT_ACTION_COOLDOWN_SEC", "10.0"))
+PEER_STOP_REROUTE_TIMEOUT_SEC = float(os.getenv("PEER_STOP_REROUTE_TIMEOUT_SEC", "3.0"))
 REROUTE_APPLY_HOLD_SEC = float(os.getenv("REROUTE_APPLY_HOLD_SEC", "8.0"))
 
 
@@ -100,6 +110,81 @@ def _get_head_on_assignment(winner: str) -> dict | None:
 
 def _clear_head_on_assignment(winner: str) -> None:
     _pending_head_on_assignments.pop(str(winner), None)
+
+
+def _send_peer_stop_reroute(agv_id: str, reroute_result, engine, map_id: str) -> bool:
+    """Send reroute order for an AGV from a peer-stop reroute result. Returns True on success."""
+    try:
+        from traffic_core import RerouteStrategy
+        from main import build_order_for_traffic_route
+        if not (reroute_result and reroute_result.success and reroute_result.route
+                and reroute_result.strategy != RerouteStrategy.SPEED_ONLY):
+            return False
+        state_data = agv_manager.get_agv(agv_id) or {}
+        next_order_id = str(state_data.get("orderId") or uuid.uuid4())
+        next_update_id = int(state_data.get("orderUpdateId") or 0) + 1
+        reroute_order, reroute_path = build_order_for_traffic_route(
+            agv_id, reroute_result.route, state_data,
+            order_id=next_order_id, order_update_id=next_update_id,
+        )
+        print(f"[PEER_STOP] Rerouting agv={agv_id} path={reroute_path}")
+        _remember_pending_reroute_apply(agv_id, next_order_id, next_update_id,
+                                        [seg.edge_id for seg in reroute_result.route.segments])
+        send_order(agv_id, reroute_order)
+        engine.activate_route(agv_id, map_id, reroute_result.route)
+        return True
+    except Exception as exc:
+        print(f"[PEER_STOP] _send_peer_stop_reroute failed for {agv_id}: {exc}")
+        return False
+
+
+def _handle_mutual_peer_stop(agv_a: str, agv_b: str, engine, map_id: str) -> None:
+    """
+    Resolve LIDAR peer-stop conflict.
+    winner_override=agv_a means agv_a is the stopped one and agv_b is the detected peer (one-sided).
+    Idle AGVs always win; the moving AGV must reroute around them.
+    When no alternate path exists, do nothing — LIDAR already holds the AGV; no PAUSE needed.
+    """
+    try:
+        winner, loser = engine.determine_peer_collision_winner(map_id, agv_a, agv_b)
+        peer_is_idle = engine._routes.get(winner) is None  # winner has no active route
+
+        print(f"[PEER_STOP] Resolving: winner={winner} (idle={peer_is_idle}) loser={loser}")
+
+        if peer_is_idle:
+            # Idle winner stays put → reroute the loser (moving AGV) around the idle winner's node.
+            # Pass idle_agv_id=winner so force_reroute uses the engine's internal node format
+            # (avoids MQTT "N21" vs topology "21" prefix mismatch in blocked_node comparison).
+            idle_node = str((agv_manager.get_agv(winner) or {}).get("lastNodeId") or "").strip()
+            print(f"[PEER_STOP] Idle winner={winner} at node={idle_node}, rerouting loser={loser} around it")
+            reroute_result = engine.force_reroute_around_idle_peer(
+                map_id, loser, idle_node, idle_agv_id=winner
+            )
+            if _send_peer_stop_reroute(loser, reroute_result, engine, map_id):
+                return
+            # No alternate path exists in the topology → LIDAR holds loser naturally
+            print(f"[PEER_STOP] No alternate path for {loser} around idle {winner} at {idle_node}; LIDAR holds it")
+            return
+
+        # Both AGVs moving → reroute the loser via standard head-on mechanism
+        deferred = engine._deferred_head_on.get(loser) or {}
+        avoid_edges = list(deferred.get("avoid_edges") or [])
+        reroute_result = engine.force_reroute_for_peer_collision(map_id, loser, avoid_edges, winner)
+        if _send_peer_stop_reroute(loser, reroute_result, engine, map_id):
+            _remember_head_on_assignment(winner, loser)
+            return
+
+        # Loser couldn't reroute → try treating loser as idle-blocked (reroute around loser's node)
+        loser_node = str((agv_manager.get_agv(loser) or {}).get("lastNodeId") or "").strip()
+        print(f"[PEER_STOP] Standard reroute failed for loser={loser}, trying around node={loser_node}")
+        fallback = engine.force_reroute_around_idle_peer(map_id, winner, loser_node)
+        if _send_peer_stop_reroute(winner, fallback, engine, map_id):
+            return
+
+        # No reroute possible for either side → LIDAR already handles the stop, no server PAUSE needed
+        print(f"[PEER_STOP] No reroute found for {agv_a} vs {agv_b}; leaving LIDAR to control")
+    except Exception as exc:
+        print(f"[PEER_STOP] Error resolving peer stop ({agv_a} vs {agv_b}): {exc}")
 
 
 def _clear_pending_reroute_apply(agv_id: str) -> None:
@@ -1506,6 +1591,22 @@ def on_message(client, userdata, msg):
             agv_manager.update_status(agv_id, state_data)
             detect_alerts(agv_id, state_data)
 
+            # Parse PEER_STOP info for LIDAR collision resolution
+            peer_stop_peer_id = None
+            for _info_item in (payload.get("information") or []):
+                if isinstance(_info_item, dict) and _info_item.get("infoType") == "PEER_STOP":
+                    peer_stop_peer_id = str(_info_item.get("infoDescription") or "").strip() or None
+                    break
+            if peer_stop_peer_id:
+                existing = _peer_stop_states.get(agv_id)
+                if not existing or existing.get("peer_id") != peer_stop_peer_id:
+                    _peer_stop_states[agv_id] = {"peer_id": peer_stop_peer_id, "since": time.time()}
+                # else: keep existing entry to preserve original `since` timestamp
+            else:
+                prev_entry = _peer_stop_states.pop(agv_id, None)
+                if prev_entry:
+                    _peer_stop_resolved_pairs.discard(frozenset([agv_id, prev_entry.get("peer_id", "")]))
+
             print(f"\n[STATE] AGV {agv_id} ĐÃ CẬP NHẬT TỪ MQTT THẬT!")
             print(f"   → Node: {state_data['lastNodeId']}")
             print(f"   → Order: {state_data['orderId']}")
@@ -1606,12 +1707,17 @@ def on_message(client, userdata, msg):
                     traffic_map_id = ensure_traffic_topology_from_loaded_map(
                         str(state_data.get("map_id") or raw_map_id)
                     )
+                    # When a reroute order was recently sent (pending), prevent the stale
+                    # MQTT state (still reflecting the OLD order) from overwriting the newly
+                    # activated escape route in the traffic engine.  The escape route must
+                    # stay in place until the AGV acknowledges the new order.
+                    _has_pending_reroute = _pending_reroute_apply.get(agv_id) is not None
                     sync_traffic_route_from_state(
                         agv_id=agv_id,
                         map_id=traffic_map_id,
                         node_states=payload.get("nodeStates") or [],
                         current_hint_node=state_data.get("lastNodeId"),
-                        allow_rehydrate=not route_is_finished,
+                        allow_rehydrate=not route_is_finished and not _has_pending_reroute,
                     )
 
                     velocity = payload.get("velocity") or {}
@@ -1642,7 +1748,115 @@ def on_message(client, userdata, msg):
                             f"reason={engine_result.decision.reason} | related={engine_result.decision.related_agv_id}"
                         )
 
-                    map_control_results = traffic_engine.evaluate_map_controls(traffic_map_id)
+                    # Proactive node blocking: when AGV enters its LAST route edge (approaching
+                    # destination) or is idle on an edge, immediately reroute others heading
+                    # to that same node.  Only fires for destination nodes to avoid false positives
+                    # on shared transit nodes (e.g. both AGVs passing through N17 separately).
+                    _cur_edge = traffic_engine.get_agv_current_edge(traffic_map_id, agv_id)
+                    if _cur_edge:
+                        _, _to_node = traffic_engine._parse_edge_node_ids(_cur_edge)
+                        if _to_node:
+                            # Check if _to_node is this AGV's actual destination (last seg) or idle
+                            _agv_route = traffic_engine._routes.get(agv_id)
+                            _is_dest_node = False
+                            if _agv_route and _agv_route.segments:
+                                _, _last_to = traffic_engine._parse_edge_node_ids(
+                                    _agv_route.segments[-1].edge_id
+                                )
+                                _is_dest_node = (_last_to == _to_node)
+                            elif not _agv_route:
+                                # No active route → AGV is idle, will stop at to_node
+                                _is_dest_node = True
+
+                            if _is_dest_node:
+                                _prev_incoming = _agv_incoming_node.get(agv_id)
+                                if _prev_incoming != _to_node:
+                                    if _prev_incoming:
+                                        _proactive_rerouted_pairs.discard(
+                                            frozenset([agv_id, _prev_incoming])
+                                        )
+                                    _agv_incoming_node[agv_id] = _to_node
+                                    _pair_key = frozenset([agv_id, _to_node])
+                                    if _pair_key not in _proactive_rerouted_pairs:
+                                        _proactive_rerouted_pairs.add(_pair_key)
+                                        _proactive_results = traffic_engine.proactive_reroute_for_incoming_node(
+                                            traffic_map_id, agv_id, _to_node
+                                        )
+                                        for _affected_agv, _proactive_res in _proactive_results:
+                                            _send_peer_stop_reroute(
+                                                _affected_agv, _proactive_res,
+                                                traffic_engine, str(traffic_map_id)
+                                            )
+                    else:
+                        # AGV is at a node — clear its incoming reservation
+                        _prev = _agv_incoming_node.pop(agv_id, None)
+                        if _prev:
+                            _proactive_rerouted_pairs.discard(frozenset([agv_id, _prev]))
+
+                    # Proactive idle-block reroute: if THIS AGV's route passes through a node
+                    # where another idle (finished) AGV is parked, reroute NOW before the
+                    # moving AGV enters LIDAR range and gets hard-paused.
+                    _cur_own_route = traffic_engine._routes.get(agv_id)
+                    if _cur_own_route and _cur_own_route.segments:
+                        for _idle_cand_id, _idle_cand_data in list(agv_manager.list_agvs().items()):
+                            if _idle_cand_id == agv_id:
+                                continue
+                            if traffic_engine._routes.get(_idle_cand_id) is not None:
+                                continue  # other AGV still has an active route — not idle
+                            _idle_cand_node_raw = str(_idle_cand_data.get("lastNodeId") or "").strip()
+                            if not _idle_cand_node_raw:
+                                continue
+                            _idle_cand_norm = re.sub(r'^[A-Za-z]+', '', _idle_cand_node_raw) or _idle_cand_node_raw
+                            _route_passes_through_idle = any(
+                                _idle_cand_norm in traffic_engine._parse_edge_node_ids(seg.edge_id)
+                                for seg in _cur_own_route.segments
+                            )
+                            if not _route_passes_through_idle:
+                                continue
+                            _idle_done_key = frozenset([
+                                f"{agv_id}@v{_cur_own_route.route_version}",
+                                f"idle_{_idle_cand_id}_{_idle_cand_norm}",
+                            ])
+                            if _idle_done_key in _idle_block_proactive_done:
+                                continue
+                            _idle_block_proactive_done.add(_idle_done_key)
+                            print(
+                                f"[PROACTIVE_IDLE] {agv_id} route v{_cur_own_route.route_version} "
+                                f"passes through idle {_idle_cand_id} at {_idle_cand_norm} — rerouting early"
+                            )
+                            _idle_early_result = traffic_engine.force_reroute_around_idle_peer(
+                                traffic_map_id, agv_id, _idle_cand_node_raw, idle_agv_id=_idle_cand_id
+                            )
+                            if _send_peer_stop_reroute(agv_id, _idle_early_result, traffic_engine, str(traffic_map_id)):
+                                break  # one reroute per tick
+
+                    # LIDAR peer-stop resolution (mutual or one-sided timeout)
+                    if peer_stop_peer_id:
+                        my_entry = _peer_stop_states.get(agv_id) or {}
+                        peer_entry = _peer_stop_states.get(peer_stop_peer_id) or {}
+                        peer_stopped_by = peer_entry.get("peer_id")
+                        is_mutual = peer_stopped_by == agv_id
+                        elapsed = time.time() - (my_entry.get("since") or time.time())
+                        pair_key = frozenset([agv_id, peer_stop_peer_id])
+                        if pair_key not in _peer_stop_resolved_pairs:
+                            if is_mutual or elapsed >= PEER_STOP_REROUTE_TIMEOUT_SEC:
+                                _peer_stop_resolved_pairs.add(pair_key)
+                                # One-sided timeout: stopped AGV (agv_id) wins → reroute/move the peer
+                                _handle_mutual_peer_stop(
+                                    agv_id, peer_stop_peer_id,
+                                    traffic_engine, str(traffic_map_id),
+                                )
+
+                    # Only run map-wide evaluation when at least one AGV has an active route.
+                    # With all AGVs visible in the shared StateStore (after has_map fix), calling
+                    # evaluate_map_controls unconditionally causes heavy conflict detection even
+                    # for idle AGVs (3 AGVs × 3 pairs), blocking _lock for too long.
+                    _has_any_route = bool(traffic_engine._routes)
+                    map_control_results = (
+                        traffic_engine.evaluate_map_controls(traffic_map_id)
+                        if _has_any_route
+                        else {agv_id: engine_result}
+                    )
                     if (
                         engine_result.reroute_result is not None
                         and engine_result.reroute_result.success
@@ -1715,6 +1929,10 @@ def on_message(client, userdata, msg):
                             and target_reroute_result.route is not None
                             and target_reroute_result.strategy != RerouteStrategy.SPEED_ONLY
                         ):
+                            # Guard: nếu AGV chưa acknowledge reroute trước, không gửi tiếp.
+                            # Tránh order flood (gửi order liên tục mỗi tick khi escape thành công).
+                            if not _is_pending_reroute_applied(target_agv_id, target_state_data):
+                                continue
                             next_order_id = str(target_state_data.get("orderId") or uuid.uuid4())
                             next_update_id = int(target_state_data.get("orderUpdateId") or 0) + 1
                             reroute_order, reroute_path = build_order_for_traffic_route(
@@ -1738,19 +1956,35 @@ def on_message(client, userdata, msg):
                                 str(traffic_map_id),
                                 target_reroute_result.route,
                             )
-                            # Do not resume in the same control tick as reroute issuance.
-                            # Let the next traffic evaluation validate the new route first,
-                            # then resume only if the updated route is truly clear.
+                            # If the AGV was paused (by a previous WAIT decision), send RESUME
+                            # so it can immediately execute the new reroute order.  Without
+                            # RESUME, the AGV stays paused and the reroute order never applies.
+                            _rr_action_state = target_state_data.get("actionState") or {}
+                            _rr_sim_pause = bool(_rr_action_state.get("simPauseHold"))
+                            if target_state_data.get("paused") and not _rr_sim_pause and target_agv_id not in _peer_stop_states:
+                                _send_traffic_control_action(target_agv_id, "RESUME")
                             continue
 
                         if target_agv_id in hold_for_reroute:
-                            if not target_state_data.get("paused"):
-                                _send_traffic_control_action(target_agv_id, "PAUSE")
-                            continue
+                            _target_has_route = bool(traffic_engine._routes.get(target_agv_id))
+                            if not _target_has_route:
+                                # Only pause idle AGVs held in place while a moving AGV reroutes.
+                                if not target_state_data.get("paused"):
+                                    _send_traffic_control_action(target_agv_id, "PAUSE")
+                                continue
+                            # Active-route AGV: do not force-pause it via hold_for_reroute.
+                            # Fall through to its own traffic decision (WAIT/PROCEED/REROUTE).
 
                         if not _is_pending_reroute_applied(target_agv_id, target_state_data):
-                            if not target_state_data.get("paused"):
-                                _send_traffic_control_action(target_agv_id, "PAUSE")
+                            # Do NOT send PAUSE here — it creates a deadlock where the server
+                            # PAUSEs the AGV waiting for order acknowledgment, but the PAUSE
+                            # prevents the AGV from processing the new order.
+                            # If the AGV is currently paused from a previous PAUSE command,
+                            # send RESUME so it can actually execute the new reroute order.
+                            _pr_action_state = target_state_data.get("actionState") or {}
+                            _pr_sim_pause = bool(_pr_action_state.get("simPauseHold"))
+                            if target_state_data.get("paused") and not _pr_sim_pause and target_agv_id not in _peer_stop_states:
+                                _send_traffic_control_action(target_agv_id, "RESUME")
                             continue
 
                         if target_decision is None:
@@ -1761,10 +1995,19 @@ def on_message(client, userdata, msg):
                         if not target_state_data.get("paused"):
                             _last_traffic_control_action.pop(target_agv_id, None)
                         if target_decision.action in {TrafficAction.WAIT, TrafficAction.STOP}:
-                            if not target_state_data.get("paused"):
+                            # Only pause AGVs that have an active route — idle AGVs receiving
+                            # WAIT decisions (from false conflicts due to stale edge state)
+                            # should not be paused as they are not moving.
+                            _target_has_route = bool(traffic_engine._routes.get(target_agv_id))
+                            if not target_state_data.get("paused") and _target_has_route:
                                 _send_traffic_control_action(target_agv_id, "PAUSE")
                         elif target_decision.action == TrafficAction.PROCEED:
                             if target_state_data.get("paused") and not sim_pause_hold:
+                                # If the winner is still physically stopped due to LIDAR detection,
+                                # skip RESUME — the simulator will auto-resume once the loser
+                                # moves far enough away and LIDAR clears naturally.
+                                if target_agv_id in _peer_stop_states:
+                                    continue
                                 # If there was a recent head-on assignment involving this AGV,
                                 # gate RESUME until 1) the loser has applied the reroute (order ack),
                                 # and 2) the contested resource/node is no longer held by the loser.
@@ -1961,7 +2204,10 @@ def send_order(agv_id: str, order: dict):
     for topic in _publish_topic_candidates(agv_id, "order"):
         result = client.publish(topic, payload_str, qos=1)
         results.append((topic, result.rc))
-    print(f"[MQTT] ĐÃ GỬI order → {agv_id} | orderId={order.get('orderId')} | status={result.rc}")
+    rc = result.rc if results else -1
+    if rc != 0:
+        print(f"[MQTT][WARN] publish order FAILED agv={agv_id} rc={rc} — client connected={client.is_connected()}")
+    print(f"[MQTT] ĐÃ GỬI order → {agv_id} | orderId={order.get('orderId')} | status={rc} | topics={[t for t,_ in results]}")
 
 
 def send_instant_action(agv_id: str, action_type: str):

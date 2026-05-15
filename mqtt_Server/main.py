@@ -212,7 +212,10 @@ def ensure_traffic_topology_from_loaded_map(map_id: str) -> None:
             f"(current={map_manager.current_map_id})"
         )
 
-    traffic_engine.set_topology(resolved_map_id, _build_traffic_topology_from_loaded_map())
+    # Only build and set topology once per map_id — resetting on every call destroys the
+    # shared StateStore and makes cross-AGV state lookups always return None.
+    if not traffic_engine.has_map(resolved_map_id):
+        traffic_engine.set_topology(resolved_map_id, _build_traffic_topology_from_loaded_map())
     return resolved_map_id
 
 
@@ -569,9 +572,9 @@ app.include_router(map_config_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://192.168.0.103:8050",
-        #"http://192.168.0.103:8050",
-        # "http://192.168.0.103:*",   # nếu muốn cho phép mọi port trên IP này (test tạm)
+        "http://192.168.0.81:8050",
+        #"http://192.168.0.81:8050",
+        # "http://192.168.0.81:*",   # nếu muốn cho phép mọi port trên IP này (test tạm)
         # "*"                        # test tạm cho phép tất cả (không nên để lâu)
     ],
     allow_credentials=True,
@@ -691,7 +694,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.0.103:8050/home")
+    return RedirectResponse(url="http://192.168.0.81:8050/home")
 
 # ==========================
 # DEBUG ROUTES
@@ -718,20 +721,10 @@ async def move_agv(cmd: MoveCommand):
         if not agv:
             raise HTTPException(status_code=404, detail=f"AGV '{cmd.agv_id}' không tồn tại")
 
-        # Check connectivity (offline if no state > 1.5s)
-        last_update_str = agv.get("last_update")
-        is_offline = False
-        if not last_update_str:
-            is_offline = True
-        else:
-            try:
-                ts = datetime.fromisoformat(last_update_str.replace("Z", "+00:00"))
-                if datetime.now(timezone.utc) - ts > timedelta(seconds=3):
-                    is_offline = True
-            except Exception:
-                is_offline = True
-        if is_offline:
-            raise HTTPException(status_code=503, detail="AGV mat ket noi, vui long ket noi lai de su dung")
+        # Warn if AGV state is stale but do not block the order — let MQTT handle delivery.
+        last_seen_mono = agv.get("last_seen_mono")
+        if last_seen_mono is None or time.monotonic() - float(last_seen_mono) > 30.0:
+            print(f"[ORDER][WARN] AGV {cmd.agv_id} last_seen_mono={last_seen_mono} — may be offline, sending order anyway")
 
         default_map_id = "98"
         # Ưu tiên map_id do client gửi; nếu không có thì dùng mapCurrent hoặc default
@@ -824,64 +817,18 @@ async def move_agv(cmd: MoveCommand):
                 _route_to_node_path(planner_route),
                 agv.get("lastNodeId"),
             )
-        assignment_override = _apply_immediate_head_on_assignment(
-            str(map_id),
-            requested_agv_id=cmd.agv_id,
-            requested_route=planner_route,
-        )
-        if assignment_override.get("rerouted") and str(assignment_override.get("loser") or "") == str(cmd.agv_id):
-            order_id = str(assignment_override.get("order_id") or order_id)
-            external_path = list(assignment_override.get("path") or external_path)
-            order_update_id = int(assignment_override.get("order_update_id") or 0)
-            edge_coordinator.release(cmd.agv_id)
-
-            print(f"[ORDER] HEAD-ON REROUTE NGAY! Order: {order_id[:8]} → {dest_node}")
-
-            asyncio.create_task(broadcast_update({
-                "type": "external_command",
-                "action": "MOVE",
-                "agv_id": cmd.agv_id,
-                "destination": dest_node,
-                "path": external_path,
-                "order_id": order_id[:8],
-                "timestamp": datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).isoformat()
-            }))
-
-            return {
-                "status": "Immediate head-on reroute order sent",
-                "orderId": order_id,
-                "path": external_path,
-                "agv": cmd.agv_id,
-                "destination": dest_node
-            }
-
-        immediate_override = _apply_immediate_route_controls(str(map_id), requested_agv_id=cmd.agv_id)
-        if immediate_override:
-            order_id = str(immediate_override.get("order_id") or order_id)
-            external_path = list(immediate_override.get("path") or external_path)
-            order_update_id = int(immediate_override.get("order_update_id") or 0)
-            agv_manager.set_order(cmd.agv_id, order_id, order_update_id)
-            edge_coordinator.release(cmd.agv_id)
-
-            print(f"[ORDER] REROUTE NGAY! Order: {order_id[:8]} → {dest_node}")
-
-            asyncio.create_task(broadcast_update({
-                "type": "external_command",
-                "action": "MOVE",
-                "agv_id": cmd.agv_id,
-                "destination": dest_node,
-                "path": external_path,
-                "order_id": order_id[:8],
-                "timestamp": datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).isoformat()
-            }))
-
-            return {
-                "status": "Immediate reroute order sent",
-                "orderId": order_id,
-                "path": external_path,
-                "agv": cmd.agv_id,
-                "destination": dest_node
-            }
+            if len(external_path) < 2:
+                return {
+                    "status": "AGV already at destination",
+                    "orderId": order_id,
+                    "path": external_path,
+                    "agv": cmd.agv_id,
+                    "destination": dest_node,
+                }
+        # Immediate conflict pre-emption removed: _apply_immediate_route_controls and
+        # _apply_immediate_head_on_assignment called evaluate_map_controls synchronously,
+        # blocking the event loop for several seconds with 3+ active routes and generating
+        # false PAUSE actions. Traffic control is handled reactively by the MQTT handler.
         # Build order theo full path (VDA5050)
         # chuẩn bị coords cho nodePosition
         coords_lookup = {}

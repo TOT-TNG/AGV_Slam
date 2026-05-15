@@ -683,7 +683,7 @@ class AGVAgent:
 
     def _set_peer_warning(self, *, active: bool) -> None:
         self.faults.remove('PEER_AGV_IN_STOP_DISTANCE')
-        self.info_messages = [item for item in self.info_messages if item.get('infoType') != 'AGV_PROXIMITY']
+        self.info_messages = [item for item in self.info_messages if item.get('infoType') not in {'AGV_PROXIMITY', 'PEER_STOP'}]
         if not active:
             return
 
@@ -694,6 +694,11 @@ class AGVAgent:
         self.info_messages.append({
             'infoType': 'AGV_PROXIMITY',
             'infoDescription': description,
+        })
+        # Structured entry for server-side peer collision resolution
+        self.info_messages.append({
+            'infoType': 'PEER_STOP',
+            'infoDescription': self.peer_stop_agv_id,
         })
 
     def _set_human_warning(self, *, active: bool) -> None:

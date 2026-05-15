@@ -9,7 +9,7 @@ import threading
 import time
 import os
 import state_management as predictive_state
-
+from typing import Set
 
 class HealthState(str, Enum):
     OK = "OK"
@@ -403,14 +403,14 @@ class TopologyMap:
 @dataclass(slots=True)
 class PlannerCostPolicy:
     distance_weight: float = 1.0
-    travel_time_weight: float = 2.0
+    travel_time_weight: float = 1.8
     # Lower avoid penalties so planner will still consider shorter alternatives
     # even when a small avoid set is provided (prevents highly suboptimal reroutes).
     # Make avoid penalties conservative so planner prefers short local detours
-    avoid_edge_penalty: float = 80.0
-    avoid_zone_penalty: float = 60.0
+    avoid_edge_penalty: float = 35.0
+    avoid_zone_penalty: float = 25.0
     blocked_penalty: float = 1_000_000.0
-    low_speed_penalty_weight: float = 1.0
+    low_speed_penalty_weight: float = 0.8
 
 
 class CostModel:
@@ -1204,11 +1204,35 @@ class StateManagementService:
     def build_snapshot(self) -> TrafficSnapshot:
         states: Dict[str, AGVTrafficState] = {}
         occupancies: List[TrafficOccupancy] = []
-        for tracked in self.store.all():
-            states[tracked.state.agv_id] = tracked.state
-            occupancies.extend(self.occupancy_predictor.predict(tracked.state, tracked.route))
+
+        # Lấy tất cả từ store
+        for tracked in list(self.store.all()):
+            if tracked.state is not None:
+                states[tracked.state.agv_id] = tracked.state
+                # Only predict occupancy for AGVs with active routes.
+                # Idle AGVs (route=None) carry stale current_edge from their last move;
+                # predicting their occupancy generates false CollisionAlerts that cause
+                # spurious WAIT decisions and PAUSE actions for unrelated moving AGVs.
+                if tracked.route is not None:
+                    occupancies.extend(self.occupancy_predictor.predict(tracked.state, tracked.route))
+
+        # Force add những AGV còn sót
+        for agv_id, tracked in list(self.store._tracked.items()):
+            if agv_id not in states and tracked.state is not None:
+                states[agv_id] = tracked.state
+                if tracked.route is not None:
+                    occupancies.extend(self.occupancy_predictor.predict(tracked.state, tracked.route))
+
         alerts = self.collision_predictor.detect(occupancies)
-        return TrafficSnapshot(generated_at=time.time(), states=states, occupancies=occupancies, alerts=alerts)
+        snapshot = TrafficSnapshot(
+            generated_at=time.time(),
+            states=states,
+            occupancies=occupancies,
+            alerts=alerts
+        )
+
+        print(f"[SNAPSHOT_BUILD] Total AGVs = {sorted(states.keys())} | time={snapshot.generated_at:.3f}")
+        return snapshot
 
     def get_state(self, agv_id: str) -> Optional[AGVTrafficState]:
         tracked = self.store.get(agv_id)
@@ -2279,6 +2303,7 @@ class DynamicReroutingService:
         blocked_edges: Optional[List[str]] = None,
         blocked_zones: Optional[List[str]] = None,
         preferred_max_speed: Optional[float] = None,
+        forced_start_node: Optional[str] = None,
     ) -> DynamicReroutingResult:
         blocked_edges = blocked_edges or []
         blocked_zones = blocked_zones or []
@@ -2297,7 +2322,7 @@ class DynamicReroutingService:
                 message="Speed-only adjustment",
             )
 
-        start_node = self._resolve_replan_start_node(state, current_route, strategy, reroute_request)
+        start_node = forced_start_node or self._resolve_replan_start_node(state, current_route, strategy, reroute_request)
         if start_node is None:
             return DynamicReroutingResult(
                 agv_id=state.agv_id,
@@ -2312,7 +2337,9 @@ class DynamicReroutingService:
 
         avoid_edges = list(reroute_request.avoid_edges) if reroute_request else []
         avoid_zones = list(reroute_request.avoid_zones) if reroute_request else []
-        if strategy == RerouteStrategy.LOCAL_REROUTE and state.current_edge and state.current_edge not in avoid_edges:
+        reroute_reason = reroute_request.reason if reroute_request else None
+        is_head_on = reroute_reason is not None and reroute_reason.startswith("HEAD_ON_")
+        if strategy == RerouteStrategy.LOCAL_REROUTE and state.current_edge and state.current_edge not in avoid_edges and not is_head_on:
             avoid_edges.append(state.current_edge)
         if strategy == RerouteStrategy.LOCAL_REROUTE and state.current_zone and state.current_zone not in avoid_zones:
             avoid_zones.append(state.current_zone)
@@ -2627,6 +2654,10 @@ class _MapContext:
 class TrafficEngine:
     def __init__(self) -> None:
         self._contexts: Dict[str, _MapContext] = {}
+        self._blocker_timeout: Dict[str, float] = {}
+        self._conflict_wait_timeout_sec = 8.0
+        self._avoid_edge_penalty = 8.0
+        self._reservation_window_size = 1
         self._agv_map: Dict[str, str] = {}
         self._routes: Dict[str, PlannedRoute] = {}
         self._priority_contexts: Dict[str, PriorityContext] = {}
@@ -2637,12 +2668,14 @@ class TrafficEngine:
         self._reroute_guard: Dict[str, Dict[str, object]] = {}
         self._conflict_wait_guard: Dict[str, Dict[str, object]] = {}
         self._same_direction_stall_guard: Dict[str, Dict[str, object]] = {}
+        # Deferred head-on: let loser proceed to conflict_entry_node before rerouting
+        self._deferred_head_on: Dict[str, Dict[str, object]] = {}
         # 1.0s cooldown prevents rapid reroute oscillation but allows faster replans
         # during dynamic head-on clearance situations.
         self._reroute_cooldown_sec = 1.0
         # 6s wait before escalating to reroute: long enough to let blocker clear, short enough
         # to not stall traffic for 10s when the blocker is truly stuck
-        self._conflict_wait_timeout_sec = 6.0
+        #self._conflict_wait_timeout_sec = 6.0
         self._approach_block_eta_sec = 2.2
         self._approach_block_progress_threshold = 0.72
         self._same_direction_stall_timeout_sec = 4.0
@@ -2670,6 +2703,19 @@ class TrafficEngine:
             return False
         self._last_debug_log_ts[key] = now
         return True
+    
+    def _get_all_occupied_nodes(self, snapshot: TrafficSnapshot, exclude_agv: str) -> Set[str]:
+        """Lấy TẤT CẢ node đang bị chiếm (current + last_reached)"""
+        occupied: Set[str] = set()
+        for agv_id, state in snapshot.states.items():
+            if agv_id == exclude_agv:
+                continue
+            for node_field in (state.current_node, state.last_reached_node):
+                if node_field:
+                    norm = self._normalize_node_id(node_field)
+                    if norm:
+                        occupied.add(norm)
+        return occupied
 
     def _should_log_signature(self, key: str, signature: str, interval_s: float = 2.0) -> bool:
         if self._verbose_logs:
@@ -2685,6 +2731,22 @@ class TrafficEngine:
             return False
         self._last_debug_log_ts[key] = now
         return True
+    
+    def _get_all_occupied_nodes(self, snapshot: TrafficSnapshot, exclude_agv: str) -> set[str]:
+        """Lấy tất cả node đang bị chiếm bởi AGV khác"""
+        occupied = set()
+        for other_id, other_state in snapshot.states.items():
+            if other_id == exclude_agv:
+                continue
+            if other_state.current_node:
+                norm = self._normalize_node_id(other_state.current_node)
+                if norm:
+                    occupied.add(norm)
+            if other_state.last_reached_node:
+                norm = self._normalize_node_id(other_state.last_reached_node)
+                if norm:
+                    occupied.add(norm)
+        return occupied
 
     @staticmethod
     def _build_predictive_topology(topology: TopologyMap) -> predictive_state.TopologyMap:
@@ -2971,6 +3033,28 @@ class TrafficEngine:
         return edge_id[:-5] if edge_id.endswith("__rev") else edge_id
 
     @staticmethod
+    def _parse_edge_node_ids(edge_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """Parse (from_node, to_node) from an edge ID like '17_to_21' or '21_to_22__rev'.
+        Returns (None, None) if the format is not recognized."""
+        if not edge_id:
+            return None, None
+        is_rev = edge_id.endswith("__rev")
+        base = edge_id[:-5] if is_rev else edge_id
+        sep = "_to_"
+        idx = base.find(sep)
+        if idx < 0:
+            return None, None
+        from_n = base[:idx]
+        to_n = base[idx + len(sep):]
+        if not from_n or not to_n:
+            return None, None
+        return (to_n, from_n) if is_rev else (from_n, to_n)
+
+    @staticmethod
+    def _reverse_edge_id(edge_id: str) -> str:
+        return edge_id[:-5] if edge_id.endswith("__rev") else f"{edge_id}__rev"
+
+    @staticmethod
     def _normalize_node_id(node_id: Optional[str]) -> Optional[str]:
         if node_id is None:
             return None
@@ -2990,50 +3074,45 @@ class TrafficEngine:
         if normalized_node_id is None:
             return False
 
-        if self._normalize_node_id(other_state.current_node) == normalized_node_id:
+        current_node = self._normalize_node_id(other_state.current_node)
+        if current_node == normalized_node_id:
             return True
 
-        edge_id = other_state.current_edge
-        if not edge_id:
+        if not other_state.current_edge:
             return False
 
-        # Fallback dùng node info từ state khi không tra được topology
-        def _node_fallback() -> bool:
-            return (
-                self._normalize_node_id(other_state.current_node) == normalized_node_id
-                or self._normalize_node_id(other_state.last_reached_node) == normalized_node_id
-            )
+        # AGVs with no route, or whose current_edge is not part of their active route,
+        # carry stale edge state from a previous move. Only their current_node counts.
+        agv_route = self._routes.get(other_state.agv_id)
+        if not agv_route:
+            return False
+        route_edge_ids = {seg.edge_id for seg in agv_route.segments}
+        if other_state.current_edge not in route_edge_ids:
+            return False
 
         try:
-            # FIX: dùng .get() thay vì [] để tránh KeyError khi AGV chưa có trong _agv_map.
-            # Trường hợp xảy ra: AGV đã xong task, route bị release bởi coordinator,
-            # nhưng state vẫn còn trong StateStore với current_edge hợp lệ.
-            # Trước đây: self._agv_map[other_state.agv_id] → KeyError → except → return False
-            # → AGV03 bị bỏ qua → AGV02 không thấy node 21 bị chiếm → PROCEED thẳng vào.
-            agv_map_id = self._agv_map.get(other_state.agv_id)
-            if agv_map_id is None:
-                return _node_fallback()
-            edge = self._contexts[agv_map_id].topology.get_edge(edge_id)
+            map_id = self._agv_map.get(other_state.agv_id)
+            if not map_id:
+                return current_node == normalized_node_id
+            edge = self._contexts[map_id].topology.get_edge(other_state.current_edge)
         except Exception:
-            # Không tra được edge từ topology → fallback an toàn dùng node info
-            return _node_fallback()
+            return current_node == normalized_node_id
 
-        current_node = self._normalize_node_id(other_state.current_node)
-        edge_from_node = self._normalize_node_id(edge.from_node)
-        edge_to_node = self._normalize_node_id(edge.to_node)
-        if current_node and current_node == edge_to_node:
-            return normalized_node_id in {
-                current_node,
-                self._normalize_node_id(other_state.next_node),
-                self._normalize_node_id(other_state.last_reached_node),
-            }
+        edge_from = self._normalize_node_id(edge.from_node)
+        edge_to = self._normalize_node_id(edge.to_node)
 
-        return normalized_node_id in {
-            edge_from_node,
-            edge_to_node,
-            self._normalize_node_id(other_state.next_node),
-            self._normalize_node_id(other_state.last_reached_node),
-        }
+        # QUAN TRỌNG: AGV win đã rời node → release ngay cho loser
+        if other_state.offset_on_edge is not None and edge.length > 0:
+            progress = other_state.offset_on_edge / edge.length
+            if progress >= 0.18:   # Đã rời node ~18% → coi như node được giải phóng
+                if edge_to == normalized_node_id:
+                    return False
+                if edge_from == normalized_node_id and progress >= 0.35:
+                    return False
+
+        return normalized_node_id in {edge_from, edge_to, current_node,
+                                      self._normalize_node_id(other_state.next_node),
+                                      self._normalize_node_id(other_state.last_reached_node)}
 
     def _snapshot_locked_node_owner(
         self,
@@ -3042,115 +3121,33 @@ class TrafficEngine:
         snapshot: TrafficSnapshot,
         node_id: Optional[str],
     ) -> Optional[str]:
-        normalized_node_id = self._normalize_node_id(node_id)
-        if normalized_node_id is None:
+        if not node_id:
             return None
-
-        route_touchers: list[str] = []
-        edge_holders: list[str] = []
-        current_holders: list[str] = []
-        claim_debug: list[str] = []
-        cached_owner: Optional[str] = None
-        topology = self._contexts[map_id].topology
-        map_routes = {
-            agv_id: route
-            for agv_id, route in self._routes.items()
-            if self._agv_map.get(agv_id) == map_id
-        }
-        claims = self._contexts[map_id].conflict_service.reservation_arbiter.build_claims(
-            snapshot.states,
-            map_routes,
-        )
-        cached_owner = self._cached_locked_node_owner(map_id, requester_agv, normalized_node_id, snapshot.generated_at)
-        touching_edges = {
-            self._normalize_physical_edge_id(edge_id) or edge_id
-            for edge_id in self._edges_touching_node(topology, normalized_node_id)
-        }
+        normalized = self._normalize_node_id(node_id)
+        if not normalized:
+            return None
 
         for other_agv, other_state in snapshot.states.items():
             if other_agv == requester_agv:
                 continue
-            claim = claims.get(other_agv)
-            claim_debug.append(
-                (
-                    f"{other_agv}:curr={other_state.current_node}"
-                    f"/edge={other_state.current_edge}"
-                    f"/last={other_state.last_reached_node}"
-                    f"/next={other_state.next_node}"
-                    f"/claim=({claim.from_node if claim else None},"
-                    f"{claim.to_node if claim else None},{claim.next_node if claim else None})"
-                )
-            )
-            if self._normalize_node_id(other_state.current_node) == normalized_node_id:
-                current_holders.append(other_agv)
-                continue
-            claim_from = self._normalize_node_id(claim.from_node) if claim is not None else None
-            claim_to = self._normalize_node_id(claim.to_node) if claim is not None else None
-            if normalized_node_id in {claim_from, claim_to} or self._is_other_agv_holding_node_via_edge(other_state, normalized_node_id):
-                edge_holders.append(other_agv)
-                continue
 
-            preview_nodes = []
-            if claim is not None:
-                preview_nodes = [
-                    self._normalize_node_id(item)
-                    for item in claim.preview_nodes
-                    if self._normalize_node_id(item) is not None
-                ]
-            other_route = self._routes.get(other_agv)
-            reserved_edges = self._reserved_route_physical_edges(other_agv, other_route)
-            if (
-                (claim is not None and self._normalize_node_id(claim.next_node) == normalized_node_id)
-                or normalized_node_id in preview_nodes
-                or any(edge_id in touching_edges for edge_id in reserved_edges)
-            ):
-                route_touchers.append(other_agv)
+            current = self._normalize_node_id(other_state.current_node)
+            last = self._normalize_node_id(getattr(other_state, 'last_reached_node', None))
 
-        self._log_runtime_debug(
-            f"snapshot_owner:{requester_agv}:{normalized_node_id}",
-            " ".join(
-                [
-                    f"snapshot_owner requester={requester_agv}",
-                    f"node={normalized_node_id}",
-                    f"current_holders={current_holders}",
-                    f"edge_holders={edge_holders}",
-                    f"route_touchers={route_touchers}",
-                    f"cached_owner={cached_owner}",
-                    f"claims={claim_debug}",
-                ]
-            ),
-            interval_s=0.5,
-        )
+            if current == normalized or last == normalized:
+                # Nếu AGV đang rời node (edge from_node == normalized) → KHÔNG block
+                if other_state.current_edge:
+                    try:
+                        edge = self._contexts[map_id].topology.get_edge(other_state.current_edge)
+                        if self._normalize_node_id(edge.from_node) == normalized:
+                            continue  # đang rời → cho phép incoming
+                    except:
+                        pass
 
-        # Always emit a concise diagnostic to stdout for troubleshooting (best-effort, non-fatal)
-        try:
-            print(
-                f"[TRAFFIC CORE][SNAPSHOT_OWNER] requester={requester_agv} node={normalized_node_id} "
-                f"current_holders={current_holders} edge_holders={edge_holders} route_touchers={route_touchers} "
-                f"cached_owner={cached_owner} claims={claim_debug} touching_edges={sorted(touching_edges)}"
-            )
-        except Exception:
-            pass
+                print(f"[SNAPSHOT_OWNER] *** LOCKED *** {other_agv} occupies node {normalized}")
+                return other_agv
 
-        resolver = self._contexts[map_id].conflict_service.priority_resolver
-        priorities = dict(self._priority_contexts)
-        if current_holders:
-            winner = current_holders[0]
-            for candidate in current_holders[1:]:
-                winner = resolver.choose_winner(winner, candidate, priorities, snapshot.states)
-            return winner
-        if edge_holders:
-            winner = edge_holders[0]
-            for candidate in edge_holders[1:]:
-                winner = resolver.choose_winner(winner, candidate, priorities, snapshot.states)
-            return winner
-        if route_touchers:
-            winner = route_touchers[0]
-            for candidate in route_touchers[1:]:
-                winner = resolver.choose_winner(winner, candidate, priorities, snapshot.states)
-            return winner
-        if cached_owner:
-            return cached_owner
+        print(f"[SNAPSHOT_OWNER] node={normalized} → FREE for {requester_agv}")
         return None
 
     def _nodes_touched_for_lock(
@@ -3178,7 +3175,7 @@ class TrafficEngine:
                         last_reached_node == edge_from_node
                         and state.offset_on_edge is not None
                         and edge.length > 0
-                        and state.offset_on_edge >= edge.length * 0.12
+                        and state.offset_on_edge >= edge.length * 0.18
                     ):
                         # Once the AGV has actually departed the junction into the next edge,
                         # release the tail node quickly so a follower can enter the freed corridor.
@@ -3373,7 +3370,7 @@ class TrafficEngine:
             return True
         return decision.action in {TrafficAction.PROCEED, TrafficAction.SLOW_DOWN}
 
-    def _build_direct_blocker_override(
+    '''def _build_direct_blocker_override(
         self,
         map_id: str,
         agv_id: str,
@@ -3444,9 +3441,11 @@ class TrafficEngine:
             ),
         )
 
+        # ====================== SNAPSHOT NODE LOCK ======================
         prioritized_nodes: List[str] = []
         if normalized_target_next_node:
             prioritized_nodes.append(normalized_target_next_node)
+
         for blocked_node in prioritized_nodes:
             lock_owner = self._snapshot_locked_node_owner(map_id, agv_id, snapshot, blocked_node)
             self._log_runtime_debug(
@@ -3455,6 +3454,16 @@ class TrafficEngine:
                 interval_s=0.5,
             )
             if lock_owner and self._normalize_node_id(state.current_node) != blocked_node:
+                other_state = snapshot.states.get(lock_owner)
+                
+                # BỎ QUA NẾU AGV KHÁC KHÔNG CÓ ROUTE
+                if other_state and not getattr(other_state, 'has_route', False) and not getattr(other_state, 'route_edges', None):
+                    self._log_runtime_debug(
+                        f"direct_skip_snapshot_{lock_owner}",
+                        f"AGV {lock_owner} owns node {blocked_node} but has no active route → skip"
+                    )
+                    continue
+
                 conflict_id = f"snapshot_node_lock_{agv_id}_{lock_owner}_{blocked_node}"
                 conflict = ConflictRecord(
                     conflict_id=conflict_id,
@@ -3482,8 +3491,8 @@ class TrafficEngine:
                     ),
                     conflict,
                 )
-                
 
+        # ====================== KIỂM TRA VỚI CÁC AGV KHÁC ======================
         for other_agv, other_state in snapshot.states.items():
             if other_agv == agv_id or self._agv_map.get(other_agv) != map_id:
                 continue
@@ -3493,11 +3502,6 @@ class TrafficEngine:
             other_current_node = self._normalize_node_id(other_state.current_node)
             other_last_reached_node = self._normalize_node_id(other_state.last_reached_node)
             other_edge_to_node = None
-            held_lookahead_nodes = {
-                self._normalize_node_id(node_id)
-                for node_id in lookahead_nodes
-                if self._is_other_agv_holding_node_via_edge(other_state, node_id)
-            }
             if other_state.current_edge:
                 try:
                     other_edge = self._contexts[map_id].topology.get_edge(other_state.current_edge)
@@ -3505,18 +3509,17 @@ class TrafficEngine:
                 except KeyError:
                     other_edge_to_node = None
 
+            held_lookahead_nodes = {
+                self._normalize_node_id(node_id)
+                for node_id in lookahead_nodes
+                if self._is_other_agv_holding_node_via_edge(other_state, node_id)
+            }
+
             blocked_lookahead_nodes = {
                 node_id
-                for node_id in {
-                    other_current_node,
-                    other_edge_to_node,
-                }
+                for node_id in {other_current_node, other_edge_to_node}
                 if node_id
-            } | {
-                node_id
-                for node_id in held_lookahead_nodes
-                if node_id
-            }
+            } | held_lookahead_nodes
 
             self._log_runtime_debug(
                 f"direct:{agv_id}:{other_agv}",
@@ -3535,6 +3538,7 @@ class TrafficEngine:
                 ),
             )
 
+            # Ưu tiên WAIT khi blocker đang di chuyển qua node
             if (
                 normalized_target_next_node
                 and other_current_node == normalized_target_next_node
@@ -3545,15 +3549,7 @@ class TrafficEngine:
             ):
                 self._log_runtime_debug(
                     f"direct_defer:{agv_id}:{other_agv}",
-                    " ".join(
-                        [
-                            f"direct_defer agv={agv_id}",
-                            f"blocked_node={normalized_target_next_node}",
-                            f"other={other_agv}",
-                            f"requester_eta={requester_eta_to_target:.2f}",
-                            f"requester_progress={requester_progress:.2f}",
-                        ]
-                    ),
+                    f"direct_defer agv={agv_id} blocked_node={normalized_target_next_node} other={other_agv} requester_eta={requester_eta_to_target:.2f}",
                     interval_s=0.5,
                 )
                 continue
@@ -3684,8 +3680,47 @@ class TrafficEngine:
                     conflict,
                 )
 
-        return None, None, None
+        return None, None, None'''
 
+    def _build_direct_blocker_override(
+        self,
+        map_id: str,
+        agv_id: str,
+        state: AGVTrafficState,
+        snapshot: TrafficSnapshot,
+        current_route: Optional[PlannedRoute],
+    ) -> Tuple[Optional[TrafficDecision], Optional[RerouteRequest], Optional[ConflictRecord]]:
+        if not current_route or not current_route.segments:
+            return None, None, None
+
+        # CHỈ xem NEXT 1 node (giảm lookahead tối đa)
+        next_seg = current_route.segments[0]
+        target_node = self._normalize_node_id(next_seg.to_node)
+        if not target_node:
+            return None, None, None
+
+        lock_owner = self._snapshot_locked_node_owner(map_id, agv_id, snapshot, target_node)
+        if lock_owner and lock_owner != agv_id:
+            conflict_id = f"direct_{agv_id}_{target_node}"
+            return (
+                TrafficDecision(
+                    agv_id=agv_id,
+                    action=TrafficAction.WAIT,
+                    reason=f"Node {target_node} occupied",
+                    related_conflict_id=conflict_id,
+                    related_agv_id=lock_owner,
+                ),
+                RerouteRequest(
+                    agv_id=agv_id,
+                    reason=f"NODE_AHEAD_{target_node}",
+                    avoid_edges=[state.current_edge] if state.current_edge else [],
+                    avoid_zones=[],
+                    related_conflict_id=conflict_id,
+                ),
+                None,
+            )
+        return None, None, None
+    
     def _build_incident_node_lock_override(
         self,
         map_id: str,
@@ -3694,6 +3729,7 @@ class TrafficEngine:
         snapshot: TrafficSnapshot,
         current_route: Optional[PlannedRoute],
     ) -> Tuple[Optional[TrafficDecision], Optional[RerouteRequest], Optional[ConflictRecord]]:
+        
         if current_route is None or not current_route.segments:
             return None, None, None
 
@@ -3756,6 +3792,15 @@ class TrafficEngine:
         for other_agv, other_state in snapshot.states.items():
             if other_agv == agv_id or self._agv_map.get(other_agv) != map_id or not other_state.current_edge:
                 continue
+
+            # ====================== SỬA CHÍNH - BỎ QUA AGV KHÔNG CÓ ROUTE ======================
+            if not getattr(other_state, 'has_route', False) and not getattr(other_state, 'route_edges', None):
+                self._log_runtime_debug(
+                    f"incident_skip_{other_agv}",
+                    f"AGV {other_agv} has no active route (has_route=False) → skip node lock at lookahead nodes"
+                )
+                continue
+            # =================================================================================
 
             try:
                 other_edge = self._contexts[map_id].topology.get_edge(other_state.current_edge)
@@ -5028,10 +5073,6 @@ class TrafficEngine:
             if other_route is None or not other_route.segments:
                 continue
 
-            other_state = snapshot.states.get(other_agv)
-            if other_state is None:
-                continue
-
             other_edge_ids, other_physical_edges, other_nodes = self._planned_route_corridor(other_route)
             head_on_edges, _, overlap_start, overlap_len = self._reversed_corridor_overlap(
                 my_physical_edges,
@@ -5070,6 +5111,19 @@ class TrafficEngine:
                 detail=f"Forced head-on assignment on corridor {resource_id}: {winner} waits, {loser} reroutes",
             )
             if winner == agv_id:
+                # If loser has deferred reroute pending → winner proceeds too (don't freeze it)
+                if loser in self._deferred_head_on:
+                    return (
+                        TrafficDecision(
+                            agv_id=agv_id,
+                            action=TrafficAction.PROCEED,
+                            reason=f"HEAD_ON_WINNER_PROCEED_loser_deferred",
+                            related_conflict_id=conflict_id,
+                            related_agv_id=loser,
+                        ),
+                        None,
+                        conflict,
+                    )
                 return (
                     TrafficDecision(
                         agv_id=agv_id,
@@ -5081,11 +5135,54 @@ class TrafficEngine:
                     None,
                     conflict,
                 )
+
+            # This AGV is the loser — find conflict_entry_node (node just before first conflict edge)
+            first_avoid_edge = avoid_edges[0] if avoid_edges else None
+            conflict_entry_node: Optional[str] = None
+            if first_avoid_edge:
+                try:
+                    edge = self._contexts[map_id].topology.get_edge(first_avoid_edge)
+                    conflict_entry_node = self._normalize_node_id(edge.from_node)
+                except Exception:
+                    pass
+
+            current_norm = self._normalize_node_id(state.current_node)
+            if conflict_entry_node and current_norm != conflict_entry_node:
+                # Not at conflict node yet → defer: let AGV proceed to conflict_entry_node first
+                self._deferred_head_on[agv_id] = {
+                    "conflict_entry_node": conflict_entry_node,
+                    "avoid_edges": list(avoid_edges),
+                    "winner_id": str(winner),
+                    "resource_id": str(resource_id),
+                    "conflict_id": str(conflict_id),
+                }
+                print(
+                    f"[TRAFFIC CORE][HEAD_ON_DEFERRED] loser={agv_id} winner={winner}"
+                    f" will_reroute_at={conflict_entry_node} avoid={avoid_edges}"
+                )
+                return (
+                    TrafficDecision(
+                        agv_id=agv_id,
+                        action=TrafficAction.PROCEED,
+                        reason=f"HEAD_ON_DEFERRED_until_{conflict_entry_node}",
+                        related_conflict_id=conflict_id,
+                        related_agv_id=winner,
+                    ),
+                    None,
+                    conflict,
+                )
+
+            # AGV is at or past conflict_entry_node → fire immediate reroute
+            self._deferred_head_on.pop(agv_id, None)
+            print(
+                f"[TRAFFIC CORE][HEAD_ON_REROUTE_AT_NODE] loser={agv_id} winner={winner}"
+                f" node={current_norm} avoid={avoid_edges}"
+            )
             return (
                 TrafficDecision(
                     agv_id=agv_id,
                     action=TrafficAction.REROUTE,
-                    reason=f"Reroute early for head-on corridor {resource_id}",
+                    reason=f"Reroute at head-on entry node {conflict_entry_node or current_norm}",
                     related_conflict_id=conflict_id,
                     related_agv_id=winner,
                 ),
@@ -5099,6 +5196,10 @@ class TrafficEngine:
                 conflict,
             )
 
+        # No head-on detected — clear any stale deferred entry for this AGV
+        if agv_id in self._deferred_head_on:
+            print(f"[TRAFFIC CORE][HEAD_ON_RESOLVED] agv={agv_id} conflict cleared, deferred entry removed")
+            self._deferred_head_on.pop(agv_id)
         return None, None, None
 
     def _build_full_route_overlap_override(
@@ -5900,7 +6001,7 @@ class TrafficEngine:
 
     def _route_uses_related_blocker_node(
         self,
-        snapshot: RuntimeSnapshot,
+        snapshot: TrafficSnapshot,
         requester_state: AGVTrafficState,
         route: Optional[PlannedRoute],
         related_agv_id: Optional[str],
@@ -5909,8 +6010,25 @@ class TrafficEngine:
             return None
 
         blocker_state = snapshot.states.get(str(related_agv_id))
-        blocker_node = self._normalize_node_id(blocker_state.current_node) if blocker_state is not None else None
-        if not blocker_node:
+        # Collect all nodes the blocker currently occupies or is committed to reach:
+        # - current_node: where it is now (None if mid-edge)
+        # - next_node: the node it is actively heading toward (mid-edge)
+        # - goal_node: the route destination (where it will park permanently)
+        # Checking goal_node is critical: an escape route must not pass through the
+        # blocker's destination (e.g. escape for AGV02 must not go through N21
+        # if AGV03's goal is N21, otherwise the conflict just repeats on arrival).
+        blocker_nodes: set[str] = set()
+        if blocker_state is not None:
+            for raw in (blocker_state.current_node, blocker_state.next_node):
+                norm = self._normalize_node_id(raw)
+                if norm:
+                    blocker_nodes.add(norm)
+        blocker_route = self._routes.get(str(related_agv_id))
+        if blocker_route is not None:
+            goal_norm = self._normalize_node_id(blocker_route.goal_node)
+            if goal_norm:
+                blocker_nodes.add(goal_norm)
+        if not blocker_nodes:
             return None
 
         route_nodes = [self._normalize_node_id(route.start_node)] + [
@@ -5920,11 +6038,11 @@ class TrafficEngine:
         requester_node = self._normalize_node_id(requester_state.current_node)
 
         for node_id in normalized_route_nodes[1:]:
-            if node_id != blocker_node:
+            if node_id not in blocker_nodes:
                 continue
             if requester_node and node_id == requester_node:
                 continue
-            return blocker_node
+            return node_id
         return None
 
     def _append_conflict_neighborhood_edges(
@@ -6014,7 +6132,7 @@ class TrafficEngine:
                     if edge_id not in blocked_edges:
                         blocked_edges.append(edge_id)
 
-    def _collect_conflict_blocked_edges(
+    '''def _collect_conflict_blocked_edges(
         self,
         context: _MapContext,
         map_id: str,
@@ -6159,7 +6277,7 @@ class TrafficEngine:
                         for edge_id in touching_edges[:3]:
                             if edge_id not in blocked_edges:
                                 blocked_edges.append(edge_id)
-                for edge_id in self._windowed_reserved_edges(related_agv_id, map_id):
+                for edge_id in self._windowed_reserved_edges(related_agv_id, map_id)[:1]:
                     if edge_id not in blocked_edges:
                         blocked_edges.append(edge_id)
 
@@ -6183,14 +6301,69 @@ class TrafficEngine:
                         if edge_id not in blocked_edges:
                             blocked_edges.append(edge_id)
 
-        return blocked_edges
+        return blocked_edges'''
+    
+    def _collect_conflict_blocked_edges(
+        self,
+        context: _MapContext,
+        map_id: str,
+        agv_id: str,
+        state: AGVTrafficState,
+        current_route: PlannedRoute,
+        conflict_result: ConflictManagementResult,
+        decision: Optional[TrafficDecision],
+        reroute_request: Optional[RerouteRequest],
+    ) -> List[str]:
+        """Block incoming edges đến NEXT NODE (to_node của current_edge) và GOAL NODE của các AGV khác.
+
+        Không block intermediate/conflict node vì:
+        - Intermediate node chỉ bị block khi AGV thực sự đang đi đến đó (next_node).
+        - Block conflict node gây oscillation: block N22 → đi qua N21 → block N21 → đi qua N22 → lặp.
+        """
+        blocked: List[str] = []
+        topology = context.topology
+        snapshot = context.state_service.build_snapshot()
+
+        for other_agv_id, other_state in snapshot.states.items():
+            if other_agv_id == agv_id:
+                continue
+            nodes_to_block: List[str] = []
+
+            # NEXT NODE: node AGV đang tích cực di chuyển đến ngay lúc này
+            if other_state.current_edge:
+                try:
+                    e = topology.get_edge(other_state.current_edge)
+                    nn = self._normalize_node_id(e.to_node)
+                    if nn:
+                        nodes_to_block.append(nn)
+                except Exception:
+                    pass
+
+            # GOAL NODE: đích cuối cùng của route
+            other_route = self._routes.get(other_agv_id)
+            if other_route and getattr(other_route, "goal_node", None):
+                gn = self._normalize_node_id(other_route.goal_node)
+                if gn and gn not in nodes_to_block:
+                    nodes_to_block.append(gn)
+
+            for node_id in nodes_to_block:
+                for edge_id in self._edges_touching_node(topology, node_id):
+                    try:
+                        e = topology.get_edge(edge_id)
+                        if self._normalize_node_id(e.to_node) == node_id and edge_id not in blocked:
+                            blocked.append(edge_id)
+                    except Exception:
+                        continue
+
+        print(f"[BLOCKED_EDGES] agv={agv_id} → {blocked} (next+goals)")
+        return blocked
 
     def _attempt_escape_reroute(
         self,
         context: _MapContext,
         map_id: str,
         state: AGVTrafficState,
-        snapshot: RuntimeSnapshot,
+        snapshot: TrafficSnapshot,
         current_route: PlannedRoute,
         decision: Optional[TrafficDecision],
         reroute_request: Optional[RerouteRequest],
@@ -6198,121 +6371,80 @@ class TrafficEngine:
         if not self._is_hard_conflict(decision, reroute_request):
             return None
 
+        occupied_nodes = self._get_all_occupied_nodes(snapshot, state.agv_id)
+
+        # Block incoming đến: current positions (occupied) + next nodes + goal nodes của các AGV khác.
+        # KHÔNG block conflict/intermediate node → tránh UNCHANGED_ROUTE loop.
+        blocked_edges: List[str] = []
+        topology = context.topology
+
+        nodes_to_block: List[str] = list(occupied_nodes)  # current positions
+
+        for other_agv_id, other_state in snapshot.states.items():
+            if other_agv_id == state.agv_id:
+                continue
+            # NEXT NODE: to_node của current_edge → node đang tích cực di chuyển đến
+            if other_state.current_edge:
+                try:
+                    e = topology.get_edge(other_state.current_edge)
+                    nn = self._normalize_node_id(e.to_node)
+                    if nn and nn not in nodes_to_block:
+                        nodes_to_block.append(nn)
+                except Exception:
+                    pass
+            # GOAL NODE: đích cuối cùng của route
+            other_route = self._routes.get(other_agv_id)
+            if other_route and getattr(other_route, "goal_node", None):
+                gn = self._normalize_node_id(other_route.goal_node)
+                if gn and gn not in nodes_to_block:
+                    nodes_to_block.append(gn)
+
+        for node_id in nodes_to_block:
+            for edge_id in self._edges_touching_node(topology, node_id):
+                try:
+                    edge = topology.get_edge(edge_id)
+                    if self._normalize_node_id(edge.to_node) == node_id and edge_id not in blocked_edges:
+                        blocked_edges.append(edge_id)
+                except:
+                    continue
+
+        # === FORCE RETREAT: Bắt đầu từ node phía sau ===
+        start_node = state.current_node or state.last_reached_node
+        if not start_node and state.current_edge:
+            try:
+                edge = topology.get_edge(state.current_edge)
+                start_node = edge.from_node   # Quay đầu về node trước
+            except:
+                start_node = None
+
         escape_request = RerouteRequest(
             agv_id=state.agv_id,
-            reason="DEADLOCK_RESOLUTION",
-            avoid_edges=list(reroute_request.avoid_edges) if reroute_request else [],
-            avoid_zones=list(reroute_request.avoid_zones) if reroute_request else [],
-            related_conflict_id=reroute_request.related_conflict_id if reroute_request else (decision.related_conflict_id if decision else None),
+            reason="FORCE_RETREAT_ESCAPE",
+            avoid_edges=blocked_edges,
+            avoid_zones=[],
+            related_conflict_id=reroute_request.related_conflict_id if reroute_request else None,
         )
-        if state.current_edge and state.current_edge not in escape_request.avoid_edges:
-            escape_request.avoid_edges.append(state.current_edge)
 
-        escape_blocked_edges = self._collect_escape_blocked_edges(map_id, state.agv_id, state, current_route)
-        guard = self._conflict_wait_guard.get(state.agv_id) or {}
-        guard_resource = guard.get("resource_id")
-        guard_related_agv = guard.get("related_agv_id")
-        if isinstance(guard_resource, str) and guard_resource:
-            self._append_conflict_neighborhood_edges(
-                context=context,
-                map_id=map_id,
-                blocked_edges=escape_blocked_edges,
-                resource_id=guard_resource,
-                requester_agv=state.agv_id,
-                related_agv_id=guard_related_agv if isinstance(guard_related_agv, str) else None,
-            )
+        # Gọi reroute với forced start
         escape_result = context.rerouting_service.handle(
             state=state,
             current_route=current_route,
             reroute_request=escape_request,
             decision=decision,
-            blocked_edges=escape_blocked_edges,
+            blocked_edges=blocked_edges,
+            forced_start_node=start_node   # <--- Quan trọng
         )
-        if self._should_log(f"escape:{state.agv_id}", 2.0):
-            escape_signature = (
-                f"{escape_result.success if escape_result else None}|"
-                f"{escape_result.strategy.value if escape_result else None}|"
-                f"{escape_result.message if escape_result else None}|"
-                f"{escape_result.planner_result.node_path if escape_result and escape_result.planner_result else None}"
-            )
-            if self._should_log_signature(f"escape:{state.agv_id}", escape_signature, 3.0):
-                print(
-                    f"[TRAFFIC CORE] escape_attempt agv={state.agv_id} "
-                    f"blocked_edges={escape_blocked_edges} success={escape_result.success if escape_result else None} "
-                    f"strategy={escape_result.strategy.value if escape_result else None} "
-                    f"message={escape_result.message if escape_result else None} "
-                    f"node_path={escape_result.planner_result.node_path if escape_result and escape_result.planner_result else None} "
-                    f"total_cost={escape_result.planner_result.total_cost if escape_result and escape_result.planner_result else None}"
-                )
-        if (
-            escape_result.success
-            and escape_result.route
-            and escape_result.strategy != RerouteStrategy.SPEED_ONLY
-        ):
-            related_blocker_agv_id = self._related_blocker_agv_id(decision, reroute_request)
-            blocked_blocker_node = self._route_uses_related_blocker_node(
-                snapshot=snapshot,
-                requester_state=state,
-                route=escape_result.route,
-                related_agv_id=related_blocker_agv_id,
-            )
-            if blocked_blocker_node is not None:
-                return DynamicReroutingResult(
-                    agv_id=state.agv_id,
-                    success=False,
-                    strategy=RerouteStrategy.SPEED_ONLY,
-                    reason=reroute_request.reason if reroute_request else (decision.reason if decision else "BLOCKER_NODE_OCCUPIED"),
-                    route=current_route,
-                    planner_result=escape_result.planner_result,
-                    speed_profile=context.rerouting_service.speed_controller.build_profile(
-                        state,
-                        decision,
-                        f"Rejected escape reroute through occupied blocker node {blocked_blocker_node}",
-                    ),
-                    message=f"Rejected escape reroute through occupied blocker node {blocked_blocker_node}",
-                )
-            candidate_decision: Optional[TrafficDecision] = None
-            candidate_reroute: Optional[RerouteRequest] = None
 
-            direct_candidate_decision, direct_candidate_reroute, _ = self._build_direct_blocker_override(
-                map_id=map_id,
-                agv_id=state.agv_id,
-                state=state,
-                snapshot=snapshot,
-                current_route=escape_result.route,
-            )
-            if direct_candidate_decision is not None or direct_candidate_reroute is not None:
-                candidate_decision = direct_candidate_decision
-                candidate_reroute = direct_candidate_reroute
-            else:
-                route_candidate_decision, route_candidate_reroute, _ = self._build_route_reservation_override(
-                    map_id=map_id,
-                    agv_id=state.agv_id,
-                    state=state,
-                    snapshot=snapshot,
-                    current_route=escape_result.route,
-                )
-                if route_candidate_decision is not None or route_candidate_reroute is not None:
-                    candidate_decision = route_candidate_decision
-                    candidate_reroute = route_candidate_reroute
+        success = escape_result.success if escape_result else False
+        path = escape_result.planner_result.node_path if escape_result and escape_result.planner_result else []
 
-            if candidate_decision is not None or candidate_reroute is not None:
-                return DynamicReroutingResult(
-                    agv_id=state.agv_id,
-                    success=False,
-                    strategy=RerouteStrategy.SPEED_ONLY,
-                    reason=candidate_reroute.reason if candidate_reroute else (candidate_decision.reason if candidate_decision else escape_result.reason),
-                    route=current_route,
-                    planner_result=escape_result.planner_result,
-                    speed_profile=context.rerouting_service.speed_controller.build_profile(
-                        state,
-                        candidate_decision or decision,
-                        "Rejected escape reroute into occupied corridor",
-                    ),
-                    message="Rejected escape reroute into occupied corridor",
-                )
-            return escape_result
-        return None
+        print(f"[TRAFFIC CORE] ESCAPE agv={state.agv_id} | occupied={sorted(occupied_nodes)} "
+              f"| blocked={len(blocked_edges)} | start={start_node} | success={success} | path={path}")
+
+        if not success or not path:
+            print("    → ESCAPE STILL FAILED → PAUSE (planner không tìm được đường)")
+
+        return escape_result
 
     def set_topology(self, map_id: str, topology: TopologyMap) -> None:
         with self._lock:
@@ -6373,6 +6505,7 @@ class TrafficEngine:
             if is_new_mission or goal_changed:
                 self._clear_reroute_guard(agv_id)
                 self._clear_wait_hold(agv_id)
+                self._deferred_head_on.pop(agv_id, None)
             self._routes[agv_id] = route
             self._reservations[agv_id] = [segment.edge_id for segment in route.segments]
             context = self._contexts.get(map_id)
@@ -6615,8 +6748,13 @@ class TrafficEngine:
             winner_state = states.get(winner)
             loser_state = states.get(loser)
             _, _, loser_nodes = self._planned_route_corridor(loser_route)
-            if loser_state is None or len(loser_nodes) < 2:
+            if len(loser_nodes) < 2:
                 print(f"[TRAFFIC CORE] immediate_head_on_skip loser={loser} reason=INSUFFICIENT_ROUTE_NODES")
+                return []
+            if loser_state is None:
+                # State not yet in snapshot (order just arrived) — detection functions
+                # in the evaluation cycle will handle it via _inject_route_overlap_runtime_controls.
+                print(f"[TRAFFIC CORE] immediate_head_on_deferred loser={loser} reason=STATE_UNAVAILABLE_AT_ORDER_TIME")
                 return []
 
             branch_node = str(loser_nodes[1])
@@ -6925,17 +7063,11 @@ class TrafficEngine:
         ]
 
         for index, (agv_a, route_a) in enumerate(map_route_items):
-            state_a = snapshot.states.get(agv_a)
-            if state_a is None:
-                continue
             _, physical_a, nodes_a = self._planned_route_corridor(route_a)
             if not physical_a:
                 continue
 
             for agv_b, route_b in map_route_items[index + 1:]:
-                state_b = snapshot.states.get(agv_b)
-                if state_b is None:
-                    continue
                 _, physical_b, nodes_b = self._planned_route_corridor(route_b)
                 if not physical_b:
                     continue
@@ -7060,6 +7192,8 @@ class TrafficEngine:
             conflict_result.conflicts.append(forced_head_on_conflict)
         if forced_head_on_decision is not None:
             decision = forced_head_on_decision
+            if forced_head_on_decision.action == TrafficAction.PROCEED:
+                reroute_request = None  # deferred head-on: suppress any pending reroute request
         if forced_head_on_reroute is not None:
             reroute_request = forced_head_on_reroute
 
@@ -7256,17 +7390,20 @@ class TrafficEngine:
                     decision=decision,
                     blocked_edges=blocked_edges,
                 )
-                if reroute_result.success and reroute_result.route and reroute_result.strategy != RerouteStrategy.SPEED_ONLY and self._would_flip_flop(agv_id, reroute_result.route):
-                    reroute_result = DynamicReroutingResult(
-                        agv_id=agv_id,
-                        success=False,
-                        strategy=RerouteStrategy.SPEED_ONLY,
-                        reason=reroute_result.reason,
-                        route=current_route,
-                        planner_result=reroute_result.planner_result,
-                        speed_profile=context.rerouting_service.speed_controller.build_profile(state, decision, "Suppressed reroute oscillation"),
-                        message="Suppressed reroute oscillation between alternating paths",
-                    )
+                if reroute_result.success and reroute_result.strategy == RerouteStrategy.FULL_REROUTE:
+                    # Force local only nếu có thể
+                    if len(reroute_result.planner_result.node_path) > 8:  # quá xa
+                        print(f"[LOCAL_REROUTE_GUARD] agv={agv_id} FULL reroute too long ({len(reroute_result.planner_result.node_path)} nodes) → fallback SPEED_ONLY")
+                        reroute_result = DynamicReroutingResult(
+                            agv_id=agv_id,
+                            success=False,
+                            strategy=RerouteStrategy.SPEED_ONLY,
+                            reason=reroute_result.reason,
+                            route=current_route,
+                            planner_result=reroute_result.planner_result,
+                            speed_profile=...,
+                            message="Forced local reroute only",
+                        )
                 related_blocker_agv_id = self._related_blocker_agv_id(decision, reroute_request)
                 blocked_blocker_node = None
                 if reroute_result.success and reroute_result.route and reroute_result.strategy != RerouteStrategy.SPEED_ONLY:
@@ -7445,7 +7582,11 @@ class TrafficEngine:
                     related_agv_id=decision.related_agv_id if decision else None,
                 )
             if reroute_result and reroute_result.route is not None:
-                self._remember_reroute(agv_id, state, reroute_result.reason, reroute_result.route)
+                # Do NOT call _remember_reroute when the reroute was suppressed by the cooldown
+                # guard itself: resetting the cooldown every cycle prevents it from ever expiring,
+                # trapping the AGV in a permanent "Suppressed repeated reroute" loop.
+                if reroute_result.message != "Suppressed repeated reroute during cooldown window":
+                    self._remember_reroute(agv_id, state, reroute_result.reason, reroute_result.route)
         elif decision and decision.action == TrafficAction.PROCEED:
             self._clear_wait_hold(agv_id)
 
@@ -7458,23 +7599,258 @@ class TrafficEngine:
             reroute_result=reroute_result,
         )
 
+    def determine_peer_collision_winner(
+        self, map_id: str, agv_a: str, agv_b: str
+    ) -> Tuple[str, str]:
+        """Return (winner_id, loser_id) for a physical LIDAR collision between two AGVs.
+        Rule: idle AGV (no active route) always wins — it is at its final position
+        and other AGVs must route around it."""
+        route_a = self._routes.get(agv_a)
+        route_b = self._routes.get(agv_b)
+        # Idle AGV has unconditional right-of-way
+        if route_a is not None and route_b is None:
+            return agv_b, agv_a  # agv_b idle → wins
+        if route_b is not None and route_a is None:
+            return agv_a, agv_b  # agv_a idle → wins
+        # Both moving: check deferred head-on record first
+        deferred_a = self._deferred_head_on.get(agv_a)
+        deferred_b = self._deferred_head_on.get(agv_b)
+        if deferred_a:
+            return str(deferred_a.get("winner_id") or agv_b), agv_a
+        if deferred_b:
+            return str(deferred_b.get("winner_id") or agv_a), agv_b
+        try:
+            if map_id in self._contexts:
+                winner = self._contexts[map_id].conflict_service.priority_resolver.choose_winner(
+                    agv_a, agv_b, dict(self._priority_contexts), {}
+                )
+                return winner, (agv_b if winner == agv_a else agv_a)
+        except Exception:
+            pass
+        winner = min(agv_a, agv_b)
+        return winner, (agv_b if winner == agv_a else agv_a)
+
+    def plan_retreat_for_idle_agv(
+        self, map_id: str, agv_id: str
+    ) -> Optional[DynamicReroutingResult]:
+        """
+        Plan a short retreat for an idle AGV to clear the way for another AGV.
+        Uses the AGV's last traversed edge to find its previous node (where it came from),
+        then plans a route back to that node.
+        """
+        with self._lock:
+            if map_id not in self._contexts:
+                return None
+            context = self._contexts[map_id]
+            state = context.state_service.get_state(agv_id)
+            if not state or not state.current_edge:
+                return None
+            try:
+                cur_edge = context.topology.get_edge(state.current_edge)
+            except Exception:
+                return None
+            # AGV arrived at to_node via current_edge → retreat to from_node (where it came from)
+            start_norm = self._normalize_node_id(cur_edge.to_node)
+            goal_norm = self._normalize_node_id(cur_edge.from_node)
+            if not start_norm or not goal_norm or start_norm == goal_norm:
+                return None
+            planner_request = PlannerRequest(
+                agv_id=agv_id,
+                start_node=start_norm,
+                goal_node=goal_norm,
+                blocked_edges=[],
+                hard_blocked_edges=[],
+                avoid_edges=[],
+                avoid_zones=[],
+                route_version=1,
+                reason="IDLE_RETREAT_CLEAR_WAY",
+                algorithm=PlannerAlgorithm.ASTAR,
+            )
+            planner_result = context.planner.plan(planner_request)
+            if not planner_result.success or planner_result.route is None or not planner_result.route.segments:
+                return None
+            print(
+                f"[TRAFFIC CORE][PEER_STOP] plan_retreat_for_idle_agv agv={agv_id} "
+                f"last_edge={state.current_edge} retreat={start_norm}→{goal_norm}"
+            )
+            return DynamicReroutingResult(
+                agv_id=agv_id,
+                success=True,
+                strategy=RerouteStrategy.LOCAL_REROUTE,
+                reason="IDLE_RETREAT_CLEAR_WAY",
+                route=planner_result.route,
+                planner_result=planner_result,
+                speed_profile=None,
+                message=f"Idle retreat {start_norm}→{goal_norm} to clear blocked path",
+            )
+
+    def force_reroute_around_idle_peer(
+        self, map_id: str, agv_id: str, blocked_node: str, idle_agv_id: Optional[str] = None
+    ) -> Optional[DynamicReroutingResult]:
+        """
+        Reroute agv_id to avoid a node occupied by an idle/finished peer.
+        Hard-blocks all route edges that touch blocked_node.
+        Forces the planner to start from the node BEFORE blocked_node (the "from" side of the
+        current edge) so the retreat prefix can be stitched in for mid-edge rerouting.
+        idle_agv_id: if provided, use the idle AGV's internal traffic state to resolve the blocked
+        node ID in the topology's native format (avoids MQTT "N21" vs topology "21" mismatch).
+        """
+        with self._lock:
+            if map_id not in self._contexts:
+                return None
+            context = self._contexts[map_id]
+            state = context.state_service.get_state(agv_id)
+            if state is None:
+                return None
+            current_route = self._routes.get(agv_id)
+            if current_route is None or not current_route.segments:
+                return None
+            # Resolve blocked_node to internal topology format.
+            # Prefer the idle AGV's internal current_node (e.g. "21") over the raw MQTT
+            # lastNodeId (e.g. "N21") which may have a different prefix.
+            blocked_node_norm: Optional[str] = None
+            if idle_agv_id:
+                idle_state = context.state_service.get_state(idle_agv_id)
+                if idle_state and idle_state.current_node:
+                    blocked_node_norm = self._normalize_node_id(idle_state.current_node)
+            if not blocked_node_norm:
+                blocked_node_norm = self._normalize_node_id(blocked_node)
+            if not blocked_node_norm:
+                return None
+            # Strip leading alphabetic prefix so MQTT "N21" matches edge-parsed "21"
+            _stripped = blocked_node_norm.lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+            if _stripped:
+                blocked_node_norm = _stripped
+
+            # Identify route edges that touch the blocked node by parsing edge IDs directly.
+            # This avoids topology.get_edge() calls that may fail for some edge formats.
+            hard_blocked: List[str] = []
+            safe_start_node: Optional[str] = None
+            for seg in current_route.segments:
+                from_n, to_n = self._parse_edge_node_ids(seg.edge_id)
+                if from_n == blocked_node_norm or to_n == blocked_node_norm:
+                    hard_blocked.append(seg.edge_id)
+                    if safe_start_node is None and to_n == blocked_node_norm:
+                        safe_start_node = from_n
+
+            if not hard_blocked:
+                print(
+                    f"[TRAFFIC CORE][PEER_STOP] force_reroute_around_idle_peer: "
+                    f"no route edges touch blocked_node={blocked_node_norm} "
+                    f"in route {[s.edge_id for s in current_route.segments]}"
+                )
+                return None
+
+            # Only force planner to start from BEFORE blocked_node when AGV is currently
+            # on the edge that leads directly into the blocked node.
+            # When AGV is further away (not on a hard-blocked edge), leave forced_start=None
+            # so DynamicReroutingService uses the AGV's actual current position as the
+            # replan origin — this produces a full route from where the AGV actually is.
+            forced_start: Optional[str] = None
+            if state.current_edge and state.current_edge in hard_blocked:
+                from_n, to_n = self._parse_edge_node_ids(state.current_edge)
+                if to_n == blocked_node_norm:
+                    forced_start = from_n
+
+            reroute_request = RerouteRequest(
+                agv_id=agv_id,
+                reason="IDLE_PEER_BLOCK",
+                avoid_edges=[],
+                avoid_zones=[],
+                related_conflict_id=f"idle_peer_at_{blocked_node}",
+            )
+            result = context.rerouting_service.handle(
+                state=state,
+                current_route=current_route,
+                reroute_request=reroute_request,
+                decision=None,
+                blocked_edges=hard_blocked,
+                forced_start_node=forced_start,
+            )
+            print(
+                f"[TRAFFIC CORE][PEER_STOP] force_reroute_around_idle_peer agv={agv_id} "
+                f"blocked_node={blocked_node} hard_blocked={hard_blocked} "
+                f"forced_start={forced_start} "
+                f"success={result.success} strategy={result.strategy.value} msg={result.message}"
+            )
+            return result
+
+    def force_reroute_for_peer_collision(
+        self, map_id: str, loser_agv_id: str, avoid_edges: List[str], winner_agv_id: str
+    ) -> Optional[DynamicReroutingResult]:
+        """
+        Immediately reroute the loser AGV when a mutual physical LIDAR stop is detected.
+        Clears any pending deferred head-on for both AGVs and computes a fresh detour.
+        """
+        with self._lock:
+            if map_id not in self._contexts:
+                return None
+            context = self._contexts[map_id]
+            state = context.state_service.get_state(loser_agv_id)
+            if state is None:
+                return None
+            current_route = self._routes.get(loser_agv_id)
+            if current_route is None:
+                return None
+            self._deferred_head_on.pop(loser_agv_id, None)
+            self._deferred_head_on.pop(winner_agv_id, None)
+            # Block winner's current segment so loser routes around it
+            winner_blocked = list(self._windowed_reserved_edges(winner_agv_id, map_id)[:1])
+            reroute_request = RerouteRequest(
+                agv_id=loser_agv_id,
+                reason="HEAD_ON_PHYSICAL_STOP",
+                avoid_edges=list(avoid_edges),
+                avoid_zones=[],
+                related_conflict_id=f"peer_collision_{winner_agv_id}",
+            )
+            result = context.rerouting_service.handle(
+                state=state,
+                current_route=current_route,
+                reroute_request=reroute_request,
+                decision=None,
+                blocked_edges=winner_blocked,
+            )
+            print(
+                f"[TRAFFIC CORE][PEER_STOP] force_reroute loser={loser_agv_id} winner={winner_agv_id} "
+                f"avoid={avoid_edges} blocked={winner_blocked} "
+                f"success={result.success} strategy={result.strategy.value} msg={result.message}"
+            )
+            return result
+
     def evaluate_map_controls(self, map_id: str) -> Dict[str, EngineUpdateResult]:
         with self._lock:
             context = self._contexts[map_id]
             snapshot = context.state_service.build_snapshot()
-            self._refresh_runtime_node_lock_cache(map_id, snapshot)
-            predictive_snapshot = self._refresh_predictive_snapshot(context, snapshot.generated_at)
+            # Only evaluate AGVs that have active routes — idle AGVs need no traffic decisions
+            # and evaluating them triggers expensive conflict detection across all AGV pairs.
             map_routes = {agv_id: route for agv_id, route in self._routes.items() if self._agv_map.get(agv_id) == map_id}
-            conflict_result = context.conflict_service.evaluate(snapshot.states, map_routes, snapshot.alerts, dict(self._priority_contexts))
-            self._inject_route_overlap_runtime_controls(map_id, snapshot, conflict_result)
+            if not map_routes:
+                return {}
+            active_states = {agv_id: state for agv_id, state in snapshot.states.items() if agv_id in map_routes}
+            # Only include collision alerts between two AGVs that BOTH have active routes.
+            # Alerts involving idle AGVs generate false WAIT/PAUSE decisions for moving AGVs.
+            active_alerts = [
+                a for a in snapshot.alerts
+                if a.agv_id_1 in map_routes and a.agv_id_2 in map_routes
+            ]
+            active_snapshot = TrafficSnapshot(
+                snapshot.generated_at,
+                active_states,
+                snapshot.occupancies,
+                active_alerts,
+            )
+            self._refresh_runtime_node_lock_cache(map_id, active_snapshot)
+            predictive_snapshot = self._refresh_predictive_snapshot(context, snapshot.generated_at)
+            conflict_result = context.conflict_service.evaluate(active_states, map_routes, active_alerts, dict(self._priority_contexts))
+            self._inject_route_overlap_runtime_controls(map_id, active_snapshot, conflict_result)
             results: Dict[str, EngineUpdateResult] = {}
-            for agv_id in list(snapshot.states.keys()):
+            for agv_id in list(map_routes.keys()):
                 if self._agv_map.get(agv_id) != map_id:
                     continue
                 result = self._evaluate_agv_locked(
                     map_id=map_id,
                     agv_id=agv_id,
-                    snapshot=snapshot,
+                    snapshot=active_snapshot,
                     predictive_snapshot=predictive_snapshot,
                     conflict_result=conflict_result,
                 )
@@ -7502,3 +7878,58 @@ class TrafficEngine:
             if result is None:
                 raise KeyError(f"AGV {telemetry.agv_id} not found in snapshot for map {map_id}")
             return result
+
+    def get_agv_current_edge(self, map_id: str, agv_id: str) -> Optional[str]:
+        """Return the edge ID the AGV is currently traversing, or None if at a node."""
+        with self._lock:
+            if map_id not in self._contexts:
+                return None
+            state = self._contexts[map_id].state_service.get_state(agv_id)
+            return state.current_edge if state else None
+
+    def proactive_reroute_for_incoming_node(
+        self, map_id: str, incoming_agv_id: str, destination_node_raw: str
+    ) -> List[Tuple[str, Optional["DynamicReroutingResult"]]]:
+        """
+        Proactively reroute all other AGVs whose routes include an edge targeting
+        destination_node_raw, before they physically reach the node and trigger LIDAR.
+        Called when incoming_agv_id enters an edge whose to_node == destination_node_raw.
+        Returns list of (agv_id, reroute_result) for each AGV that was rerouted.
+        """
+        dest_norm = self._normalize_node_id(destination_node_raw) or ""
+        _stripped = dest_norm.lstrip("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+        if _stripped:
+            dest_norm = _stripped
+        if not dest_norm:
+            return []
+
+        candidates: List[str] = []
+        with self._lock:
+            if map_id not in self._contexts:
+                return []
+            for agv_id, route in list(self._routes.items()):
+                if agv_id == incoming_agv_id:
+                    continue
+                if self._agv_map.get(agv_id) != map_id:
+                    continue
+                if route is None or not route.segments:
+                    continue
+                for seg in route.segments:
+                    _, to_n = self._parse_edge_node_ids(seg.edge_id)
+                    if to_n == dest_norm:
+                        candidates.append(agv_id)
+                        break
+
+        results: List[Tuple[str, Optional[DynamicReroutingResult]]] = []
+        for agv_id in candidates:
+            print(
+                f"[TRAFFIC CORE][PROACTIVE] {incoming_agv_id} entering node {dest_norm} — "
+                f"rerouting {agv_id} away from node {dest_norm} proactively"
+            )
+            # Pass idle_agv_id=None: the incoming AGV is mid-edge so its current_node is the
+            # FROM node, not the destination. Use dest_norm (already stripped) directly.
+            result = self.force_reroute_around_idle_peer(
+                map_id, agv_id, dest_norm, idle_agv_id=None
+            )
+            results.append((agv_id, result))
+        return results

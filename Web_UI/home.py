@@ -73,13 +73,6 @@ def make_sidebar(lang: str):
                             ),
                             html.Div(
                                 [
-<<<<<<< HEAD
-                                    html.Div(t(lang, "menu.map.create", "Create Map"), id="submenu-create-map", className="submenu-item"),
-                                    html.Div(t(lang, "menu.map.configure", "Map Configure"), id="submenu-setup-map", className="submenu-item"),
-                                    html.A(
-                                        t(lang, "menu.map.agvmap", "AGV Map"),
-                                        href="http://192.168.0.103:8000/AgvMap.html",
-=======
                                     html.Div(
                                         t(lang, "menu.map.create", "Create Map"),
                                         id="submenu-create-map",
@@ -92,8 +85,7 @@ def make_sidebar(lang: str):
                                     ),
                                     html.A(
                                         t(lang, "menu.map.agvmap", "AGV Map"),
-                                        href="http://192.168.0.23:8000/AgvMap.html",
->>>>>>> 83554841fd7d3c2ff850fed616c1ce8043939574
+                                        href="http://192.168.0.81:8000/AgvMap.html",
                                         target="_blank",
                                         className="submenu-item",
                                         style={"textDecoration": "none", "color": "inherit"},
