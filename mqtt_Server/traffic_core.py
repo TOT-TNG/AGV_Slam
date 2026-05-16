@@ -440,7 +440,6 @@ class CostModel:
         if (
             edge.blocked
             or edge.edge_id in blocked_edges
-            or physical_id in (blocked_physical_edges or set())
             or (edge.zone_id and edge.zone_id in blocked_zones)
         ):
             cost += self.policy.blocked_penalty
@@ -2350,8 +2349,8 @@ class DynamicReroutingService:
             goal_node=current_route.goal_node,
             blocked_edges=blocked_edges,
             blocked_zones=blocked_zones,
-            hard_blocked_edges=blocked_edges,
-            hard_blocked_zones=blocked_zones,
+            hard_blocked_edges=[],
+            hard_blocked_zones=[],
             avoid_edges=avoid_edges,
             avoid_zones=avoid_zones,
             preferred_max_speed=preferred_max_speed,
@@ -2704,9 +2703,9 @@ class TrafficEngine:
         self._last_debug_log_ts[key] = now
         return True
     
-    def _get_all_occupied_nodes(self, snapshot: TrafficSnapshot, exclude_agv: str) -> Set[str]:
-        """Lấy TẤT CẢ node đang bị chiếm (current + last_reached)"""
-        occupied: Set[str] = set()
+    def _get_all_occupied_nodes(self, snapshot: TrafficSnapshot, exclude_agv: str) -> set[str]:
+        """Lấy TẤT CẢ node bị chiếm (current + last_reached)"""
+        occupied: set[str] = set()
         for agv_id, state in snapshot.states.items():
             if agv_id == exclude_agv:
                 continue
@@ -3059,7 +3058,14 @@ class TrafficEngine:
         if node_id is None:
             return None
         text = str(node_id).strip()
-        return text or None
+        if not text:
+            return None
+        # Strip leading alphabetic prefix (e.g. "N3" → "3") for consistent comparison
+        i = 0
+        while i < len(text) and text[i].isalpha():
+            i += 1
+        stripped = text[i:]
+        return stripped if stripped else text
 
     @staticmethod
     def _node_hold_margin_for_edge(edge: Edge) -> float:
@@ -3991,7 +3997,8 @@ class TrafficEngine:
                         matched_index = idx
                         break
             if matched_index is None and state.route_progress_index is not None:
-                matched_index = max(0, min(len(current_route.segments) - 1, state.route_progress_index))
+                if not state.current_edge and state.route_progress_index < len(current_route.segments):
+                    matched_index = state.route_progress_index
             if matched_index is not None:
                 current_index = matched_index
             guarded_segments = current_route.segments[current_index:min(len(current_route.segments), current_index + 2)]
@@ -4097,7 +4104,8 @@ class TrafficEngine:
                     matched_index = idx
                     break
         if matched_index is None and state.route_progress_index is not None:
-            matched_index = max(0, min(len(route.segments) - 1, state.route_progress_index))
+            if not state.current_edge and state.route_progress_index < len(route.segments):
+                matched_index = state.route_progress_index
         if matched_index is not None:
             current_index = matched_index
 
@@ -4126,7 +4134,11 @@ class TrafficEngine:
                     matched_index = idx
                     break
         if matched_index is None and state.route_progress_index is not None:
-            matched_index = max(0, min(len(route.segments) - 1, state.route_progress_index))
+            # Only use route_progress_index when current_edge is absent (AGV at a node)
+            # AND the index is within this route's bounds.  If the index exceeds the new
+            # route length it belongs to an older (longer) route — start from 0 instead.
+            if not state.current_edge and state.route_progress_index < len(route.segments):
+                matched_index = state.route_progress_index
         if matched_index is not None:
             current_index = matched_index
 
@@ -4216,7 +4228,8 @@ class TrafficEngine:
                     matched_index = idx
                     break
         if matched_index is None and state.route_progress_index is not None:
-            matched_index = max(0, min(len(route.segments) - 1, state.route_progress_index))
+            if not state.current_edge and state.route_progress_index < len(route.segments):
+                matched_index = state.route_progress_index
         if matched_index is not None:
             current_index = matched_index
 
@@ -4237,7 +4250,7 @@ class TrafficEngine:
                     current_index = idx
                     break
         if current_index is None and state.route_progress_index is not None:
-            if 0 <= state.route_progress_index < len(route.segments):
+            if not state.current_edge and 0 <= state.route_progress_index < len(route.segments):
                 current_index = state.route_progress_index
         if current_index is None:
             current_index = 0
@@ -4393,7 +4406,8 @@ class TrafficEngine:
                     matched_index = idx
                     break
         if matched_index is None and state.route_progress_index is not None:
-            matched_index = max(0, min(len(route.segments) - 1, state.route_progress_index))
+            if not state.current_edge and state.route_progress_index < len(route.segments):
+                matched_index = state.route_progress_index
         if matched_index is not None:
             current_index = matched_index
 
@@ -4440,7 +4454,8 @@ class TrafficEngine:
                     matched_index = idx
                     break
         if matched_index is None and state.route_progress_index is not None:
-            matched_index = max(0, min(len(route.segments) - 1, state.route_progress_index))
+            if not state.current_edge and state.route_progress_index < len(route.segments):
+                matched_index = state.route_progress_index
         if matched_index is not None:
             current_index = matched_index
 
@@ -4763,7 +4778,20 @@ class TrafficEngine:
                         None,
                         conflict,
                     )
-                print(f"[TRAFFIC CORE][OVERRIDE BUILD][ROUTE_RES] agv={agv_id} candidate_reroute_reason=HEAD_ON_{resource_id} candidate_avoid_edges={avoid_edges} overlap_edge_ids={overlap_edge_ids}")
+                # Loser đang ON entry edge (hoặc chuẩn bị vào corridor từ starting node).
+                # Cho phép dùng entry edge, chỉ avoid các edge TIẾP THEO phía winner.
+                current_physical = self._normalize_physical_edge_id(state.current_edge) if state.current_edge else None
+                if not current_physical and current_route and current_route.segments:
+                    # AGV ở starting node (current_edge=None), sắp vào corridor qua segment đầu tiên
+                    first_seg = self._normalize_physical_edge_id(current_route.segments[0].edge_id)
+                    if first_seg and overlap_edge_ids and first_seg in overlap_edge_ids:
+                        current_physical = first_seg
+                if current_physical and overlap_edge_ids and current_physical in overlap_edge_ids:
+                    loser_avoid = [e for e in overlap_edge_ids if e != current_physical]
+                    loser_avoid = loser_avoid if loser_avoid else overlap_edge_ids
+                else:
+                    loser_avoid = avoid_edges
+                print(f"[TRAFFIC CORE][OVERRIDE BUILD][ROUTE_RES] agv={agv_id} candidate_reroute_reason=HEAD_ON_{resource_id} candidate_avoid_edges={loser_avoid} overlap_edge_ids={overlap_edge_ids}")
                 return (
                     TrafficDecision(
                         agv_id=agv_id,
@@ -4775,7 +4803,7 @@ class TrafficEngine:
                     RerouteRequest(
                         agv_id=agv_id,
                         reason=f"HEAD_ON_{resource_id}",
-                        avoid_edges=avoid_edges,
+                        avoid_edges=loser_avoid,
                         avoid_zones=[],
                         related_conflict_id=conflict_id,
                     ),
@@ -4853,6 +4881,13 @@ class TrafficEngine:
 
             other_edge_ids, other_physical_edges, other_nodes = self._remaining_route_corridor(other_state, other_route)
 
+            if other_physical_edges:
+                print(
+                    f"[TRAFFIC CORE][OVERLAP_CHECK] agv={agv_id} my_phys={my_physical_edges} "
+                    f"other={other_agv} other_phys={other_physical_edges} "
+                    f"my_node={state.current_node} other_node={other_state.current_node}"
+                )
+
             head_on_edges, head_on_nodes, overlap_start, overlap_len = self._reversed_corridor_overlap(
                 my_physical_edges,
                 my_nodes,
@@ -4927,19 +4962,6 @@ class TrafficEngine:
                         else f"{winner} has higher priority in head-on corridor {resource_id}"
                     ),
                 )
-                if at_corridor_mouth and winner == agv_id:
-                    print(f"[TRAFFIC CORE][OVERRIDE BUILD][DIRECT_ROUTE_OVERLAP] agv={agv_id} hold_corridor_mouth resource_id={resource_id} at_corridor_mouth={at_corridor_mouth} other_agv={other_agv}")
-                    return (
-                        TrafficDecision(
-                            agv_id=agv_id,
-                            action=TrafficAction.WAIT,
-                            reason=f"Hold corridor mouth {resource_id} while {other_agv} reroutes",
-                            related_conflict_id=conflict_id,
-                            related_agv_id=other_agv,
-                        ),
-                        None,
-                        conflict,
-                    )
                 if winner == agv_id and other_still_inside_shared_corridor:
                     print(f"[TRAFFIC CORE][OVERRIDE BUILD][DIRECT_ROUTE_OVERLAP] agv={agv_id} hold_shared_corridor until_other_clears resource_id={resource_id} other_agv={other_agv} other_still_inside={other_still_inside_shared_corridor}")
                     return (
@@ -4953,20 +4975,33 @@ class TrafficEngine:
                         None,
                         conflict,
                     )
-                if at_corridor_mouth and winner != agv_id:
-                    print(f"[TRAFFIC CORE][OVERRIDE BUILD][DIRECT_ROUTE_OVERLAP] agv={agv_id} candidate_reroute_reason=HEAD_ON_{resource_id} candidate_avoid_edges={avoid_edges} at_corridor_mouth={at_corridor_mouth} other_agv={other_agv}")
+                # Tính avoid_edges cho AGV hiện tại (loại trừ edge đang đi hoặc edge đầu tiên)
+                _cur_phys = self._normalize_physical_edge_id(state.current_edge) if state.current_edge else None
+                if not _cur_phys and current_route and current_route.segments:
+                    _first = self._normalize_physical_edge_id(current_route.segments[0].edge_id)
+                    if _first and overlap_edge_ids and _first in overlap_edge_ids:
+                        _cur_phys = _first
+                if _cur_phys and overlap_edge_ids and _cur_phys in overlap_edge_ids:
+                    _loser_avoid = [e for e in overlap_edge_ids if e != _cur_phys] or overlap_edge_ids
+                else:
+                    _loser_avoid = avoid_edges
+                if at_corridor_mouth:
+                    # Cả hai đầu corridor đều có AGV → reroute ngay để tránh đối đầu.
+                    # Mỗi AGV tự tính đường tránh của mình (symmetric): không cần đợi
+                    # winner/loser — AGV nào tìm được đường ngắn hơn sẽ thực sự reroute.
+                    print(f"[TRAFFIC CORE][OVERRIDE BUILD][DIRECT_ROUTE_OVERLAP] agv={agv_id} corridor_mouth_reroute resource_id={resource_id} avoid={_loser_avoid} other_agv={other_agv}")
                     return (
                         TrafficDecision(
                             agv_id=agv_id,
                             action=TrafficAction.REROUTE,
-                            reason=f"Reroute before entering opposite corridor {resource_id}",
+                            reason=f"Reroute at corridor mouth {resource_id}",
                             related_conflict_id=conflict_id,
-                            related_agv_id=winner,
+                            related_agv_id=other_agv,
                         ),
                         RerouteRequest(
                             agv_id=agv_id,
                             reason=f"HEAD_ON_{resource_id}",
-                            avoid_edges=avoid_edges,
+                            avoid_edges=_loser_avoid,
                             avoid_zones=[],
                             related_conflict_id=conflict_id,
                         ),
@@ -4974,7 +5009,7 @@ class TrafficEngine:
                     )
                 if winner == agv_id:
                     continue
-                print(f"[TRAFFIC CORE][OVERRIDE BUILD][DIRECT_ROUTE_OVERLAP] agv={agv_id} candidate_reroute_reason=HEAD_ON_{resource_id} candidate_avoid_edges={avoid_edges} shared_head_on_nodes={shared_head_on_nodes}")
+                print(f"[TRAFFIC CORE][OVERRIDE BUILD][DIRECT_ROUTE_OVERLAP] agv={agv_id} candidate_reroute_reason=HEAD_ON_{resource_id} candidate_avoid_edges={_loser_avoid} shared_head_on_nodes={shared_head_on_nodes}")
                 return (
                     TrafficDecision(
                         agv_id=agv_id,
@@ -4986,7 +5021,7 @@ class TrafficEngine:
                     RerouteRequest(
                         agv_id=agv_id,
                         reason=f"HEAD_ON_{resource_id}",
-                        avoid_edges=avoid_edges,
+                        avoid_edges=_loser_avoid,
                         avoid_zones=[],
                         related_conflict_id=conflict_id,
                     ),
@@ -5322,6 +5357,11 @@ class TrafficEngine:
         reroute_request: Optional[RerouteRequest],
         conflict_result: ConflictManagementResult,
     ) -> Tuple[Optional[TrafficDecision], Optional[RerouteRequest]]:
+        # Nếu đã có reroute HEAD_ON (từ corridor_mouth hoặc bất kỳ nguồn nào),
+        # không override bằng WAIT hay bất cứ thứ gì khác.
+        if reroute_request is not None and str(reroute_request.reason).startswith("HEAD_ON_"):
+            return decision, reroute_request
+
         remaining_nodes = self._remaining_route_nodes(state, current_route)
         remaining_edges = self._remaining_route_physical_edges(state, current_route)
         my_remaining_edge_ids, my_remaining_corridor_edges, my_remaining_corridor_nodes = self._remaining_route_corridor(
@@ -6036,11 +6076,16 @@ class TrafficEngine:
         ]
         normalized_route_nodes = [node_id for node_id in route_nodes if node_id]
         requester_node = self._normalize_node_id(requester_state.current_node)
+        # Own-goal protection: never reject a path just because the requester's
+        # destination is currently occupied — that AGV will have vacated by arrival.
+        requester_goal = self._normalize_node_id(route.goal_node) if route else None
 
         for node_id in normalized_route_nodes[1:]:
             if node_id not in blocker_nodes:
                 continue
             if requester_node and node_id == requester_node:
+                continue
+            if requester_goal and node_id == requester_goal:
                 continue
             return node_id
         return None
@@ -6314,48 +6359,48 @@ class TrafficEngine:
         decision: Optional[TrafficDecision],
         reroute_request: Optional[RerouteRequest],
     ) -> List[str]:
-        """Block incoming edges đến NEXT NODE (to_node của current_edge) và GOAL NODE của các AGV khác.
-
-        Không block intermediate/conflict node vì:
-        - Intermediate node chỉ bị block khi AGV thực sự đang đi đến đó (next_node).
-        - Block conflict node gây oscillation: block N22 → đi qua N21 → block N21 → đi qua N22 → lặp.
-        """
+        """Block TẤT CẢ incoming + outgoing edges của occupied nodes + goal nodes"""
         blocked: List[str] = []
+        if state.current_edge:
+            blocked.append(state.current_edge)
+
         topology = context.topology
         snapshot = context.state_service.build_snapshot()
+        own_goal = self._normalize_node_id(current_route.goal_node) if current_route else None
 
-        for other_agv_id, other_state in snapshot.states.items():
-            if other_agv_id == agv_id:
+        # Collect all nodes that other AGVs are occupying or heading to
+        nodes_to_block: set[str] = set()
+        for other_id, other_state in snapshot.states.items():
+            if other_id == agv_id:
                 continue
-            nodes_to_block: List[str] = []
-
-            # NEXT NODE: node AGV đang tích cực di chuyển đến ngay lúc này
+            # Current position
+            for node_field in (other_state.current_node, other_state.last_reached_node):
+                norm = self._normalize_node_id(node_field)
+                if norm and norm != own_goal:
+                    nodes_to_block.add(norm)
+            # Next node (where they are actively going)
             if other_state.current_edge:
                 try:
                     e = topology.get_edge(other_state.current_edge)
                     nn = self._normalize_node_id(e.to_node)
-                    if nn:
-                        nodes_to_block.append(nn)
-                except Exception:
+                    if nn and nn != own_goal:
+                        nodes_to_block.add(nn)
+                except:
                     pass
-
-            # GOAL NODE: đích cuối cùng của route
-            other_route = self._routes.get(other_agv_id)
-            if other_route and getattr(other_route, "goal_node", None):
+            # Goal node
+            other_route = self._routes.get(other_id)
+            if other_route and other_route.goal_node:
                 gn = self._normalize_node_id(other_route.goal_node)
-                if gn and gn not in nodes_to_block:
-                    nodes_to_block.append(gn)
+                if gn and gn != own_goal:
+                    nodes_to_block.add(gn)
 
-            for node_id in nodes_to_block:
-                for edge_id in self._edges_touching_node(topology, node_id):
-                    try:
-                        e = topology.get_edge(edge_id)
-                        if self._normalize_node_id(e.to_node) == node_id and edge_id not in blocked:
-                            blocked.append(edge_id)
-                    except Exception:
-                        continue
+        # Block ALL edges touching these nodes (incoming + outgoing)
+        for node_id in nodes_to_block:
+            for edge_id in self._edges_touching_node(topology, node_id):
+                if edge_id not in blocked:
+                    blocked.append(edge_id)
 
-        print(f"[BLOCKED_EDGES] agv={agv_id} → {blocked} (next+goals)")
+        print(f"[BLOCKED_EDGES] agv={agv_id} → {blocked} (ALL touching occupied/goal nodes)")
         return blocked
 
     def _attempt_escape_reroute(
@@ -6373,48 +6418,29 @@ class TrafficEngine:
 
         occupied_nodes = self._get_all_occupied_nodes(snapshot, state.agv_id)
 
-        # Block incoming đến: current positions (occupied) + next nodes + goal nodes của các AGV khác.
-        # KHÔNG block conflict/intermediate node → tránh UNCHANGED_ROUTE loop.
+        # === BLOCK MẠNH: incoming + outgoing edges của occupied nodes + current edge ===
         blocked_edges: List[str] = []
+        if state.current_edge:
+            blocked_edges.append(state.current_edge)
+
         topology = context.topology
-
-        nodes_to_block: List[str] = list(occupied_nodes)  # current positions
-
-        for other_agv_id, other_state in snapshot.states.items():
-            if other_agv_id == state.agv_id:
-                continue
-            # NEXT NODE: to_node của current_edge → node đang tích cực di chuyển đến
-            if other_state.current_edge:
-                try:
-                    e = topology.get_edge(other_state.current_edge)
-                    nn = self._normalize_node_id(e.to_node)
-                    if nn and nn not in nodes_to_block:
-                        nodes_to_block.append(nn)
-                except Exception:
-                    pass
-            # GOAL NODE: đích cuối cùng của route
-            other_route = self._routes.get(other_agv_id)
-            if other_route and getattr(other_route, "goal_node", None):
-                gn = self._normalize_node_id(other_route.goal_node)
-                if gn and gn not in nodes_to_block:
-                    nodes_to_block.append(gn)
-
-        for node_id in nodes_to_block:
+        for node_id in occupied_nodes:
             for edge_id in self._edges_touching_node(topology, node_id):
                 try:
                     edge = topology.get_edge(edge_id)
-                    if self._normalize_node_id(edge.to_node) == node_id and edge_id not in blocked_edges:
+                    # Block cả incoming và outgoing để planner không đi qua node này
+                    if edge_id not in blocked_edges:
                         blocked_edges.append(edge_id)
-                except:
+                except Exception:
                     continue
 
-        # === FORCE RETREAT: Bắt đầu từ node phía sau ===
+        # === FORCE RETREAT: Bắt đầu từ node trước (cho phép quay đầu) ===
         start_node = state.current_node or state.last_reached_node
         if not start_node and state.current_edge:
             try:
                 edge = topology.get_edge(state.current_edge)
                 start_node = edge.from_node   # Quay đầu về node trước
-            except:
+            except Exception:
                 start_node = None
 
         escape_request = RerouteRequest(
@@ -6425,26 +6451,30 @@ class TrafficEngine:
             related_conflict_id=reroute_request.related_conflict_id if reroute_request else None,
         )
 
-        # Gọi reroute với forced start
         escape_result = context.rerouting_service.handle(
             state=state,
             current_route=current_route,
             reroute_request=escape_request,
             decision=decision,
             blocked_edges=blocked_edges,
-            forced_start_node=start_node   # <--- Quan trọng
+            forced_start_node=start_node,   # <--- quan trọng nhất
         )
 
         success = escape_result.success if escape_result else False
         path = escape_result.planner_result.node_path if escape_result and escape_result.planner_result else []
 
         print(f"[TRAFFIC CORE] ESCAPE agv={state.agv_id} | occupied={sorted(occupied_nodes)} "
-              f"| blocked={len(blocked_edges)} | start={start_node} | success={success} | path={path}")
+              f"| blocked={len(blocked_edges)} edges | start_node={start_node} | success={success} | path={path}")
 
         if not success or not path:
-            print("    → ESCAPE STILL FAILED → PAUSE (planner không tìm được đường)")
+            print("    → ESCAPE FAILED (planner không tìm được đường) → PAUSE AGV")
+        else:
+            print(f"    → SHORT PATH SUCCESS: {path}")
 
         return escape_result
+    
+        if escape_result and escape_result.success and escape_result.route:
+            print(f"[TRAFFIC CORE][ESCAPE_SUCCESS] agv={state.agv_id} committed path: {escape_result.planner_result.node_path if escape_result.planner_result else None}")
 
     def set_topology(self, map_id: str, topology: TopologyMap) -> None:
         with self._lock:
@@ -6508,6 +6538,8 @@ class TrafficEngine:
                 self._deferred_head_on.pop(agv_id, None)
             self._routes[agv_id] = route
             self._reservations[agv_id] = [segment.edge_id for segment in route.segments]
+            node_path = ([route.start_node] + [s.to_node for s in route.segments]) if route.segments else []
+            print(f"[TRAFFIC CORE][ROUTE_SET] agv={agv_id} goal={route.goal_node} reason={route.reason} nodes={node_path}")
             context = self._contexts.get(map_id)
             if context is not None:
                 context.predictive_engine.upsert_route(self._to_predictive_route(route))
@@ -7193,7 +7225,10 @@ class TrafficEngine:
         if forced_head_on_decision is not None:
             decision = forced_head_on_decision
             if forced_head_on_decision.action == TrafficAction.PROCEED:
-                reroute_request = None  # deferred head-on: suppress any pending reroute request
+                # Giữ lại reroute HEAD_ON từ corridor_mouth (first-pass DIRECT_ROUTE_OVERLAP).
+                # Chỉ suppress các reroute không phải HEAD_ON.
+                if not (reroute_request is not None and str(reroute_request.reason).startswith("HEAD_ON_")):
+                    reroute_request = None
         if forced_head_on_reroute is not None:
             reroute_request = forced_head_on_reroute
 
@@ -7301,6 +7336,13 @@ class TrafficEngine:
                 decision = direct_route_decision
             if direct_route_reroute is not None:
                 reroute_request = direct_route_reroute
+        elif reroute_request is not None and str(reroute_request.reason).startswith("HEAD_ON_"):
+            pass  # already have HEAD_ON reroute — no need to re-run overlap detection
+        elif reroute_request is not None:
+            print(
+                f"[TRAFFIC CORE][OVERLAP_SKIP] agv={agv_id} skip direct_route_overlap "
+                f"reason={reroute_request.reason} decision={decision.action.value if decision else None}"
+            )
 
         decision, reroute_request = self._apply_wait_before_reroute_policy(
             agv_id=agv_id,
@@ -7429,41 +7471,46 @@ class TrafficEngine:
                         message=f"Rejected reroute through occupied blocker node {blocked_blocker_node}",
                     )
                 if reroute_result.success and reroute_result.route and reroute_result.strategy != RerouteStrategy.SPEED_ONLY:
+                    # Skip override handler for HEAD_ON reroutes: the planner already found the
+                    # optimal detour. Re-running with current_route=rerouted_route would cause
+                    # _is_materially_unchanged_route to reject the correct path and pick a longer one.
+                    _is_head_on_reroute = reroute_request is not None and str(reroute_request.reason).startswith("HEAD_ON_")
                     candidate_decision: Optional[TrafficDecision] = None
                     candidate_reroute: Optional[RerouteRequest] = None
 
-                    direct_candidate_decision, direct_candidate_reroute, _ = self._build_direct_blocker_override(
-                        map_id=map_id,
-                        agv_id=agv_id,
-                        state=state,
-                        snapshot=snapshot,
-                        current_route=reroute_result.route,
-                    )
-                    if direct_candidate_decision is not None or direct_candidate_reroute is not None:
-                        candidate_decision = direct_candidate_decision
-                        candidate_reroute = direct_candidate_reroute
-                    else:
-                        route_candidate_decision, route_candidate_reroute, _ = self._build_route_reservation_override(
+                    if not _is_head_on_reroute:
+                        direct_candidate_decision, direct_candidate_reroute, _ = self._build_direct_blocker_override(
                             map_id=map_id,
                             agv_id=agv_id,
                             state=state,
                             snapshot=snapshot,
                             current_route=reroute_result.route,
                         )
-                        if route_candidate_decision is not None or route_candidate_reroute is not None:
-                            candidate_decision = route_candidate_decision
-                            candidate_reroute = route_candidate_reroute
+                        if direct_candidate_decision is not None or direct_candidate_reroute is not None:
+                            candidate_decision = direct_candidate_decision
+                            candidate_reroute = direct_candidate_reroute
                         else:
-                            overlap_candidate_decision, overlap_candidate_reroute, _ = self._build_direct_route_overlap_override(
+                            route_candidate_decision, route_candidate_reroute, _ = self._build_route_reservation_override(
                                 map_id=map_id,
                                 agv_id=agv_id,
                                 state=state,
                                 snapshot=snapshot,
                                 current_route=reroute_result.route,
                             )
-                            if overlap_candidate_decision is not None or overlap_candidate_reroute is not None:
-                                candidate_decision = overlap_candidate_decision
-                                candidate_reroute = overlap_candidate_reroute
+                            if route_candidate_decision is not None or route_candidate_reroute is not None:
+                                candidate_decision = route_candidate_decision
+                                candidate_reroute = route_candidate_reroute
+                            else:
+                                overlap_candidate_decision, overlap_candidate_reroute, _ = self._build_direct_route_overlap_override(
+                                    map_id=map_id,
+                                    agv_id=agv_id,
+                                    state=state,
+                                    snapshot=snapshot,
+                                    current_route=reroute_result.route,
+                                )
+                                if overlap_candidate_decision is not None or overlap_candidate_reroute is not None:
+                                    candidate_decision = overlap_candidate_decision
+                                    candidate_reroute = overlap_candidate_reroute
 
                     if candidate_decision is not None or candidate_reroute is not None:
                         # Log override candidate details to diagnose why planner reroutes are rejected
@@ -7552,6 +7599,8 @@ class TrafficEngine:
                     f"node_path={reroute_result.planner_result.node_path if reroute_result and reroute_result.planner_result else None} "
                     f"total_cost={reroute_result.planner_result.total_cost if reroute_result and reroute_result.planner_result else None}"
                 )
+                        # === ESCAPE REROUTE - FORCE COMMIT KHI THÀNH CÔNG ===
+            _escape_reroute_applied = False
             if (
                 reroute_result is not None
                 and not reroute_result.success
@@ -7568,27 +7617,41 @@ class TrafficEngine:
                 )
                 if escape_result is not None:
                     reroute_result = escape_result
-            if (
-                reroute_result is not None
-                and not reroute_result.success
-                and self._is_hard_conflict(decision, reroute_request)
-            ):
-                fallback_reason = reroute_request.reason if reroute_request else (decision.reason if decision else "HARD_CONFLICT")
+                    _escape_reroute_applied = True
+
+            # FORCE COMMIT — chỉ dành cho escape reroute (reroute thường phải đi qua mqtt_client)
+            # Bug cũ: block này chạy cho MỌI reroute thành công → xóa reroute_result → mqtt_client
+            # không thấy kết quả → không gửi order mới cho AGV → AGV đi thẳng vào nhau.
+            if _escape_reroute_applied and reroute_result is not None and reroute_result.success and reroute_result.route is not None:
+                print(f"[TRAFFIC CORE][ESCAPE_COMMIT] agv={agv_id} → APPLYING short escape route: {reroute_result.planner_result.node_path if reroute_result.planner_result else None}")
+
+                # Commit route mới
+                self._routes[agv_id] = reroute_result.route
+                self._reservations[agv_id] = [segment.edge_id for segment in reroute_result.route.segments]
+
+                # Update predictive engine
+                context.predictive_engine.upsert_route(self._to_predictive_route(reroute_result.route))
+
+                # Xóa reroute request và chuyển sang PROCEED để override sau không can thiệp
+                decision = TrafficDecision(
+                    agv_id=agv_id,
+                    action=TrafficAction.PROCEED,
+                    reason="Escape route applied successfully",
+                    related_conflict_id=None,
+                    related_agv_id=None,
+                )
+                reroute_request = None
+                reroute_result = None  # clear để không trigger lại
+
+            # Nếu escape vẫn fail thì mới fallback WAIT
+            elif reroute_result is not None and not reroute_result.success and self._is_hard_conflict(decision, reroute_request):
                 decision = TrafficDecision(
                     agv_id=agv_id,
                     action=TrafficAction.WAIT,
-                    reason=f"Waiting because reroute is not yet available ({fallback_reason})",
-                    related_conflict_id=decision.related_conflict_id if decision else (reroute_request.related_conflict_id if reroute_request else None),
+                    reason=f"Waiting because reroute failed ({reroute_result.message})",
+                    related_conflict_id=decision.related_conflict_id if decision else None,
                     related_agv_id=decision.related_agv_id if decision else None,
                 )
-            if reroute_result and reroute_result.route is not None:
-                # Do NOT call _remember_reroute when the reroute was suppressed by the cooldown
-                # guard itself: resetting the cooldown every cycle prevents it from ever expiring,
-                # trapping the AGV in a permanent "Suppressed repeated reroute" loop.
-                if reroute_result.message != "Suppressed repeated reroute during cooldown window":
-                    self._remember_reroute(agv_id, state, reroute_result.reason, reroute_result.route)
-        elif decision and decision.action == TrafficAction.PROCEED:
-            self._clear_wait_hold(agv_id)
 
         return EngineUpdateResult(
             state=state,
@@ -7842,7 +7905,7 @@ class TrafficEngine:
             self._refresh_runtime_node_lock_cache(map_id, active_snapshot)
             predictive_snapshot = self._refresh_predictive_snapshot(context, snapshot.generated_at)
             conflict_result = context.conflict_service.evaluate(active_states, map_routes, active_alerts, dict(self._priority_contexts))
-            self._inject_route_overlap_runtime_controls(map_id, active_snapshot, conflict_result)
+            #self._inject_route_overlap_runtime_controls(map_id, active_snapshot, conflict_result)
             results: Dict[str, EngineUpdateResult] = {}
             for agv_id in list(map_routes.keys()):
                 if self._agv_map.get(agv_id) != map_id:

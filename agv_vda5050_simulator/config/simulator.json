@@ -2,7 +2,7 @@
   "manufacturer": "tot",
   "mqtt": {
     "enabled": true,
-    "host": "192.168.0.81",
+    "host": "192.168.1.25",
     "port": 1883,
     "keepalive": 30,
     "interface_name": "uagv",
@@ -38,7 +38,7 @@
     "background": "assets/generated_map.png"
   },
   "map_upload": {
-    "url": "http://192.168.0.81:8000/api/agv/upload-full",
+    "url": "http://192.168.1.25:8000/api/agv/upload-full",
     "timeout_s": 10.0,
     "wrap_map_info": true,
     "id": 0,

@@ -572,9 +572,9 @@ app.include_router(map_config_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://192.168.0.81:8050",
-        #"http://192.168.0.81:8050",
-        # "http://192.168.0.81:*",   # nếu muốn cho phép mọi port trên IP này (test tạm)
+        "http://192.168.1.25:8050",
+        #"http://192.168.1.25:8050",
+        # "http://192.168.1.25:*",   # nếu muốn cho phép mọi port trên IP này (test tạm)
         # "*"                        # test tạm cho phép tất cả (không nên để lâu)
     ],
     allow_credentials=True,
@@ -694,7 +694,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.0.81:8050/home")
+    return RedirectResponse(url="http://192.168.1.25:8050/home")
 
 # ==========================
 # DEBUG ROUTES

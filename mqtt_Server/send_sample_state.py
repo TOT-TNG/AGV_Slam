@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import json
@@ -12,10 +12,12 @@ import paho.mqtt.client as mqtt
 
 
 SERVER_BASE_URL = "http://127.0.0.1:8000"
-MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.0.81").strip()
+MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.1.25").strip()
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 
 STAGING_NODE_POSES: dict[str, tuple[float, float, float]] = {
+    "2":  (10.00, 2.00, 0.0),
+    "3":  (18.00, 2.00, 0.0),
     "17": (24.01, 8.33, 0.4),
     "19": (24.09, 12.12, 0.3),
     "21": (30.02, 9.99, 1.6),
@@ -218,6 +220,16 @@ SCENARIOS: dict[str, list[dict[str, object]]] = {
             "timeout_sec": 60.0,
             "phase": "PHASE 1",
             "note": "Wait until AGV01 reaches N19",
+        },
+        {
+            "type": "teleport",
+            "agv_id": "AGV03",
+            "node_id": "3",
+            "wait_before": 0.3,
+            "duration_sec": 1.5,
+            "repeat_interval_sec": 0.5,
+            "phase": "PHASE 2",
+            "note": "Reset AGV03 to clean state at N3 before head-on test",
         },
         {
             "type": "order",

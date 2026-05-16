@@ -1,8 +1,8 @@
-from dash import html
+﻿from dash import html
 from i18n import normalize_lang
 
 # URL AGV map trên FastAPI
-BASE_DASHBOARD_URL = "http://192.168.0.81:8000/AgvMap.html"
+BASE_DASHBOARD_URL = "http://192.168.1.25:8000/AgvMap.html"
 
 def layout(lang: str = "vi"):
     _ = normalize_lang(lang)

@@ -1,8 +1,8 @@
-import paho.mqtt.client as mqtt
+﻿import paho.mqtt.client as mqtt
 import json
 import time
 
-BROKER = "192.168.0.81"
+BROKER = "192.168.1.25"
 PORT = 1883
 
 client = mqtt.Client()

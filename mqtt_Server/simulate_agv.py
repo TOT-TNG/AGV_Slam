@@ -1,10 +1,10 @@
-# agv_simulator.py - AGV GIẢ LẬP TỰ ĐỘNG ĐI + GỬI STATE
+﻿# agv_simulator.py - AGV GIẢ LẬP TỰ ĐỘNG ĐI + GỬI STATE
 import paho.mqtt.client as mqtt
 import json
 import time
 import random
 
-BROKER = "192.168.0.81"
+BROKER = "192.168.1.25"
 PORT = 1883
 AGV_ID = "QR-SLAM-AGV-001"
 

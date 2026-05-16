@@ -1,0 +1,60 @@
+{
+    "mqtt": {
+        "broker": "iot.tot360.com.vn",
+        "port": 8883,
+        "username": "iot_user",
+        "password": "d7xvk5pKkqsKKMd"
+    },
+    "hardware": "hardware2603",
+    "factory": "VietDuc",
+    "map_file": "../config/map_data.json",
+    "agvs": [
+        {
+            "id": "AGV01",
+            "ip": "",
+            "color": "#ff0000"
+        }
+    ],
+    "chart_colors": {
+        "pickup": "#3498db",
+        "delivery": "#2ecc71",
+        "return": "#f1c40f",
+        "idle": "#95a5a6",
+        "trip_bar": "#008000"
+    },
+    "station_map": {},
+    "battery": {
+        "enabled": false,
+        "low_threshold": 30,
+        "resume_threshold": 80
+    },
+    "language": "vi",
+    "traffic": {
+        "safety_dist": 2.0,
+        "deadlock_timeout": 10
+    },
+    "integration": {
+        "api_enabled": true,
+        "api_port": 8000
+    },
+    "work_hours": 12.0,
+    "dispatch_weights": {
+        "distance": 0,
+        "idle": 100,
+        "battery": 0
+    },
+    "schedule_tasks": [
+        {
+            "time": "7:30",
+            "target": 109,
+            "trips": 1,
+            "status": "pending",
+            "type": "delivery"
+        }
+    ],
+    "wifi": {
+        "ssid": "Dao Binh",
+        "password": "0973429117"
+    },
+    "home_node_id": 10
+}

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "Bash(powershell -Command \"\\(Get-Content ''d:\\\\100.WORK\\\\Nghiencuu\\\\AGV_NewVersion\\\\esp-firmware\\\\src\\\\main.ino'' -Raw\\) -replace ''ESP32-S3 DevKitC-1'',''ESP32-C5 Mini'' -replace ''#define UART_MEGA  Serial2'',''#define UART_MEGA  Serial1'' | Set-Content ''d:\\\\100.WORK\\\\Nghiencuu\\\\AGV_NewVersion\\\\esp-firmware\\\\src\\\\main.ino'' -NoNewline\")",
+      "Bash(powershell -Command \"\\(Get-Content ''d:\\\\100.WORK\\\\Nghiencuu\\\\AGV_NewVersion\\\\esp-firmware\\\\platformio.ini'' -Raw\\) -replace ''board_build.flash_mode = qio'',''board_build.flash_mode = dio'' | Set-Content ''d:\\\\100.WORK\\\\Nghiencuu\\\\AGV_NewVersion\\\\esp-firmware\\\\platformio.ini'' -NoNewline\")",
+      "Bash(powershell -Command \"\\(Get-Content ''d:\\\\100.WORK\\\\Nghiencuu\\\\AGV_NewVersion\\\\esp-firmware\\\\platformio.ini'' -Raw\\) -replace ''; --- Monitor and Library Dependencies ---\\\\r\\\\nmonitor_speed'',''; --- Monitor and Library Dependencies ---'' + [char]13 + [char]10 + ''upload_protocol = esptool'' + [char]13 + [char]10 + ''monitor_speed'' | Set-Content ''d:\\\\100.WORK\\\\Nghiencuu\\\\AGV_NewVersion\\\\esp-firmware\\\\platformio.ini'' -NoNewline\")",
+      "Bash(powershell -File:*)",
+      "Bash(\"C:\\\\Users\\\\DELL G\\\\.platformio\\\\penv\\\\Scripts\\\\platformio.exe\" boards espressif32)"
+    ]
+  }
+}

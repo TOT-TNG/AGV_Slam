@@ -85,7 +85,7 @@ def make_sidebar(lang: str):
                                     ),
                                     html.A(
                                         t(lang, "menu.map.agvmap", "AGV Map"),
-                                        href="http://192.168.0.81:8000/AgvMap.html",
+                                        href="http://192.168.1.25:8000/AgvMap.html",
                                         target="_blank",
                                         className="submenu-item",
                                         style={"textDecoration": "none", "color": "inherit"},

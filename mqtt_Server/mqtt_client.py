@@ -1,4 +1,4 @@
-# mqtt_client.py
+﻿# mqtt_client.py
 import json
 import datetime
 import time
@@ -8,6 +8,7 @@ import math
 import re
 import asyncio
 import builtins
+from typing import Optional
 from urllib.parse import unquote
 
 import psycopg2
@@ -21,7 +22,7 @@ from map_manager import MapManager
 # ==========================
 # MQTT Configuration
 # ==========================
-BROKER = os.getenv("MQTT_BROKER", "192.168.0.81").strip()
+BROKER = os.getenv("MQTT_BROKER", "192.168.1.25").strip()
 PORT = int(os.getenv("MQTT_PORT", "1883"))
 QOS = int(os.getenv("MQTT_QOS", "0"))
 UAGV_INTERFACE_NAME = os.getenv("UAGV_INTERFACE_NAME", "uagv").strip() or "uagv"
@@ -42,6 +43,10 @@ _pending_reroute_apply: dict[str, dict[str, object]] = {}
 _pending_head_on_assignments: dict[str, dict[str, object]] = {}
 _peer_stop_states: dict[str, dict] = {}         # agv_id -> {"peer_id": str, "since": float}
 _peer_stop_resolved_pairs: set = set()          # frozenset({agv_a, agv_b}) pairs already resolved this cycle
+# Yield-on-edge: AGV dừng giữa edge chờ node tranh chấp được clear bởi winner
+# {agv_id: {"contested_node": str, "winner_agv_id": str, "since": float}}
+_yield_states: dict[str, dict] = {}
+YIELD_TIMEOUT_SEC = 30.0  # Sau timeout này, yield hết hiệu lực và trả về normal flow
 # Proactive node blocking: track which node each AGV is currently heading to
 # {agv_id: to_node_str}  — updated every time AGV's current_edge changes
 _agv_incoming_node: dict[str, str] = {}
@@ -51,7 +56,65 @@ _proactive_rerouted_pairs: set = set()
 _idle_block_proactive_done: set = set()
 INSTANT_ACTION_COOLDOWN_SEC = float(os.getenv("INSTANT_ACTION_COOLDOWN_SEC", "10.0"))
 PEER_STOP_REROUTE_TIMEOUT_SEC = float(os.getenv("PEER_STOP_REROUTE_TIMEOUT_SEC", "3.0"))
-REROUTE_APPLY_HOLD_SEC = float(os.getenv("REROUTE_APPLY_HOLD_SEC", "8.0"))
+REROUTE_APPLY_HOLD_SEC = float(os.getenv("REROUTE_APPLY_HOLD_SEC", "3.0"))
+
+
+# ==========================
+# YIELD-ON-EDGE HELPERS
+# ==========================
+
+def _extract_contested_node_from_reason(reason: str) -> Optional[str]:
+    """Trích contested node từ reason string, ví dụ 'NODE_AHEAD_17' → '17'."""
+    if not reason:
+        return None
+    if "NODE_AHEAD_" in reason:
+        after = reason.split("NODE_AHEAD_")[-1]
+        node = after.split("_")[0].split(" ")[0].strip()
+        return node if node else None
+    return None
+
+
+def _to_node_of_edge(edge_id: str) -> Optional[str]:
+    """Trả về to_node của edge dựa trên naming convention 'A_to_B' và 'A_to_B__rev'."""
+    if not edge_id:
+        return None
+    is_rev = edge_id.endswith("__rev")
+    base = edge_id[:-5] if is_rev else edge_id  # strip "__rev" (5 chars)
+    parts = base.split("_to_")
+    if len(parts) != 2:
+        return None
+    from_node, to_node = parts[0].strip(), parts[1].strip()
+    # Reversed edge đi ngược chiều: from_node của base trở thành to_node
+    return from_node if is_rev else to_node
+
+
+def _winner_cleared_contested_node(
+    contested_node: str,
+    winner_agv_id: Optional[str],
+    map_control_results: dict,
+) -> bool:
+    """True nếu winner đã qua khỏi contested_node (không còn ở đó hoặc đang tiến đến đó).
+
+    Loser chỉ nên resume khi winner:
+    1. current_node != contested_node (không đứng tại node đó)
+    2. current_edge không dẫn ĐẾN contested_node (không đang tiến vào node đó)
+    """
+    if not winner_agv_id:
+        return True  # Không biết winner → giả định đã clear
+    winner_result = map_control_results.get(str(winner_agv_id))
+    if winner_result is None:
+        return True  # Winner không trong map → giả định đã clear
+    ws = winner_result.state
+    cn = str(contested_node).strip()
+    # Winner đang đứng tại contested_node?
+    if ws.current_node and str(ws.current_node).strip() == cn:
+        return False
+    # Winner đang tiến VÀO contested_node (mid-edge, to_node == cn)?
+    if ws.current_edge:
+        to_n = _to_node_of_edge(ws.current_edge)
+        if to_n and str(to_n).strip() == cn:
+            return False
+    return True  # Winner đã qua hoặc không liên quan
 
 
 def print(*args, **kwargs):
@@ -212,8 +275,10 @@ def _is_pending_reroute_applied(agv_id: str, state_data: dict) -> bool:
         print(
             f"[REROUTE] Hold timeout waiting order ack from {agv_id} "
             f"| expected={expected_order_id}/{expected_update_id} "
-            f"| current={current_order_id}/{current_update_id}"
+            f"| current={current_order_id}/{current_update_id} → clearing guard"
         )
+        _clear_pending_reroute_apply(agv_id)
+        return True
     return False
 
 # ==========================
@@ -1813,6 +1878,15 @@ def on_message(client, userdata, msg):
                             )
                             if not _route_passes_through_idle:
                                 continue
+                            # Nếu idle AGV đứng tại ĐÍCH ĐẾN của moving AGV, không reroute.
+                            # Moving AGV CẦN đến đó – mọi reroute "quanh" đích đều vô nghĩa
+                            # và tạo vòng lặp vô tận (mỗi route version mới vẫn kết thúc ở đích).
+                            # Thay vào đó để moving AGV tiến đến đích bình thường.
+                            _own_goal_norm = re.sub(
+                                r'^[A-Za-z]+', '', str(_cur_own_route.goal_node or "")
+                            ) or str(_cur_own_route.goal_node or "")
+                            if _idle_cand_norm and _own_goal_norm and _idle_cand_norm == _own_goal_norm:
+                                continue  # skip: idle AGV at destination of moving AGV
                             _idle_done_key = frozenset([
                                 f"{agv_id}@v{_cur_own_route.route_version}",
                                 f"idle_{_idle_cand_id}_{_idle_cand_norm}",
@@ -1933,6 +2007,8 @@ def on_message(client, userdata, msg):
                             # Tránh order flood (gửi order liên tục mỗi tick khi escape thành công).
                             if not _is_pending_reroute_applied(target_agv_id, target_state_data):
                                 continue
+                            # Khi có reroute thực sự → xóa yield state (AGV đổi đường, không yield nữa)
+                            _yield_states.pop(target_agv_id, None)
                             next_order_id = str(target_state_data.get("orderId") or uuid.uuid4())
                             next_update_id = int(target_state_data.get("orderUpdateId") or 0) + 1
                             reroute_order, reroute_path = build_order_for_traffic_route(
@@ -1961,8 +2037,15 @@ def on_message(client, userdata, msg):
                             # RESUME, the AGV stays paused and the reroute order never applies.
                             _rr_action_state = target_state_data.get("actionState") or {}
                             _rr_sim_pause = bool(_rr_action_state.get("simPauseHold"))
-                            if target_state_data.get("paused") and not _rr_sim_pause and target_agv_id not in _peer_stop_states:
+                            _rr_is_head_on = str(target_reroute_result.reason or "").startswith("HEAD_ON_")
+                            if target_state_data.get("paused") and not _rr_sim_pause and (
+                                target_agv_id not in _peer_stop_states or _rr_is_head_on
+                            ):
                                 _send_traffic_control_action(target_agv_id, "RESUME")
+                                if _rr_is_head_on and target_agv_id in _peer_stop_states:
+                                    # HEAD_ON reroute sends AGV away from the other AGV — safe to
+                                    # clear peer-stop so the AGV can execute the new order immediately
+                                    _peer_stop_states.pop(target_agv_id, None)
                             continue
 
                         if target_agv_id in hold_for_reroute:
@@ -1989,6 +2072,53 @@ def on_message(client, userdata, msg):
 
                         if target_decision is None:
                             continue
+
+                        # === YIELD-ON-EDGE ===
+                        # Nếu AGV đang trong yield state: chờ winner clear contested_node thì resume.
+                        if target_agv_id in _yield_states:
+                            ys = _yield_states[target_agv_id]
+                            elapsed = time.time() - ys["since"]
+                            if elapsed > YIELD_TIMEOUT_SEC:
+                                # Timeout: xóa yield, trả lại normal flow bên dưới
+                                _yield_states.pop(target_agv_id)
+                                print(f"[YIELD] {target_agv_id} yield timeout ({elapsed:.0f}s) → fallback to normal")
+                            else:
+                                cleared = _winner_cleared_contested_node(
+                                    ys["contested_node"], ys["winner_agv_id"], map_control_results
+                                )
+                                if cleared:
+                                    _yield_states.pop(target_agv_id)
+                                    _action_state = target_state_data.get("actionState") or {}
+                                    if target_state_data.get("paused") and not _action_state.get("simPauseHold"):
+                                        _send_traffic_control_action(target_agv_id, "RESUME")
+                                        print(f"[YIELD] {target_agv_id} RESUME: N{ys['contested_node']} cleared by {ys['winner_agv_id']}")
+                                # Còn đang chờ: không làm gì (đã PAUSE rồi)
+                                continue
+
+                        # Cơ hội yield mới: AGV đang mid-edge tiến đến đúng node tranh chấp.
+                        # Thay vì reroute hoặc pause+retry, dừng tại chỗ trên edge và chờ winner qua.
+                        _target_state = target_result.state
+                        if (
+                            target_decision.action in {TrafficAction.WAIT, TrafficAction.STOP}
+                            and (target_reroute_result is None or not target_reroute_result.success)
+                            and target_agv_id not in _yield_states
+                            and _target_state.current_node is None       # mid-edge (chưa đến node)
+                            and _target_state.current_edge is not None   # đang trên 1 edge cụ thể
+                        ):
+                            contested = _extract_contested_node_from_reason(target_decision.reason or "")
+                            if contested:
+                                edge_dest = _to_node_of_edge(_target_state.current_edge)
+                                if edge_dest and str(edge_dest).strip() == str(contested).strip():
+                                    winner_id = str(target_decision.related_agv_id) if target_decision.related_agv_id else None
+                                    _yield_states[target_agv_id] = {
+                                        "contested_node": contested,
+                                        "winner_agv_id": winner_id,
+                                        "since": time.time(),
+                                    }
+                                    print(f"[YIELD] {target_agv_id} yield trên edge {_target_state.current_edge} → N{contested} (winner={winner_id})")
+                                    if not target_state_data.get("paused"):
+                                        _send_traffic_control_action(target_agv_id, "PAUSE")
+                                    continue
 
                         target_action_state = target_state_data.get("actionState") or {}
                         sim_pause_hold = bool(target_action_state.get("simPauseHold"))

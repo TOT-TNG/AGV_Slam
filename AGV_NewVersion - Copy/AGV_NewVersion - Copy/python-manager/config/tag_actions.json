@@ -1,0 +1,37 @@
+{
+    "rules": [
+        {
+            "id": "horn_at_intersection_61",
+            "tag_id": 61,
+            "mission_type": "any",
+            "description": "Bấm còi khi qua ngã tư 61",
+            "blocking": false,
+            "steps": [
+                {"type": "agv_command", "cmd": "horn"}
+            ]
+        },
+        {
+            "id": "notify_delivery_arrived_74",
+            "tag_id": 74,
+            "mission_type": "delivery",
+            "description": "Gửi tín hiệu PLC khi xe cấp hàng đến tổ 74",
+            "blocking": false,
+            "steps": [
+                {"type": "mqtt_publish", "topic": "factory/line_b/agv_arrived", "payload": "1"},
+                {"type": "wait_time",    "ms": 500},
+                {"type": "mqtt_publish", "topic": "factory/line_b/agv_arrived", "payload": "0"}
+            ]
+        },
+        {
+            "id": "slow_before_charger_106",
+            "tag_id": 105,
+            "mission_type": "return_reversing_charge",
+            "description": "Giảm tốc trước khi vào trạm sạc",
+            "blocking": false,
+            "steps": [
+                {"type": "set_speed", "speed": 30},
+                {"type": "log_message", "message": "AGV đang tiếp cận trạm sạc — tốc độ giảm"}
+            ]
+        }
+    ]
+}
