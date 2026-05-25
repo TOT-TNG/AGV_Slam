@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"/>
+<title>Map Editor</title>
+<style>
+:root {
+  --bg: #0a0f1e;
+  --surface: #111827;
+  --surface2: #1e2535;
+  --surface3: #263045;
+  --border: rgba(255,255,255,0.1);
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --accent: #3b82f6;
+  --accent2: #6366f1;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --node-normal:   #3b82f6;
+  --node-charger:  #f59e0b;
+  --node-dropoff:  #ef4444;
+  --node-home:     #10b981;
+  --node-buffer:   #a855f7;
+  --node-parking:  #14b8a6;
+  --node-conveyor: #06b6d4;
+  --node-wait:     #f97316;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:13px}
+/* ── LAYOUT ── */
+#app{display:grid;grid-template-rows:48px 1fr 28px;grid-template-columns:52px 1fr 300px;width:100vw;height:100vh}
+#topbar{grid-column:1/-1;grid-row:1;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--surface);border-bottom:1px solid var(--border);z-index:100;overflow:hidden}
+#toolbar{grid-column:1;grid-row:2;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;background:var(--surface);border-right:1px solid var(--border)}
+#canvas-wrap{grid-column:2;grid-row:2;position:relative;overflow:hidden;background:#ffffff;cursor:crosshair}
+#props-panel{grid-column:3;grid-row:2;display:flex;flex-direction:column;background:var(--surface);border-left:1px solid var(--border);overflow:hidden}
+#statusbar{grid-column:1/-1;grid-row:3;display:flex;align-items:center;gap:16px;padding:0 12px;background:var(--surface);border-top:1px solid var(--border);color:var(--muted);font-size:11px}
+/* ── TOPBAR ── */
+.tb-brand{font-weight:700;font-size:15px;color:var(--text);margin-right:8px}
+.tb-sep{width:1px;height:24px;background:var(--border);margin:0 4px}
+.tb-btn{padding:5px 10px;border-radius:7px;background:var(--surface2);border:1px solid var(--border);color:var(--text);cursor:pointer;font-size:12px;transition:.15s;white-space:nowrap}
+.tb-btn:hover{background:var(--surface3);border-color:var(--accent)}
+.tb-btn.danger:hover{background:#3f1515;border-color:var(--danger);color:var(--danger)}
+.tb-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.tb-btn.primary:hover{background:#2563eb}
+.tb-btn.success{background:var(--success);border-color:var(--success);color:#fff}
+.tb-btn.success:hover{background:#059669}
+#map-name-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:7px;font-size:13px;width:180px;outline:none}
+#map-name-input:focus{border-color:var(--accent)}
+#map-select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:7px;font-size:12px;min-width:160px;outline:none;cursor:pointer}
+#map-select option{background:var(--surface2);color:var(--text)}
+/* ── TOOLBAR BUTTONS ── */
+.tool-btn{width:40px;height:40px;border-radius:10px;background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;transition:.15s;flex-shrink:0}
+.tool-btn:hover{background:var(--surface2);color:var(--text);border-color:var(--border)}
+.tool-btn.active{background:rgba(59,130,246,0.2);border-color:var(--accent);color:var(--accent)}
+.tool-btn.danger-btn:hover{background:rgba(239,68,68,0.15);color:var(--danger);border-color:var(--danger)}
+.tool-sep{width:32px;height:1px;background:var(--border);margin:2px 0}
+/* ── SVG CANVAS ── */
+#svg-canvas{width:100%;height:100%;display:block}
+/* ── PROPS PANEL ── */
+#props-header{padding:14px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+#props-header h3{font-size:14px;font-weight:600;color:var(--text)}
+#props-header p{font-size:11px;color:var(--muted);margin-top:2px}
+#props-body{flex:1;overflow-y:auto;padding:14px 16px}
+#props-body::-webkit-scrollbar{width:4px}
+#props-body::-webkit-scrollbar-track{background:transparent}
+#props-body::-webkit-scrollbar-thumb{background:var(--surface3);border-radius:2px}
+#props-footer{padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:8px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:8px;font-size:12px;outline:none;transition:.15s}
+.field input:focus,.field select:focus{border-color:var(--accent);background:var(--surface3)}
+.field select option{background:var(--surface);color:var(--text)}
+.field .readonly{background:var(--surface3);color:var(--muted);cursor:default}
+.props-btn{flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:12px;font-weight:500;transition:.15s}
+.props-btn:hover{background:var(--surface3)}
+.props-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.props-btn.primary:hover{background:#2563eb}
+.props-btn.danger{background:rgba(239,68,68,0.1);border-color:var(--danger);color:var(--danger)}
+.props-btn.danger:hover{background:rgba(239,68,68,0.2)}
+/* ── NODE TYPE COLORS ── */
+.type-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600}
+/* ── CONTEXT MENU ── */
+#ctx-menu{position:fixed;z-index:9999;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:5px;box-shadow:0 8px 30px rgba(0,0,0,0.5);min-width:160px;display:none}
+.ctx-item{padding:7px 12px;border-radius:7px;cursor:pointer;font-size:12px;color:var(--text);transition:.12s}
+.ctx-item:hover{background:var(--surface3)}
+.ctx-item.danger{color:var(--danger)}
+.ctx-item.danger:hover{background:rgba(239,68,68,0.15)}
+.ctx-sep{height:1px;background:var(--border);margin:4px 0}
+/* ── EMPTY STATE ── */
+#empty-hint{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--muted);pointer-events:none;user-select:none}
+#empty-hint .icon{font-size:48px;margin-bottom:12px;opacity:.3}
+#empty-hint p{font-size:13px;opacity:.5}
+/* ── TOAST ── */
+#toast{position:fixed;bottom:40px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:10px;font-size:13px;opacity:0;transition:.3s;pointer-events:none;z-index:9998;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.success{border-color:var(--success);color:var(--success)}
+#toast.error{border-color:var(--danger);color:var(--danger)}
+/* ── MODAL ── */
+#modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9990;display:none;align-items:center;justify-content:center}
+#modal-overlay.open{display:flex}
+#modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;min-width:340px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+#modal-box h3{font-size:16px;font-weight:700;margin-bottom:8px}
+#modal-box p{color:var(--muted);font-size:13px;margin-bottom:18px}
+.modal-btns{display:flex;gap:8px;justify-content:flex-end}
+/* ── SAVE NAME MODAL ── */
+#save-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9995;display:none;align-items:center;justify-content:center}
+#save-modal-overlay.open{display:flex}
+#save-modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;min-width:360px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+#save-modal-box h3{font-size:15px;font-weight:700;margin:0 0 6px}
+#save-modal-box p{color:var(--muted);font-size:12px;margin:0 0 14px}
+#save-modal-name{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:14px;outline:none;box-sizing:border-box}
+#save-modal-name:focus{border-color:var(--accent)}
+#save-modal-confirm{background:var(--accent);border:none;color:#fff;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
+#save-modal-confirm:disabled{opacity:.4;cursor:not-allowed}
+#save-modal-cancel{background:transparent;border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ── TOPBAR ── -->
+<div id="topbar">
+  <span class="tb-brand">🗺 Map Editor</span>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-new" title="Bản đồ mới">＋ Mới</button>
+  <select id="map-select"><option value="">── Tải bản đồ ──</option></select>
+  <input id="map-name-input" type="text" style="display:none" value="Bản đồ mới"/>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-undo" title="Hoàn tác (Ctrl+Z)">↩</button>
+  <button class="tb-btn" id="btn-redo" title="Làm lại (Ctrl+Y)">↪</button>
+  <div class="tb-sep"></div>
+
+  <button class="tb-btn" id="btn-fit" title="Vừa khung nhìn">⊞ Fit</button>
+  <div class="tb-sep"></div>
+  <label style="display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--muted);font-size:12px">
+    <input type="checkbox" id="snap-grid" style="accent-color:var(--accent)"/> Snap grid
+  </label>
+  <button class="tb-btn" id="btn-slam-toggle" title="Bật/tắt ảnh nền map"
+    onclick="_toggleSlamBg()" style="display:none">🗺 Ảnh nền</button>
+  <span id="slam-opacity-wrap" style="display:none;align-items:center;gap:4px;color:var(--muted);font-size:11px">
+    <span>Mờ:</span>
+    <input type="range" min="0.05" max="1" step="0.05" value="0.35"
+      style="width:70px;accent-color:var(--accent)"
+      oninput="_setSlamOpacity(this.value)"/>
+  </span>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" onclick="_rotateWorld(-90)" title="Xoay ngược chiều kim đồng hồ 90°">↺ 90°</button>
+  <button class="tb-btn" onclick="_rotateWorld(90)" title="Xoay theo chiều kim đồng hồ 90°">↻ 90°</button>
+  <div style="flex:1"></div>
+  <button class="tb-btn danger" id="btn-clear" title="Xóa toàn bộ" style="flex-shrink:0">🗑 Xóa hết</button>
+  <button class="tb-btn success" id="btn-save" title="Lưu bản đồ (Ctrl+S)" style="flex-shrink:0">💾 Lưu</button>
+</div>
+
+<!-- ── TOOLBAR ── -->
+<div id="toolbar">
+  <button class="tool-btn active" id="tool-select" data-tool="select" title="Chọn (V)">⬚</button>
+  <button class="tool-btn" id="tool-pan" data-tool="pan" title="Di chuyển (H)">✥</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="tool-node" data-tool="node" title="Thêm Node (N)">⊕</button>
+  <button class="tool-btn" id="tool-edge" data-tool="edge" title="Thêm Cạnh thẳng (E)">⤳</button>
+  <button class="tool-btn" id="tool-bezier" data-tool="bezier" title="Cạnh cong Bezier (B)">⌒</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn danger-btn" id="tool-delete" data-tool="delete" title="Xóa (D / Delete)">✕</button>
+  <div style="flex:1"></div>
+  <button class="tool-btn" id="btn-zoom-in" title="Phóng to (+)">＋</button>
+  <button class="tool-btn" id="btn-zoom-out" title="Thu nhỏ (-)">−</button>
+</div>
+
+<!-- ── CANVAS ── -->
+<div id="canvas-wrap">
+  <div id="empty-hint">
+    <div class="icon">🗺</div>
+    <p>Chọn <b>Node</b> để thêm điểm<br/>Chọn <b>Cạnh</b> để vẽ đường đi</p>
+  </div>
+  <svg id="svg-canvas" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="grid-dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+        <circle cx="0" cy="0" r="1.2" fill="rgba(0,0,0,0.18)"/>
+        <circle cx="40" cy="0" r="1.2" fill="rgba(0,0,0,0.18)"/>
+        <circle cx="0" cy="40" r="1.2" fill="rgba(0,0,0,0.18)"/>
+        <circle cx="40" cy="40" r="1.2" fill="rgba(0,0,0,0.18)"/>
+      </pattern>
+      <!-- no markers needed: arrows drawn inline -->
+    </defs>
+    <rect id="bg-rect" x="-10000" y="-10000" width="20000" height="20000" fill="#ffffff"/>
+    <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#grid-dots)" pointer-events="none"/>
+    <g id="world">
+      <g id="edge-layer"></g>
+      <g id="node-layer"></g>
+      <g id="select-box-layer"></g>
+    </g>
+    <!-- edge preview line -->
+    <line id="edge-preview" x1="0" y1="0" x2="0" y2="0" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6,4" opacity="0" pointer-events="none"/>
+    <!-- bezier preview path + control point dots -->
+    <path id="bezier-preview" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6,4" fill="none" opacity="0" pointer-events="none"/>
+    <circle id="bz-cp1" r="5" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity="0" pointer-events="none"/>
+    <circle id="bz-cp2" r="5" fill="none" stroke="var(--warning)" stroke-width="1.5" opacity="0" pointer-events="none"/>
+  </svg>
+</div>
+
+<!-- ── PROPS PANEL ── -->
+<div id="props-panel">
+  <div id="props-header">
+    <h3 id="props-title">Thuộc tính</h3>
+    <p id="props-sub">Chọn node hoặc cạnh để chỉnh sửa</p>
+  </div>
+  <div id="props-body">
+    <!-- Dynamic content injected by JS -->
+    <div id="props-empty" style="color:var(--muted);text-align:center;padding:32px 0;font-size:12px">
+      <div style="font-size:32px;margin-bottom:8px;opacity:.3">☐</div>
+      Chưa chọn phần tử nào
+    </div>
+    <div id="props-node" style="display:none">
+      <!-- ① Tương thích AGV — đặt TRƯỚC để quyết định editability của ID -->
+      <div class="field">
+        <label>Tương thích AGV</label>
+        <select id="pn-agvcompat" onchange="onAgvCompatChange()">
+          <option value="slam_qr">SLAM-QR — Chỉ AGV VDA5050 / SLAM</option>
+          <option value="RFID">RFID Tag — Chỉ AGV Line (thẻ vật lý)</option>
+          <option value="both">BOTH — Cả hai loại AGV</option>
+        </select>
+      </div>
+      <!-- ② Cấu hình rẽ cho Line AGV (chỉ hiện khi RFID/both) -->
+      <div id="pn-turn-section" style="display:none;background:rgba(249,115,22,.07);border:1px solid rgba(249,115,22,.3);border-radius:7px;padding:8px 10px;margin-bottom:6px">
+        <div style="font-size:10px;font-weight:700;color:#f97316;margin-bottom:7px;text-transform:uppercase;letter-spacing:.04em">⟳ Hướng rẽ tại tag RFID</div>
+        <div class="field" style="margin-bottom:5px">
+          <label style="font-size:11px">Rẽ chiều TIẾN</label>
+          <select id="pn-fwd-turn" style="font-size:11px">
+            <option value="none">— Đi thẳng</option>
+            <option value="right">↷ Rẽ PHẢI</option>
+            <option value="left">↶ Rẽ TRÁI</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label style="font-size:11px">Rẽ chiều LÙI</label>
+          <select id="pn-bwd-turn" style="font-size:11px">
+            <option value="none">— Đi thẳng</option>
+            <option value="right">↷ Rẽ PHẢI</option>
+            <option value="left">↶ Rẽ TRÁI</option>
+          </select>
+        </div>
+      </div>
+      <!-- ③ ID Node — readonly với SLAM-QR, editable với RFID -->
+      <div class="field">
+        <label id="pn-id-label">ID Node <span id="pn-id-hint" style="font-size:10px;color:#f97316;display:none">(RFID — có thể sửa)</span></label>
+        <input id="pn-id" class="readonly" readonly/>
+      </div>
+      <div class="field"><label>Tên / Nhãn</label><input id="pn-name" placeholder="Conveyor01, ChargeA, Home..."/></div>
+      <div class="field">
+        <label>Loại vị trí</label>
+        <select id="pn-type">
+          <option value="normal">Normal — Thông thường</option>
+          <option value="conveyor">Conveyor — Băng tải / Nhận hàng</option>
+          <option value="charger">Charger — Trạm sạc</option>
+          <option value="dropoff">Dropoff — Điểm thả hàng</option>
+          <option value="home">Home — Điểm gốc / Về nhà</option>
+          <option value="buffer">Buffer — Khu chờ / Đệm</option>
+          <option value="parking">Parking — Đỗ xe</option>
+          <option value="wait">Wait — Điểm chờ</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Hành động mặc định</label>
+        <select id="pn-action">
+          <option value="">Không có</option>
+          <option value="PICKUP">PICKUP — Nhặt hàng</option>
+          <option value="DROP">DROP — Thả hàng</option>
+          <option value="CHARGE">CHARGE — Sạc pin</option>
+          <option value="WAIT">WAIT — Chờ tín hiệu</option>
+        </select>
+      </div>
+      <div class="field"><label>Tốc độ tối đa (m/s)</label><input id="pn-speed" type="number" min="0.1" max="3" step="0.1" value="0.5"/></div>
+      <div class="field"><label>Tọa độ (X, Y)</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <input id="pn-x" type="number" step="1" placeholder="X"/>
+          <input id="pn-y" type="number" step="1" placeholder="Y"/>
+        </div>
+      </div>
+    </div>
+    <div id="props-edge" style="display:none">
+      <div class="field"><label>Cạnh</label><input id="pe-id" class="readonly" readonly/></div>
+      <div class="field">
+        <label>Hướng di chuyển</label>
+        <select id="pe-dir">
+          <option value="both">↔ Hai chiều</option>
+          <option value="forward">→ Một chiều tiến</option>
+          <option value="backward">← Một chiều lùi</option>
+          <option value="blocked">✕ Cấm chạy</option>
+        </select>
+      </div>
+      <div class="field"><label>Tốc độ (m/s)</label><input id="pe-speed" type="number" min="0" max="3" step="0.1" value="0.5"/></div>
+      <div class="field"><label>Chiều rộng đường (m)</label><input id="pe-width" type="number" min="0.3" max="3" step="0.05" value="0.95"/></div>
+    </div>
+    <!-- Map legend -->
+    <div id="props-legend" style="margin-top:16px">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Chú thích loại node</div>
+      <div id="legend-items"></div>
+    </div>
+  </div>
+  <div id="props-footer">
+    <button class="props-btn primary" id="btn-apply" style="display:none">Áp dụng</button>
+    <button class="props-btn danger" id="btn-delete-sel" style="display:none">Xóa</button>
+  </div>
+</div>
+
+<!-- ── STATUSBAR ── -->
+<div id="statusbar">
+  <span id="sb-tool">Công cụ: Chọn</span>
+  <span>|</span>
+  <span id="sb-nodes">Nodes: 0</span>
+  <span id="sb-edges">Cạnh: 0</span>
+  <span>|</span>
+  <span id="sb-zoom">Zoom: 100%</span>
+  <span>|</span>
+  <span id="sb-pos">x: 0  y: 0</span>
+  <span style="flex:1"></span>
+  <span id="sb-map">Chưa lưu</span>
+</div>
+
+</div><!-- #app -->
+
+<!-- ── CONTEXT MENU ── -->
+<div id="ctx-menu">
+  <div class="ctx-item" id="ctx-props">✏ Thuộc tính</div>
+  <div class="ctx-item" id="ctx-align-h">↔ Căn ngang</div>
+  <div class="ctx-item" id="ctx-align-v">↕ Căn dọc</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item danger" id="ctx-delete">✕ Xóa</div>
+</div>
+
+<!-- ── TOAST ── -->
+<div id="toast"></div>
+
+<!-- ── MODAL (confirm) ── -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <h3 id="modal-title">Xác nhận</h3>
+    <p id="modal-msg"></p>
+    <div class="modal-btns">
+      <button class="props-btn" id="modal-cancel">Hủy</button>
+      <button class="props-btn danger" id="modal-confirm">Xác nhận</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── SAVE NAME MODAL ── -->
+<div id="save-modal-overlay">
+  <div id="save-modal-box">
+    <h3>💾 Lưu bản đồ</h3>
+    <p>Nhập tên bản đồ rồi nhấn Lưu</p>
+    <input id="save-modal-name" type="text" placeholder="VD: Map nhà máy A, Line AGV Floor 1…" autocomplete="off"/>
+    <div class="modal-btns" style="margin-top:14px">
+      <button id="save-modal-cancel">Hủy</button>
+      <button id="save-modal-confirm" disabled>💾 Lưu</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════════
+const API = `${location.protocol}//${location.hostname}:8000`;
+const SNAP = 20;
+const NODE_R = 11;
+const TYPE_COLOR = {
+  normal:'#3b82f6', conveyor:'#06b6d4', charger:'#f59e0b',
+  dropoff:'#ef4444', home:'#10b981', buffer:'#a855f7',
+  parking:'#14b8a6', wait:'#f97316'
+};
+const TYPE_LABEL = {
+  normal:'Normal', conveyor:'Conveyor', charger:'Charger',
+  dropoff:'Dropoff', home:'Home', buffer:'Buffer',
+  parking:'Parking', wait:'Wait'
+};
+const DIR_COLOR = { both:'#64748b', forward:'#2563eb', backward:'#d97706', blocked:'#dc2626' };
+
+// ═══════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════
+// transform: chuyển đổi tọa độ world (mét, từ SLAM) ↔ display (pixel, trong editor)
+// ppm = pixels per meter. ppm=1 → schematic (pixel coords). ppm=80 → SLAM meters
+const _DEFAULT_TRANSFORM = { originX:0, originY:0, ppm:1, imagePath:null };
+let state = { mapId:null, nodes:{}, edges:[], nextId:1, transform:{..._DEFAULT_TRANSFORM} };
+let undoStack = [], redoStack = [];
+let activeTool = 'select';
+let zoom = 1, panX = 0, panY = 0;
+let isDragging = false, isPanning = false;
+let dragNodeId = null, dragOffX = 0, dragOffY = 0;
+let edgeSrc = null;
+let bzSrc = null; // bezier tool: chờ node đích
+let dragEdgeId = null; // id edge bezier đang kéo để chỉnh cong
+let selNodes = new Set(), selEdges = new Set();
+let boxSel = null; // {sx,sy,ex,ey}
+let ctxTarget = null;
+let mapChanged = false;
+let snapGrid = false;
+
+// ═══════════════════════════════════════════════════
+// DOM REFS
+// ═══════════════════════════════════════════════════
+const svg        = document.getElementById('svg-canvas');
+const world      = document.getElementById('world');
+const edgeLayer  = document.getElementById('edge-layer');
+const nodeLayer  = document.getElementById('node-layer');
+const boxLayer   = document.getElementById('select-box-layer');
+const prevLine   = document.getElementById('edge-preview');
+const wrap       = document.getElementById('canvas-wrap');
+const ctxMenu    = document.getElementById('ctx-menu');
+const emptyHint  = document.getElementById('empty-hint');
+
+// ═══════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════
+function snap(v){ return snapGrid ? Math.round(v/SNAP)*SNAP : Math.round(v); }
+function uid(){ return String(state.nextId++); }
+function svgPt(ex,ey){
+  const r = svg.getBoundingClientRect();
+  return { x:(ex-r.left-panX)/zoom, y:(ey-r.top-panY)/zoom };
+}
+function worldPt(ex,ey){
+  const r = svg.getBoundingClientRect();
+  return { x:(ex-r.left-panX)/zoom, y:(ey-r.top-panY)/zoom };
+}
+function applyTransform(){
+  world.setAttribute('transform',`translate(${panX},${panY}) scale(${zoom})`);
+  // update grid pattern origin
+  const p = document.getElementById('grid-dots');
+  const gs = 40*zoom;
+  p.setAttribute('width',gs); p.setAttribute('height',gs);
+  p.setAttribute('patternTransform',`translate(${panX%gs},${panY%gs})`);
+  document.getElementById('sb-zoom').textContent = `Zoom: ${Math.round(zoom*100)}%`;
+}
+function toast(msg, type=''){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show ' + type;
+  clearTimeout(t._tid);
+  t._tid = setTimeout(()=>{ t.className=''; },2500);
+}
+function confirm(title,msg,cb){
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-msg').textContent = msg;
+  document.getElementById('modal-overlay').classList.add('open');
+  document.getElementById('modal-confirm').onclick = ()=>{ closeModal(); cb(); };
+}
+function closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
+document.getElementById('modal-cancel').onclick = closeModal;
+
+// ═══════════════════════════════════════════════════
+// UNDO / REDO
+// ═══════════════════════════════════════════════════
+function saveSnapshot(){
+  const snap = JSON.stringify({ nodes:state.nodes, edges:state.edges, nextId:state.nextId });
+  undoStack.push(snap);
+  if(undoStack.length>60) undoStack.shift();
+  redoStack = [];
+  mapChanged = true;
+  document.getElementById('sb-map').textContent = '● Chưa lưu';
+}
+function undo(){
+  if(!undoStack.length) return;
+  const cur = JSON.stringify({ nodes:state.nodes, edges:state.edges, nextId:state.nextId });
+  redoStack.push(cur);
+  const prev = JSON.parse(undoStack.pop());
+  state.nodes = prev.nodes; state.edges = prev.edges; state.nextId = prev.nextId;
+  selNodes.clear(); selEdges.clear();
+  renderAll(); updateProps();
+}
+function redo(){
+  if(!redoStack.length) return;
+  const cur = JSON.stringify({ nodes:state.nodes, edges:state.edges, nextId:state.nextId });
+  undoStack.push(cur);
+  const next = JSON.parse(redoStack.pop());
+  state.nodes = next.nodes; state.edges = next.edges; state.nextId = next.nextId;
+  selNodes.clear(); selEdges.clear();
+  renderAll(); updateProps();
+}
+
+// ═══════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════
+function renderAll(){
+  renderEdges(); renderNodes();
+  const nc = Object.keys(state.nodes).length;
+  document.getElementById('sb-nodes').textContent = `Nodes: ${nc}`;
+  document.getElementById('sb-edges').textContent = `Cạnh: ${state.edges.length}`;
+  emptyHint.style.display = nc === 0 ? 'block' : 'none';
+}
+
+function renderEdges(){
+  edgeLayer.innerHTML = '';
+  for(const e of state.edges){
+    const na = state.nodes[e.src], nb = state.nodes[e.dst];
+    if(!na||!nb) continue;
+    const sel = selEdges.has(e.id);
+
+    const isBez = !!(e.cp1 && e.cp2);
+    const dx = nb.x - na.x, dy = nb.y - na.y;
+    const len = Math.sqrt(dx*dx + dy*dy) || 1;
+    const ux = dx/len, uy = dy/len;
+    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+    // Shorten endpoints: straight dùng hướng na→nb, bezier dùng tiếp tuyến tại 2 đầu
+    let sx, sy, ex, ey;
+    if(isBez){
+      const ts = { x: e.cp1.x - na.x, y: e.cp1.y - na.y };
+      const ls = Math.sqrt(ts.x*ts.x + ts.y*ts.y) || 1;
+      sx = na.x + (ts.x/ls)*(NODE_R+3);  sy = na.y + (ts.y/ls)*(NODE_R+3);
+      const te = { x: nb.x - e.cp2.x, y: nb.y - e.cp2.y };
+      const le = Math.sqrt(te.x*te.x + te.y*te.y) || 1;
+      ex = nb.x - (te.x/le)*(NODE_R+3);  ey = nb.y - (te.y/le)*(NODE_R+3);
+    } else {
+      sx = na.x + ux*(NODE_R+3);  sy = na.y + uy*(NODE_R+3);
+      ex = nb.x - ux*(NODE_R+3);  ey = nb.y - uy*(NODE_R+3);
+    }
+    const laneLen = Math.sqrt((ex-sx)**2+(ey-sy)**2);
+    if(laneLen < 8) continue;
+
+    const LANE_W = 9;
+    const col = sel ? '#f59e0b' : '#3b82f6';
+    const isBlocked = e.direction === 'blocked';
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('data-eid', e.id);
+    g.setAttribute('pointer-events', 'none');  // events xử lý trực tiếp trên hit element
+
+    // ── Lane shadow/glow ─────────────────────────────────────────────────────
+    if(sel){
+      const glow = document.createElementNS('http://www.w3.org/2000/svg','line');
+      glow.setAttribute('x1',sx); glow.setAttribute('y1',sy);
+      glow.setAttribute('x2',ex); glow.setAttribute('y2',ey);
+      glow.setAttribute('stroke','#f59e0b');
+      glow.setAttribute('stroke-width', LANE_W+8);
+      glow.setAttribute('stroke-linecap','round');
+      glow.setAttribute('opacity','0.25');
+      glow.setAttribute('pointer-events','none');
+      g.appendChild(glow);
+    }
+
+    // ── Lane background (soft fill) ──────────────────────────────────────────
+    const laneBg = document.createElementNS('http://www.w3.org/2000/svg','line');
+    laneBg.setAttribute('x1',sx); laneBg.setAttribute('y1',sy);
+    laneBg.setAttribute('x2',ex); laneBg.setAttribute('y2',ey);
+    laneBg.setAttribute('stroke', isBlocked ? '#ef4444' : col);
+    laneBg.setAttribute('stroke-width', LANE_W);
+    laneBg.setAttribute('stroke-linecap','round');
+    laneBg.setAttribute('opacity', sel ? '0.55' : '0.18');
+    laneBg.setAttribute('pointer-events','none');
+    g.appendChild(laneBg);
+
+    // ── Lane stroke (main body) ───────────────────────────────────────────────
+    const lane = document.createElementNS('http://www.w3.org/2000/svg','line');
+    lane.setAttribute('x1',sx); lane.setAttribute('y1',sy);
+    lane.setAttribute('x2',ex); lane.setAttribute('y2',ey);
+    lane.setAttribute('stroke', isBlocked ? '#ef4444' : col);
+    lane.setAttribute('stroke-width', LANE_W);
+    lane.setAttribute('stroke-linecap','round');
+    lane.setAttribute('stroke-dasharray', isBlocked ? `${LANE_W*1.2},${LANE_W*0.7}` : 'none');
+    lane.setAttribute('opacity', sel ? '0.85' : '0.55');
+    lane.setAttribute('pointer-events','none');
+    g.appendChild(lane);
+
+    // ── Arrow helper ─────────────────────────────────────────────────────────
+    function makeArrow(t, forward, isBezier, p0, cp1, cp2, p1){
+      let ax, ay, a;
+      if(isBezier){
+        const pt = bzPt(t,p0,cp1,cp2,p1), tan = bzTan(t,p0,cp1,cp2,p1);
+        ax=pt.x; ay=pt.y;
+        a = Math.atan2(tan.y,tan.x)*180/Math.PI + (forward?0:180);
+      } else {
+        ax = sx+(ex-sx)*t; ay = sy+(ey-sy)*t;
+        a  = forward ? angle : angle+180;
+      }
+      const AH=6, AW=4;
+      const arr = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+      arr.setAttribute('points', `${AH*0.6},0 ${-AH*0.4},${-AW} ${-AH*0.4},${AW}`);
+      arr.setAttribute('transform', `translate(${ax},${ay}) rotate(${a})`);
+      arr.setAttribute('fill','#ffffff');
+      arr.setAttribute('opacity', sel ? '1' : '0.95');
+      arr.setAttribute('pointer-events','none');
+      return arr;
+    }
+
+    // ── Bezier path override (thay thế <line> bằng <path> nếu có cp1/cp2) ──
+    if(isBez){
+      const p0={x:sx,y:sy}, cp1=e.cp1, cp2=e.cp2, p1={x:ex,y:ey};
+      const d=`M ${sx} ${sy} C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${ex} ${ey}`;
+      [laneBg, lane].forEach(el=>{
+        el.removeAttribute('x1'); el.removeAttribute('y1');
+        el.removeAttribute('x2'); el.removeAttribute('y2');
+        // Convert <line> to <path>
+        const tag = el.tagName;
+      });
+      // Remove lines added earlier and replace with paths
+      while(g.firstChild) g.removeChild(g.firstChild);
+      if(sel){
+        const glow=document.createElementNS('http://www.w3.org/2000/svg','path');
+        glow.setAttribute('d',d); glow.setAttribute('fill','none');
+        glow.setAttribute('stroke','#f59e0b'); glow.setAttribute('stroke-width',LANE_W+8);
+        glow.setAttribute('stroke-linecap','round'); glow.setAttribute('opacity','0.25');
+        g.appendChild(glow);
+      }
+      ['bg','main'].forEach((type,i)=>{
+        const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+        p.setAttribute('d',d); p.setAttribute('fill','none');
+        p.setAttribute('stroke',isBlocked?'#ef4444':col);
+        p.setAttribute('stroke-width',LANE_W); p.setAttribute('stroke-linecap','round');
+        p.setAttribute('opacity', i===0 ? (sel?'0.55':'0.18') : (sel?'0.85':'0.55'));
+        g.appendChild(p);
+      });
+    }
+
+    // ── Arrows on lane ────────────────────────────────────────────────────────
+    if(!isBlocked){
+      const p0={x:sx,y:sy},p1={x:ex,y:ey};
+      if(e.direction === 'both'){
+        g.appendChild(makeArrow(0.33, true,  isBez, p0, e.cp1, e.cp2, p1));
+        g.appendChild(makeArrow(0.67, false, isBez, p0, e.cp1, e.cp2, p1));
+      } else if(e.direction === 'forward'){
+        g.appendChild(makeArrow(0.50, true,  isBez, p0, e.cp1, e.cp2, p1));
+      } else if(e.direction === 'backward'){
+        g.appendChild(makeArrow(0.50, false, isBez, p0, e.cp1, e.cp2, p1));
+      }
+    } else {
+      // Blocked: white X mark at midpoint
+      const mx=(sx+ex)/2, my=(sy+ey)/2;
+      const xs = document.createElementNS('http://www.w3.org/2000/svg','text');
+      xs.setAttribute('x',mx); xs.setAttribute('y',my);
+      xs.setAttribute('text-anchor','middle'); xs.setAttribute('dominant-baseline','central');
+      xs.setAttribute('font-size','14'); xs.setAttribute('font-weight','bold');
+      xs.setAttribute('fill','#ffffff'); xs.setAttribute('pointer-events','none');
+      xs.textContent='✕';
+      g.appendChild(xs);
+    }
+
+    // ── Speed label ───────────────────────────────────────────────────────────
+    if(e.speed && e.speed !== 0.5){
+      const mx=(sx+ex)/2, my=(sy+ey)/2;
+      // perp offset so label sits above the lane
+      const lx = mx - uy*(LANE_W*0.9), ly = my + ux*(LANE_W*0.9);
+      const lbl = document.createElementNS('http://www.w3.org/2000/svg','text');
+      lbl.setAttribute('x',lx); lbl.setAttribute('y',ly);
+      lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('dominant-baseline','central');
+      lbl.setAttribute('font-size','9'); lbl.setAttribute('fill','rgba(0,0,0,0.45)');
+      lbl.setAttribute('pointer-events','none');
+      lbl.textContent = `${e.speed}m/s`;
+      g.appendChild(lbl);
+    }
+
+    // ── Hit area — bind events trực tiếp, không qua bubble ──────────────────
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', isBez ? 'path' : 'line');
+    if(isBez){
+      hit.setAttribute('d', `M ${sx} ${sy} C ${e.cp1.x} ${e.cp1.y} ${e.cp2.x} ${e.cp2.y} ${ex} ${ey}`);
+      hit.setAttribute('fill','none');
+    } else {
+      hit.setAttribute('x1',sx); hit.setAttribute('y1',sy);
+      hit.setAttribute('x2',ex); hit.setAttribute('y2',ey);
+      hit.setAttribute('fill','none');
+    }
+    hit.setAttribute('stroke','#000');
+    hit.setAttribute('stroke-opacity','0');
+    hit.setAttribute('stroke-width', Math.max(LANE_W+10, 22));
+    hit.setAttribute('stroke-linecap','round');
+    hit.setAttribute('pointer-events','all');
+    hit.style.cursor = 'pointer';
+
+    // Bind thẳng vào hit — không dùng bubble lên g
+    const _eid = e.id;
+    const _isBez = isBez;
+    hit.addEventListener('mousedown', ev=>{
+      ev.stopPropagation();
+      if(activeTool==='delete'){ deleteEdge(_eid); return; }
+      if(activeTool==='select'){ toggleSelEdge(_eid, ev); }
+      // Cho phép drag bezier ở cả select và bezier mode
+      if(_isBez && activeTool!=='node' && activeTool!=='edge' && activeTool!=='delete'){
+        dragEdgeId = _eid;
+      }
+    });
+    hit.addEventListener('contextmenu', ev=>{
+      ev.preventDefault();
+      ctxTarget={type:'edge', id:_eid};
+      showCtx(ev.clientX, ev.clientY);
+    });
+
+    g.appendChild(hit);
+
+    edgeLayer.appendChild(g);
+  }
+}
+
+function renderNodes(){
+  nodeLayer.innerHTML = '';
+  for(const [id,n] of Object.entries(state.nodes)){
+    const sel = selNodes.has(id);
+    const col = TYPE_COLOR[n.type]||'#3b82f6';
+    const compat = n.agvCompat||'slam_qr';
+    const isRFID = compat==='RFID';
+    const isBoth = compat==='both';
+    // border color: RFID=orange, both=cyan, slam_qr=blue
+    const borderNormal = isRFID ? '#f97316' : isBoth ? '#06b6d4' : '#93c5fd';
+    const borderSel    = '#f59e0b';
+    const textCol      = isRFID ? '#c2410c' : isBoth ? '#0e7490' : '#1e40af';
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('data-nid', id);
+    g.setAttribute('transform', `translate(${n.x},${n.y})`);
+    g.style.cursor = activeTool==='edge' ? 'crosshair' : 'grab';
+
+    const R = NODE_R;
+
+    // Glow (selection)
+    if(sel){
+      const glow = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      glow.setAttribute('r', R+7);
+      glow.setAttribute('fill', 'rgba(250,204,21,0.18)');
+      glow.setAttribute('stroke', '#facc15');
+      glow.setAttribute('stroke-width','2');
+      g.appendChild(glow);
+    }
+
+    // Drop shadow
+    const shadow = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    shadow.setAttribute('r', R+1);
+    shadow.setAttribute('fill', 'rgba(0,0,0,0.10)');
+    shadow.setAttribute('transform','translate(1,2)');
+    shadow.setAttribute('pointer-events','none');
+    g.appendChild(shadow);
+
+    // Main circle — border màu theo agvCompat
+    const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('r', R);
+    c.setAttribute('fill', '#ffffff');
+    c.setAttribute('stroke', sel ? borderSel : borderNormal);
+    c.setAttribute('stroke-width', sel ? '3' : '2.5');
+    if(sel) c.setAttribute('filter','drop-shadow(0 0 5px #f59e0b88)');
+    g.appendChild(c);
+
+    // ID text
+    const tid = document.createElementNS('http://www.w3.org/2000/svg','text');
+    tid.setAttribute('text-anchor','middle'); tid.setAttribute('dominant-baseline','central');
+    tid.setAttribute('font-size','10'); tid.setAttribute('font-weight','700');
+    tid.setAttribute('fill', textCol); tid.setAttribute('pointer-events','none');
+    tid.textContent = id.length>4 ? id.slice(-4) : id;
+    g.appendChild(tid);
+
+    // name label below
+    if(n.name){
+      const lbl = document.createElementNS('http://www.w3.org/2000/svg','text');
+      lbl.setAttribute('y', NODE_R+12);
+      lbl.setAttribute('text-anchor','middle');
+      lbl.setAttribute('font-size','9');
+      lbl.setAttribute('fill','rgba(0,0,0,0.55)');
+      lbl.setAttribute('pointer-events','none');
+      lbl.textContent = n.name.length>12 ? n.name.slice(0,12)+'…' : n.name;
+      g.appendChild(lbl);
+    }
+
+    // edge src indicator
+    if(edgeSrc===id){
+      const pulse = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      pulse.setAttribute('r', NODE_R+5);
+      pulse.setAttribute('fill', 'none');
+      pulse.setAttribute('stroke', '#3b82f6');
+      pulse.setAttribute('stroke-width','2');
+      pulse.setAttribute('opacity','0.8');
+      g.appendChild(pulse);
+    }
+
+    // events
+    g.addEventListener('mousedown', ev => onNodeMouseDown(ev, id));
+    g.addEventListener('contextmenu', ev=>{ ev.preventDefault(); ctxTarget={type:'node',id}; showCtx(ev.clientX,ev.clientY); });
+    nodeLayer.appendChild(g);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// TOOL LOGIC
+// ═══════════════════════════════════════════════════
+function setTool(t){
+  activeTool = t;
+  document.querySelectorAll('.tool-btn[data-tool]').forEach(b=>{
+    b.classList.toggle('active', b.dataset.tool===t);
+  });
+  const names = {select:'Chọn',pan:'Di chuyển',node:'Thêm Node',edge:'Thêm Cạnh thẳng',bezier:'Cạnh cong – click 2 node, kéo edge để chỉnh cong',delete:'Xóa'};
+  document.getElementById('sb-tool').textContent = 'Công cụ: ' + (names[t]||t);
+  wrap.style.cursor = t==='pan' ? 'grab' : (t==='node'||t==='edge'||t==='bezier' ? 'crosshair' : 'default');
+  edgeSrc = null;
+  prevLine.setAttribute('opacity','0');
+  resetBezier();
+  renderNodes();
+}
+
+function onNodeMouseDown(ev, id){
+  ev.stopPropagation();
+  if(activeTool==='delete'){ deleteNode(id); return; }
+  if(activeTool==='edge'){
+    if(!edgeSrc){ edgeSrc = id; renderNodes(); }
+    else if(edgeSrc!==id){
+      saveSnapshot(); addEdge(edgeSrc, id);
+      edgeSrc = null; prevLine.setAttribute('opacity','0'); renderAll();
+    }
+    return;
+  }
+  if(activeTool==='bezier'){
+    if(!bzSrc){ bzSrc=id; renderNodes(); toast('Click node đích để tạo cạnh cong'); }
+    else if(bzSrc!==id){
+      saveSnapshot(); addBezierEdge(bzSrc, id);
+      bzSrc=null; document.getElementById('bezier-preview').setAttribute('opacity','0');
+      renderAll(); toast('Kéo thân cạnh cong để chỉnh độ cong','success');
+    }
+    return;
+  }
+  if(activeTool==='select'||activeTool==='pan'){
+    if(!selNodes.has(id)){
+      if(!ev.shiftKey){ selNodes.clear(); selEdges.clear(); }
+      selNodes.add(id);
+    }
+    dragNodeId = id;
+    const p = worldPt(ev.clientX,ev.clientY);
+    const n = state.nodes[id];
+    dragOffX = p.x - n.x; dragOffY = p.y - n.y;
+    isDragging = true;
+    updateProps();
+    renderAll();
+  }
+}
+
+function toggleSelEdge(eid, ev){
+  if(!ev.shiftKey){ selNodes.clear(); selEdges.clear(); }
+  if(selEdges.has(eid)) selEdges.delete(eid); else selEdges.add(eid);
+  updateProps(); renderAll();
+}
+
+function addNode(x, y){
+  const id = uid();
+  state.nodes[id] = { id, name:'', x:snap(x), y:snap(y), type:'normal', action:'', speed:0.5, agvCompat:'slam_qr' };
+  return id;
+}
+function addEdge(src, dst){
+  if(state.edges.find(e=>(e.src===src&&e.dst===dst)||(e.src===dst&&e.dst===src))) return;
+  const id = `e_${src}_${dst}`;
+  state.edges.push({ id, src, dst, direction:'both', speed:0.5, width:0.95 });
+}
+function addBezierEdge(src, dst){
+  if(state.edges.find(e=>(e.src===src&&e.dst===dst)||(e.src===dst&&e.dst===src))) return;
+  const id = `e_${src}_${dst}`;
+  const na = state.nodes[src], nb = state.nodes[dst];
+  // cp1/cp2 mặc định dọc theo đường thẳng → kéo để chỉnh cong
+  const cp1 = { x: na.x+(nb.x-na.x)/3,   y: na.y+(nb.y-na.y)/3 };
+  const cp2 = { x: na.x+(nb.x-na.x)*2/3, y: na.y+(nb.y-na.y)*2/3 };
+  state.edges.push({ id, src, dst, direction:'both', speed:0.5, width:0.95, cp1, cp2 });
+}
+// Bezier math helpers
+function bzPt(t, p0, cp1, cp2, p1){
+  const u=1-t;
+  return { x:u*u*u*p0.x+3*u*u*t*cp1.x+3*u*t*t*cp2.x+t*t*t*p1.x,
+           y:u*u*u*p0.y+3*u*u*t*cp1.y+3*u*t*t*cp2.y+t*t*t*p1.y };
+}
+function bzTan(t, p0, cp1, cp2, p1){
+  const u=1-t;
+  return { x:3*u*u*(cp1.x-p0.x)+6*u*t*(cp2.x-cp1.x)+3*t*t*(p1.x-cp2.x),
+           y:3*u*u*(cp1.y-p0.y)+6*u*t*(cp2.y-cp1.y)+3*t*t*(p1.y-cp2.y) };
+}
+function resetBezier(){
+  bzSrc=null;
+  document.getElementById('bezier-preview').setAttribute('opacity','0');
+}
+
+function deleteNode(id){
+  saveSnapshot();
+  delete state.nodes[id];
+  state.edges = state.edges.filter(e=>e.src!==id&&e.dst!==id);
+  selNodes.delete(id);
+  renderAll(); updateProps();
+}
+function deleteEdge(eid){
+  saveSnapshot();
+  state.edges = state.edges.filter(e=>e.id!==eid);
+  selEdges.delete(eid);
+  renderAll(); updateProps();
+}
+function deleteSelected(){
+  if(!selNodes.size&&!selEdges.size) return;
+  saveSnapshot();
+  selNodes.forEach(id=>{ delete state.nodes[id]; state.edges=state.edges.filter(e=>e.src!==id&&e.dst!==id); });
+  selEdges.forEach(eid=>{ state.edges=state.edges.filter(e=>e.id!==eid); });
+  selNodes.clear(); selEdges.clear();
+  renderAll(); updateProps();
+}
+
+// ═══════════════════════════════════════════════════
+// CANVAS EVENTS
+// ═══════════════════════════════════════════════════
+let panStart = {x:0,y:0,px:0,py:0};
+let boxStart = null;
+
+svg.addEventListener('mousedown', ev=>{
+  if(ev.button===1||activeTool==='pan'){ // middle click or pan tool
+    isPanning=true;
+    panStart={x:ev.clientX,y:ev.clientY,px:panX,py:panY};
+    wrap.style.cursor='grabbing';
+    ev.preventDefault(); return;
+  }
+  if(ev.target===svg||ev.target.id==='bg-rect'||ev.target===world){
+    hideCtx();
+    if(activeTool==='node'){
+      const p = worldPt(ev.clientX,ev.clientY);
+      saveSnapshot();
+      const id = addNode(p.x, p.y);
+      selNodes.clear(); selEdges.clear(); selNodes.add(id);
+      renderAll(); updateProps();
+      return;
+    }
+    if(activeTool==='select'){
+      selNodes.clear(); selEdges.clear();
+      const p = worldPt(ev.clientX,ev.clientY);
+      boxStart = {sx:p.x,sy:p.y,ex:p.x,ey:p.y};
+      renderAll(); updateProps();
+    }
+    if(activeTool==='edge'){ edgeSrc=null; prevLine.setAttribute('opacity','0'); renderNodes(); }
+  }
+});
+
+svg.addEventListener('mousemove', ev=>{
+  const p = worldPt(ev.clientX,ev.clientY);
+  document.getElementById('sb-pos').textContent = `x: ${Math.round(p.x)}  y: ${Math.round(p.y)}`;
+
+  if(isPanning){
+    panX = panStart.px + (ev.clientX-panStart.x);
+    panY = panStart.py + (ev.clientY-panStart.y);
+    applyTransform(); return;
+  }
+  // ── Kéo edge bezier để chỉnh độ cong ────────────────────────────────────
+  if(dragEdgeId){
+    const de = state.edges.find(x=>x.id===dragEdgeId);
+    if(de){
+      const D = worldPt(ev.clientX, ev.clientY);
+      const na = state.nodes[de.src], nb = state.nodes[de.dst];
+      if(na && nb){
+        // Quadratic-to-cubic: kéo điểm D trên đường cong tại t≈0.5
+        const H = { x: 2*D.x - (na.x+nb.x)/2, y: 2*D.y - (na.y+nb.y)/2 };
+        de.cp1 = { x: na.x + (H.x-na.x)*2/3, y: na.y + (H.y-na.y)*2/3 };
+        de.cp2 = { x: nb.x + (H.x-nb.x)*2/3, y: nb.y + (H.y-nb.y)*2/3 };
+        renderEdges(); // chỉ re-render edge để mượt
+      }
+    }
+    return;
+  }
+  if(isDragging && dragNodeId){
+    const px = snap(p.x-dragOffX), py = snap(p.y-dragOffY);
+    // move all selected
+    if(selNodes.size>1 && selNodes.has(dragNodeId)){
+      const on = state.nodes[dragNodeId];
+      const dx=px-on.x, dy=py-on.y;
+      selNodes.forEach(id=>{ state.nodes[id].x+=dx; state.nodes[id].y+=dy; });
+    } else {
+      state.nodes[dragNodeId].x=px; state.nodes[dragNodeId].y=py;
+    }
+    renderAll(); return;
+  }
+  if(boxStart){
+    boxStart.ex=p.x; boxStart.ey=p.y;
+    drawSelBox();
+    return;
+  }
+  if(activeTool==='edge' && edgeSrc){
+    const ns = state.nodes[edgeSrc];
+    if(ns){
+      const r = svg.getBoundingClientRect();
+      const sx=ns.x*zoom+panX, sy=ns.y*zoom+panY;
+      prevLine.setAttribute('x1',sx); prevLine.setAttribute('y1',sy);
+      prevLine.setAttribute('x2',ev.clientX-r.left); prevLine.setAttribute('y2',ev.clientY-r.top);
+      prevLine.setAttribute('opacity','1');
+    }
+  }
+  // Bezier tool preview (đường thẳng từ src đến cursor)
+  if(activeTool==='bezier' && bzSrc){
+    const ns = state.nodes[bzSrc];
+    if(ns){
+      const r = svg.getBoundingClientRect();
+      const sx=ns.x*zoom+panX, sy=ns.y*zoom+panY;
+      const cx=ev.clientX-r.left, cy=ev.clientY-r.top;
+      document.getElementById('bezier-preview').setAttribute('d',`M ${sx} ${sy} L ${cx} ${cy}`);
+      document.getElementById('bezier-preview').setAttribute('opacity','1');
+    }
+  }
+});
+
+svg.addEventListener('mouseup', ev=>{
+  if(isPanning){ isPanning=false; wrap.style.cursor = activeTool==='pan'?'grab':'default'; return; }
+  if(dragEdgeId){ saveSnapshot(); dragEdgeId=null; renderAll(); return; }
+  if(isDragging && dragNodeId){ saveSnapshot(); isDragging=false; dragNodeId=null; renderAll(); return; }
+  if(boxStart){
+    // finalize box selection
+    const {sx,sy,ex,ey}=boxStart;
+    const x1=Math.min(sx,ex),x2=Math.max(sx,ex),y1=Math.min(sy,ey),y2=Math.max(sy,ey);
+    if(!ev.shiftKey){ selNodes.clear(); selEdges.clear(); }
+    for(const [id,n] of Object.entries(state.nodes)){
+      if(n.x>=x1&&n.x<=x2&&n.y>=y1&&n.y<=y2) selNodes.add(id);
+    }
+    boxStart=null; boxLayer.innerHTML='';
+    updateProps(); renderAll();
+  }
+});
+
+svg.addEventListener('wheel', ev=>{
+  ev.preventDefault();
+  const r = svg.getBoundingClientRect();
+  const mx=ev.clientX-r.left, my=ev.clientY-r.top;
+  const delta = ev.deltaY<0 ? 1.12 : 1/1.12;
+  const nz = Math.min(8, Math.max(0.08, zoom*delta));
+  panX = mx - (mx-panX)*(nz/zoom);
+  panY = my - (my-panY)*(nz/zoom);
+  zoom = nz; applyTransform();
+}, {passive:false});
+
+svg.addEventListener('mouseleave', ()=>{
+  if(isDragging && dragNodeId){ saveSnapshot(); isDragging=false; dragNodeId=null; renderAll(); }
+  if(isPanning) isPanning=false;
+  if(boxStart){ boxStart=null; boxLayer.innerHTML=''; }
+});
+
+function drawSelBox(){
+  boxLayer.innerHTML='';
+  if(!boxStart) return;
+  const {sx,sy,ex,ey}=boxStart;
+  const x=Math.min(sx,ex),y=Math.min(sy,ey),w=Math.abs(ex-sx),h=Math.abs(ey-sy);
+  const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  r.setAttribute('x',x); r.setAttribute('y',y); r.setAttribute('width',w); r.setAttribute('height',h);
+  r.setAttribute('fill','rgba(59,130,246,0.08)');
+  r.setAttribute('stroke','#3b82f6'); r.setAttribute('stroke-width', 1/zoom);
+  r.setAttribute('stroke-dasharray', `${4/zoom},${3/zoom}`);
+  r.setAttribute('pointer-events','none');
+  boxLayer.appendChild(r);
+}
+
+// ═══════════════════════════════════════════════════
+// PROPERTIES PANEL
+// ═══════════════════════════════════════════════════
+function updateProps(){
+  const pEmpty=document.getElementById('props-empty');
+  const pNode=document.getElementById('props-node');
+  const pEdge=document.getElementById('props-edge');
+  const btnApply=document.getElementById('btn-apply');
+  const btnDel=document.getElementById('btn-delete-sel');
+
+  if(selNodes.size===1){
+    const id=[...selNodes][0], n=state.nodes[id];
+    if(!n) return;
+    document.getElementById('props-title').textContent='Node';
+    document.getElementById('props-sub').textContent=`ID: ${id}`;
+    const compat = n.agvCompat||'slam_qr';
+    document.getElementById('pn-agvcompat').value=compat;
+    document.getElementById('pn-id').value=id;
+    document.getElementById('pn-name').value=n.name||'';
+    document.getElementById('pn-type').value=n.type||'normal';
+    document.getElementById('pn-action').value=n.action||'';
+    document.getElementById('pn-speed').value=n.speed||0.5;
+    document.getElementById('pn-x').value=Math.round(n.x);
+    document.getElementById('pn-y').value=Math.round(n.y);
+    // Load turn config
+    document.getElementById('pn-fwd-turn').value = n.fwdTurn || 'none';
+    document.getElementById('pn-bwd-turn').value = n.bwdTurn || 'none';
+    // Hiện turn section nếu RFID/both
+    const turnSec = document.getElementById('pn-turn-section');
+    if(turnSec) turnSec.style.display = (compat==='RFID'||compat==='both') ? 'block' : 'none';
+    // RFID → pn-id editable
+    _setIdEditable(compat==='RFID');
+    pEmpty.style.display='none'; pNode.style.display='block'; pEdge.style.display='none';
+    btnApply.style.display=''; btnDel.style.display='';
+  } else if(selEdges.size===1){
+    const eid=[...selEdges][0], e=state.edges.find(x=>x.id===eid);
+    if(!e) return;
+    document.getElementById('props-title').textContent='Cạnh';
+    document.getElementById('props-sub').textContent=`${e.src} → ${e.dst}`;
+    document.getElementById('pe-id').value=`${e.src} → ${e.dst}`;
+    document.getElementById('pe-dir').value=e.direction||'both';
+    document.getElementById('pe-speed').value=e.speed||0.5;
+    document.getElementById('pe-width').value=e.width||0.95;
+    pEmpty.style.display='none'; pNode.style.display='none'; pEdge.style.display='block';
+    btnApply.style.display=''; btnDel.style.display='';
+  } else {
+    document.getElementById('props-title').textContent='Thuộc tính';
+    document.getElementById('props-sub').textContent=selNodes.size>1?`${selNodes.size} nodes được chọn`:'Chọn node hoặc cạnh để chỉnh sửa';
+    pEmpty.style.display='block'; pNode.style.display='none'; pEdge.style.display='none';
+    btnApply.style.display = selNodes.size>1 ? '' : 'none';
+    btnDel.style.display = (selNodes.size||selEdges.size) ? '' : 'none';
+  }
+}
+
+document.getElementById('btn-apply').onclick = ()=>{
+  if(selNodes.size===1){
+    let id=[...selNodes][0], n=state.nodes[id]; if(!n) return;
+    saveSnapshot();
+    const newCompat = document.getElementById('pn-agvcompat').value || 'slam_qr';
+    n.agvCompat = newCompat;
+
+    // Đổi ID cho RFID node
+    const newId = document.getElementById('pn-id').value.trim();
+    if(newCompat==='RFID' && newId && newId!==id){
+      if(state.nodes[newId]){ toast('ID '+newId+' đã tồn tại','error'); return; }
+      state.nodes[newId] = { ...n, id: newId };
+      delete state.nodes[id];
+      state.edges.forEach(e=>{ if(e.src===id) e.src=newId; if(e.dst===id) e.dst=newId; });
+      if(edgeSrc===id) edgeSrc=newId;
+      if(typeof bzSrc!=='undefined' && bzSrc===id) bzSrc=newId;
+      selNodes.delete(id); selNodes.add(newId);
+      id=newId; n=state.nodes[newId];
+    }
+
+    n.name   = document.getElementById('pn-name').value.trim();
+    n.type   = document.getElementById('pn-type').value;
+    n.action = document.getElementById('pn-action').value;
+    n.speed  = parseFloat(document.getElementById('pn-speed').value)||0.5;
+    // Lưu cấu hình rẽ (chỉ có ý nghĩa với RFID/both)
+    n.fwdTurn = document.getElementById('pn-fwd-turn').value || 'none';
+    n.bwdTurn = document.getElementById('pn-bwd-turn').value || 'none';
+    const nx = parseFloat(document.getElementById('pn-x').value);
+    const ny = parseFloat(document.getElementById('pn-y').value);
+    if(!isNaN(nx)) n.x=nx; if(!isNaN(ny)) n.y=ny;
+    renderAll(); updateProps(); toast('Đã cập nhật node','success');
+  } else if(selEdges.size===1){
+    const eid=[...selEdges][0], e=state.edges.find(x=>x.id===eid); if(!e) return;
+    saveSnapshot();
+    e.direction = document.getElementById('pe-dir').value;
+    e.speed     = parseFloat(document.getElementById('pe-speed').value)||0.5;
+    e.width     = parseFloat(document.getElementById('pe-width').value)||0.95;
+    renderAll(); toast('Đã cập nhật cạnh','success');
+  }
+};
+document.getElementById('btn-delete-sel').onclick = deleteSelected;
+
+function _setIdEditable(editable){
+  const inp  = document.getElementById('pn-id');
+  const hint = document.getElementById('pn-id-hint');
+  if(editable){
+    inp.removeAttribute('readonly');
+    inp.classList.remove('readonly');
+    hint.style.display = 'inline';
+  } else {
+    inp.setAttribute('readonly','');
+    inp.classList.add('readonly');
+    hint.style.display = 'none';
+  }
+}
+
+function onAgvCompatChange(){
+  const v = document.getElementById('pn-agvcompat').value;
+  _setIdEditable(v==='RFID');
+  // Hiện/ẩn section cấu hình rẽ
+  const turnSec = document.getElementById('pn-turn-section');
+  if(turnSec) turnSec.style.display = (v==='RFID'||v==='both') ? 'block' : 'none';
+}
+
+// ═══════════════════════════════════════════════════
+// ALIGNMENT
+// ═══════════════════════════════════════════════════
+function alignH(){
+  if(selNodes.size<2) return;
+  const ids=[...selNodes]; saveSnapshot();
+  const refY = state.nodes[ids[0]].y;   // node chọn đầu tiên làm mốc
+  ids.slice(1).forEach(id=>state.nodes[id].y=snap(refY));
+  renderAll();
+}
+function alignV(){
+  if(selNodes.size<2) return;
+  const ids=[...selNodes]; saveSnapshot();
+  const refX = state.nodes[ids[0]].x;   // node chọn đầu tiên làm mốc
+  ids.slice(1).forEach(id=>state.nodes[id].x=snap(refX));
+  renderAll();
+}
+
+// ═══════════════════════════════════════════════════
+// FIT VIEW
+// ═══════════════════════════════════════════════════
+function fitView(){
+  const ns=Object.values(state.nodes);
+  if(!ns.length) return;
+  const xs=ns.map(n=>n.x), ys=ns.map(n=>n.y);
+  const minX=Math.min(...xs)-60, maxX=Math.max(...xs)+60;
+  const minY=Math.min(...ys)-60, maxY=Math.max(...ys)+60;
+  const W=wrap.clientWidth, H=wrap.clientHeight;
+  zoom=Math.min(W/(maxX-minX), H/(maxY-minY), 3);
+  panX=(W-(maxX+minX)*zoom)/2;
+  panY=(H-(maxY+minY)*zoom)/2;
+  applyTransform();
+}
+
+// ═══════════════════════════════════════════════════
+// CONTEXT MENU
+// ═══════════════════════════════════════════════════
+function showCtx(x,y){
+  ctxMenu.style.left=x+'px'; ctxMenu.style.top=y+'px'; ctxMenu.style.display='block';
+}
+function hideCtx(){ ctxMenu.style.display='none'; }
+document.getElementById('ctx-delete').onclick=()=>{ hideCtx(); if(ctxTarget?.type==='node') deleteNode(ctxTarget.id); else if(ctxTarget?.type==='edge') deleteEdge(ctxTarget.id); };
+document.getElementById('ctx-align-h').onclick=()=>{ hideCtx(); alignH(); };
+document.getElementById('ctx-align-v').onclick=()=>{ hideCtx(); alignV(); };
+document.getElementById('ctx-props').onclick=()=>{ hideCtx(); if(ctxTarget?.type==='node'){ selNodes.clear();selNodes.add(ctxTarget.id); } else if(ctxTarget?.type==='edge'){ selEdges.clear();selEdges.add(ctxTarget.id); } renderAll(); updateProps(); };
+document.addEventListener('mousedown', ev=>{ if(!ctxMenu.contains(ev.target)) hideCtx(); });
+
+// ═══════════════════════════════════════════════════
+// KEYBOARD
+// ═══════════════════════════════════════════════════
+document.addEventListener('keydown', ev=>{
+  if(ev.target.tagName==='INPUT'||ev.target.tagName==='SELECT'||ev.target.tagName==='TEXTAREA') return;
+  if(ev.ctrlKey||ev.metaKey){
+    if(ev.key==='z'){ ev.preventDefault(); undo(); }
+    else if(ev.key==='y'||ev.key==='Y'){ ev.preventDefault(); redo(); }
+    else if(ev.key==='s'){ ev.preventDefault(); saveMap(); }
+    else if(ev.key==='a'){ ev.preventDefault(); Object.keys(state.nodes).forEach(id=>selNodes.add(id)); renderAll(); updateProps(); }
+    return;
+  }
+  switch(ev.key){
+    case 'v': case 'V': setTool('select'); break;
+    case 'h': case 'H': setTool('pan'); break;
+    case 'n': case 'N': setTool('node'); break;
+    case 'e': case 'E': setTool('edge'); break;
+    case 'b': case 'B': setTool('bezier'); break;
+    case 'd': case 'D': setTool('delete'); break;
+    case 'Delete': case 'Backspace': deleteSelected(); break;
+    case 'Escape': selNodes.clear();selEdges.clear();edgeSrc=null;prevLine.setAttribute('opacity','0');renderAll();updateProps(); break;
+    case '+': case '=': zoom=Math.min(8,zoom*1.15); applyTransform(); break;
+    case '-': case '_': zoom=Math.max(0.08,zoom/1.15); applyTransform(); break;
+    case 'f': case 'F': fitView(); break;
+  }
+});
+
+// ═══════════════════════════════════════════════════
+// TOOLBAR / TOPBAR WIRING
+// ═══════════════════════════════════════════════════
+document.querySelectorAll('.tool-btn[data-tool]').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
+document.getElementById('btn-undo').onclick   = undo;
+document.getElementById('btn-redo').onclick   = redo;
+document.getElementById('btn-fit').onclick     = fitView;
+document.getElementById('btn-zoom-in').onclick  = ()=>{ zoom=Math.min(8,zoom*1.2); applyTransform(); };
+document.getElementById('btn-zoom-out').onclick = ()=>{ zoom=Math.max(0.08,zoom/1.2); applyTransform(); };
+document.getElementById('snap-grid').onchange  = ev=>{ snapGrid=ev.target.checked; };
+document.getElementById('btn-clear').onclick   = ()=>{
+  confirm('Xóa toàn bộ','Tất cả node và cạnh sẽ bị xóa. Tiếp tục?',()=>{
+    saveSnapshot(); state.nodes={}; state.edges=[]; selNodes.clear(); selEdges.clear();
+    renderAll(); updateProps(); toast('Đã xóa toàn bộ');
+  });
+};
+document.getElementById('btn-save').onclick = saveMap;
+
+document.getElementById('btn-new').onclick = ()=>{
+  if(mapChanged){ confirm('Tạo mới','Thay đổi chưa lưu sẽ mất. Tiếp tục?',()=>newMap()); }
+  else newMap();
+};
+
+function newMap(){
+  const existing = document.getElementById('slam-bg');
+  if(existing) existing.remove();
+  _removeOverlayFlip();
+  state={mapId:null, nodes:{}, edges:[], nextId:1, transform:{..._DEFAULT_TRANSFORM}};
+  undoStack=[]; redoStack=[]; selNodes.clear(); selEdges.clear(); mapChanged=false;
+  document.getElementById('map-name-input').value='Bản đồ mới';
+  document.getElementById('map-select').value='';
+  document.getElementById('sb-map').textContent='Mới';
+  renderAll(); updateProps(); fitView();
+}
+
+// ═══════════════════════════════════════════════════
+// COORDINATE TRANSFORM UTILITIES
+// World (mét) ↔ Display (pixel trong editor)
+// ═══════════════════════════════════════════════════
+
+function _autoDetectPPM(rawPoints) {
+  // SLAM map → tọa độ mét nhỏ (thường < 100)
+  // Editor schematic → tọa độ pixel lớn (thường >= 100)
+  if(!rawPoints.length) return 1;
+  const maxAbs = rawPoints.reduce((m,p)=>Math.max(m,Math.abs(parseFloat(p.x)||0),Math.abs(parseFloat(p.y)||0)),0);
+  if(maxAbs===0) return 1;
+  return maxAbs < 100 ? 80 : 1;   // 80 px/m cho SLAM, 1 cho schematic
+}
+
+function _w2d(wx, wy, tr) {
+  if(tr.natW > 0 && tr.resolution > 0){
+    // Flip toàn bộ quanh trục Y tâm ảnh: x = wy/res (không có natW-)
+    return {
+      x: (wy - tr.originY) / tr.resolution,
+      y: (wx - tr.originX) / tr.resolution
+    };
+  }
+  return { x:(wx - tr.originX)*tr.ppm, y:(wy - tr.originY)*tr.ppm };
+}
+function _d2w(dx, dy, tr) {
+  if(tr.natW > 0 && tr.resolution > 0){
+    // Inverse: dx = wy/res → wy = originY + dx*res
+    return {
+      x: tr.originX + dy * tr.resolution,   // wx
+      y: tr.originY + dx * tr.resolution    // wy
+    };
+  }
+  return { x: tr.originX + dx/tr.ppm, y: tr.originY + dy/tr.ppm };
+}
+function _parseActionField(val) {
+  if(!val) return {};
+  if(typeof val === 'object') return val;
+  try{ return JSON.parse(val); } catch{ return {}; }
+}
+
+let _slamBgVisible = true;
+let _slamBgOpacity = 0.35;
+let _overlayFlipCX = null;  // tâm flip horizontal của node/edge layer
+
+function _applyOverlayFlip(cx){ _overlayFlipCX = cx; }
+function _removeOverlayFlip(){ _overlayFlipCX = null; }
+
+function _slamImageUrl(imagePath){
+  if(!imagePath) return null;
+  // Ảnh gốc — đã flip node/edge nên không cần flip ảnh thêm
+  return imagePath.startsWith('http') ? imagePath : `${API}${imagePath}`;
+}
+
+function _updateSlamBackground(tr) {
+  const existing = document.getElementById('slam-bg');
+  if(existing) existing.remove();
+  _updateSlamToggleBtn(!!tr.imagePath);
+  if(!tr.imagePath || !_slamBgVisible) return;
+
+  const imgUrl = _slamImageUrl(tr.imagePath);
+
+  const tmp = new window.Image();
+  tmp.onload = ()=>{
+    const natW = tmp.naturalWidth, natH = tmp.naturalHeight;
+    if(!natW || !natH){ console.warn('[SLAM_BG] Ảnh rỗng:', imgUrl); return; }
+
+    // ── Vị trí ảnh: dùng đúng kích thước pixel gốc (giống AgvMap) ────────
+    // worldToPixel cho x range [0, natW], y range [0, natH]
+    // → đặt ảnh tại (0, 0) kích thước natW × natH
+    let imgX = 0, imgY = 0, dispW = natW, dispH = natH;
+    if(!(tr.natW > 0)){
+      // Schematic fallback: scale theo node bounding box
+      const ns = Object.values(state.nodes);
+      if(ns.length >= 2){
+        const xs = ns.map(n=>n.x), ys = ns.map(n=>n.y);
+        const minX=Math.min(...xs), maxX=Math.max(...xs);
+        const minY=Math.min(...ys), maxY=Math.max(...ys);
+        const sc = Math.max((maxX-minX)*1.4/natW, (maxY-minY)*1.4/natH);
+        dispW = Math.round(natW*sc); dispH = Math.round(natH*sc);
+        imgX = Math.round((minX+maxX)/2 - dispW/2);
+        imgY = Math.round((minY+maxY)/2 - dispH/2);
+      }
+    }
+
+    // ── Tạo <image> — không cần SVG transform ────────────────────────────
+    const el = document.createElementNS('http://www.w3.org/2000/svg','image');
+    el.setAttribute('id',     'slam-bg');
+    el.setAttribute('href',   imgUrl);
+    el.setAttribute('x',      String(imgX));
+    el.setAttribute('y',      String(imgY));
+    el.setAttribute('width',  String(dispW));
+    el.setAttribute('height', String(dispH));
+    el.setAttribute('opacity', String(_slamBgOpacity));
+    el.setAttribute('pointer-events','none');
+    el.setAttribute('preserveAspectRatio','xMidYMid meet');
+
+    const world = document.getElementById('world');
+    world.insertBefore(el, world.firstChild);
+    console.log(`[SLAM_BG] ${natW}×${natH} → ${dispW}×${dispH} @ (${imgX},${imgY}) flipH=server-side`);
+  };
+  tmp.onerror = ()=> console.warn('[SLAM_BG] Không tải được:', imgUrl);
+  tmp.src = imgUrl;
+}
+
+function _toggleSlamBg(){
+  _slamBgVisible = !_slamBgVisible;
+  const btn = document.getElementById('btn-slam-toggle');
+  if(btn) btn.style.opacity = _slamBgVisible ? '1' : '0.4';
+  const el = document.getElementById('slam-bg');
+  if(el) el.style.display = _slamBgVisible ? '' : 'none';
+  if(_slamBgVisible && state.transform?.imagePath && !document.getElementById('slam-bg')){
+    _updateSlamBackground(state.transform);  // reload nếu chưa có
+  }
+}
+
+function _setSlamOpacity(val){
+  _slamBgOpacity = parseFloat(val)||0.35;
+  const el = document.getElementById('slam-bg');
+  if(el) el.setAttribute('opacity', String(_slamBgOpacity));
+}
+
+function _updateSlamToggleBtn(hasImage){
+  const btn = document.getElementById('btn-slam-toggle');
+  if(btn) btn.style.display = hasImage ? '' : 'none';
+  const slider = document.getElementById('slam-opacity-wrap');
+  if(slider) slider.style.display = hasImage ? '' : 'none';
+}
+
+function _rotateWorld(deg){
+  const ns = Object.values(state.nodes);
+  if(!ns.length){ toast('Không có node để xoay','error'); return; }
+
+  // Tâm bounding box của tất cả nodes
+  const xs = ns.map(n=>n.x), ys = ns.map(n=>n.y);
+  const cx = (Math.min(...xs)+Math.max(...xs))/2;
+  const cy = (Math.min(...ys)+Math.max(...ys))/2;
+
+  const rad = deg * Math.PI / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+
+  saveSnapshot();
+  for(const n of ns){
+    const dx = n.x - cx, dy = n.y - cy;
+    n.x = Math.round(cx + dx*cos - dy*sin);
+    n.y = Math.round(cy + dx*sin + dy*cos);
+  }
+
+  // Rebuild ảnh SLAM theo bounding box node mới (Y-flip vẫn cố định)
+  if(state.transform?.imagePath) _updateSlamBackground(state.transform);
+
+  renderAll(); updateProps();
+  setTimeout(fitView, 60);
+  toast(`Đã xoay ${deg > 0 ? '↻' : '↺'} ${Math.abs(deg)}°`,'success');
+}
+
+// ═══════════════════════════════════════════════════
+// API — LOAD MAP LIST
+// ═══════════════════════════════════════════════════
+async function loadMapList(){
+  try{
+    const r=await fetch(`${API}/api/maps/list`);
+    if(!r.ok) return;
+    const maps=await r.json();
+    const sel=document.getElementById('map-select');
+    sel.innerHTML='<option value="">── Tải bản đồ ──</option>';
+    for(const m of maps){
+      const o=document.createElement('option');
+      o.value=m.id; o.textContent=m.name||`Map ${m.id}`;
+      sel.appendChild(o);
+    }
+  } catch(e){ console.warn('Map list load failed',e); }
+}
+
+document.getElementById('map-select').onchange = async function(){
+  const id=this.value; if(!id) return;
+  if(mapChanged){ confirm('Tải bản đồ','Thay đổi chưa lưu sẽ mất. Tiếp tục?',()=>loadMap(id)); }
+  else loadMap(id);
+};
+
+async function loadMap(mapId){
+  try{
+    const r=await fetch(`${API}/api/maps/${mapId}`);
+    if(!r.ok){ toast('Không thể tải bản đồ','error'); return; }
+    const data=await r.json();
+
+    const rawPoints = data.robot_points || [];
+    const originX   = parseFloat(data.origin_x ?? data.robot_maps?.x) || 0;
+    const originY   = parseFloat(data.origin_y ?? data.robot_maps?.y) || 0;
+    const resolution= parseFloat(data.resolution ?? data.robot_maps?.resolution) || 0.05;
+    const ppm       = _autoDetectPPM(rawPoints);   // giữ cho schematic fallback
+    const imagePath = data.image_path || null;
+
+    // ── Load ảnh SLAM trước để lấy natW/natH (giống AgvMap) ──────────────
+    let natW = 0, natH = 0;
+    if(imagePath){
+      // Dùng URL gốc (không flip) chỉ để lấy kích thước natW/natH
+      const rawImgUrl = imagePath.startsWith('http') ? imagePath : `${API}${imagePath}`;
+      try{
+        const tmp = await new Promise((res, rej) => {
+          const i = new Image(); i.onload = ()=>res(i); i.onerror = rej;
+          i.src = rawImgUrl;
+        });
+        natW = tmp.naturalWidth; natH = tmp.naturalHeight;
+      } catch(e){ console.warn('[loadMap] Không load được ảnh SLAM'); }
+    }
+
+    const tr = { originX, originY, resolution, ppm, natW, natH, imagePath };
+
+    _removeOverlayFlip();
+    _overlayFlipCX = null;
+    state = { mapId, nodes:{}, edges:[], nextId:1, transform:tr };
+
+    // ── Load nodes dùng đúng worldToPixel của AgvMap ─────────────────────
+    const _INT_TYPE = ['normal','conveyor','charger','dropoff','home','buffer','parking','wait'];
+    for(const p of rawPoints){
+      const id = String(p.name_id);
+      const act = _parseActionField(p.action);
+      const wx = parseFloat(p.x)||0, wy = parseFloat(p.y)||0;
+      const dp = _w2d(wx, wy, tr);
+      // Ưu tiên dùng type integer từ DB; fallback sang guessType từ action
+      const typeInt = typeof p.type === 'number' ? p.type : parseInt(p.type);
+      const nodeType = (!isNaN(typeInt) && _INT_TYPE[typeInt]) ? _INT_TYPE[typeInt] : _guessType(act, p.name);
+      const agvCompat = act.agvCompat || p.agv_compat || 'slam_qr';
+      state.nodes[id] = {
+        id, name: p.name||'',
+        x: Math.round(dp.x), y: Math.round(dp.y),
+        type: nodeType, action: act.defaultAction||'',
+        speed: parseFloat(p.speed)||0.5,
+        agvCompat,
+        fwdTurn: act.fwd_turn || 'none',
+        bwdTurn: act.bwd_turn || 'none',
+      };
+    }
+
+    const numIds=Object.keys(state.nodes).map(x=>parseInt(x)).filter(x=>!isNaN(x));
+    state.nextId = numIds.length ? Math.max(...numIds)+1 : 1;
+
+    // ── Load edges ────────────────────────────────────────────────────────
+    const edgeSet = new Set();
+    for(const r2 of (data.roads||[])){
+      const eid=`e_${r2.id_source}_${r2.id_dest}`;
+      if(edgeSet.has(eid)) continue; edgeSet.add(eid);
+      state.edges.push({ id:eid, src:String(r2.id_source), dst:String(r2.id_dest),
+        direction:_dirFromCode(r2.move_direction), speed:parseFloat(r2.speed)||0.5, width:parseFloat(r2.width)||0.95 });
+    }
+    for(const b of (data.benziers||[])){
+      const eid=`e_${b.id_source}_${b.id_dest}`;
+      if(edgeSet.has(eid)) continue; edgeSet.add(eid);
+      // Lấy control points và chuyển sang display coords
+      const cp1w = { x: parseFloat(b.curve_point_start_x ?? b.curve_point_start?.[0]) || 0,
+                     y: parseFloat(b.curve_point_start_y ?? b.curve_point_start?.[1]) || 0 };
+      const cp2w = { x: parseFloat(b.curve_point_end_x   ?? b.curve_point_end?.[0])   || 0,
+                     y: parseFloat(b.curve_point_end_y   ?? b.curve_point_end?.[1])   || 0 };
+      const cp1 = _w2d(cp1w.x, cp1w.y, tr);
+      const cp2 = _w2d(cp2w.x, cp2w.y, tr);
+      state.edges.push({ id:eid, src:String(b.id_source), dst:String(b.id_dest),
+        direction:'both', speed:parseFloat(b.speed)||0.5, width:parseFloat(b.width)||0.95,
+        cp1: {x:Math.round(cp1.x), y:Math.round(cp1.y)},
+        cp2: {x:Math.round(cp2.x), y:Math.round(cp2.y)} });
+    }
+
+    // ── Hiển thị ảnh SLAM (server-side flip = giống AgvMap CSS scale(-1,1)) ─
+    _updateSlamBackground(tr);
+
+    document.getElementById('map-name-input').value = data.name||'';
+    mapChanged=false; document.getElementById('sb-map').textContent=`Đã tải: ${data.name}`;
+    undoStack=[]; redoStack=[]; selNodes.clear(); selEdges.clear();
+
+    toast(`Đã tải: ${data.name} · res=${resolution} natW=${natW}`, 'success');
+    renderAll(); updateProps();
+    setTimeout(fitView, 80);
+  } catch(e){ toast('Lỗi tải: '+e.message,'error'); console.error(e); }
+}
+
+function _guessType(actionData, name){
+  const lt=(actionData.locationType||'').toLowerCase();
+  if(lt==='conveyor') return 'conveyor';
+  if(lt==='charger') return 'charger';
+  if(lt==='dropoff') return 'dropoff';
+  if(lt==='home') return 'home';
+  if(lt==='buffer') return 'buffer';
+  if(lt==='parking') return 'parking';
+  const n=(name||'').toLowerCase();
+  if(n.includes('charg')) return 'charger';
+  if(n.includes('home')) return 'home';
+  if(n.includes('wait')||n.includes('buffer')) return 'buffer';
+  if(n.includes('park')) return 'parking';
+  if(n.includes('conv')||n.includes('pickup')||n.includes('drop')) return 'dropoff';
+  return 'normal';
+}
+function _dirFromCode(code){
+  if(code===1) return 'forward';
+  if(code===2) return 'backward';
+  if(code===3) return 'blocked';
+  return 'both';
+}
+function _dirToCode(d){ return {both:0,forward:1,backward:2,blocked:3}[d]||0; }
+
+// ═══════════════════════════════════════════════════
+// API — SAVE MAP
+// ═══════════════════════════════════════════════════
+function saveMap(){
+  // Luôn hiện modal để xác nhận / sửa tên — không dùng window.prompt (bị block trong iframe)
+  const currentName = document.getElementById('map-name-input').value.trim() || state.mapName || '';
+  _showSaveModal(currentName, name => _doSaveMap(name));
+}
+
+function _showSaveModal(currentName, onConfirm){
+  const overlay = document.getElementById('save-modal-overlay');
+  const inp     = document.getElementById('save-modal-name');
+  const btnOk   = document.getElementById('save-modal-confirm');
+  const btnCxl  = document.getElementById('save-modal-cancel');
+
+  inp.value    = currentName;
+  btnOk.disabled = !currentName;
+
+  inp.oninput = () => { btnOk.disabled = !inp.value.trim(); };
+
+  const close = () => overlay.classList.remove('open');
+
+  btnCxl.onclick = close;
+  btnOk.onclick  = () => {
+    const name = inp.value.trim();
+    if(!name) return;
+    close();
+    onConfirm(name);
+  };
+  inp.onkeydown = e => {
+    if(e.key==='Enter' && inp.value.trim()) btnOk.click();
+    if(e.key==='Escape') close();
+  };
+
+  overlay.classList.add('open');
+  setTimeout(()=>{ inp.focus(); inp.select(); }, 60);
+}
+
+async function _doSaveMap(name){
+  document.getElementById('map-name-input').value = name;
+  state.mapName = name;
+  const mapId=state.mapId||String(Date.now());
+  state.mapId=mapId;
+
+  // Reverse transform: display pixel → world coords
+  const tr = state.transform || _DEFAULT_TRANSFORM;
+  const _r3 = v => Math.round(v*1000)/1000;  // 3 decimal places
+
+  const _TYPE_INT = {normal:0,conveyor:1,charger:2,dropoff:3,home:4,buffer:5,parking:6,wait:7};
+  const robotPoints=Object.values(state.nodes).map(n=>{
+    const wp = _d2w(n.x, n.y, tr);
+    return {
+      name_id:n.id, name:n.name||'',
+      x:_r3(wp.x), y:_r3(wp.y), theta:0,
+      type: _TYPE_INT[n.type] ?? 0, zone:'',
+      action: {
+        locationType:(n.type||'normal').toUpperCase(),
+        defaultAction:n.action||'',
+        agvCompat:n.agvCompat||'slam_qr',
+        ...(n.fwdTurn && n.fwdTurn!=='none' ? {fwd_turn:n.fwdTurn} : {}),
+        ...(n.bwdTurn && n.bwdTurn!=='none' ? {bwd_turn:n.bwdTurn} : {}),
+      },
+      speed: n.speed||0.5,
+      carrier:0, available:false, accuracy:0,
+    };
+  });
+
+  const robotRoads=[], robotBenziers=[];
+  for(const e of state.edges){
+    const ns=state.nodes[e.src], nd=state.nodes[e.dst];
+    const ws=ns?_d2w(ns.x,ns.y,tr):{x:0,y:0};
+    const we=nd?_d2w(nd.x,nd.y,tr):{x:0,y:0};
+    const dist = ns&&nd ? Math.round(Math.sqrt((we.x-ws.x)**2+(we.y-ws.y)**2)*100)/100 : 0;
+    if(e.cp1 && e.cp2){
+      // Bezier edge → robot_benziers (dùng array format để server đọc đúng)
+      const wc1 = _d2w(e.cp1.x, e.cp1.y, tr);
+      const wc2 = _d2w(e.cp2.x, e.cp2.y, tr);
+      robotBenziers.push({
+        name:'', id_source:e.src, id_dest:e.dst,
+        point_start:[_r3(ws.x),_r3(ws.y)], point_end:[_r3(we.x),_r3(we.y)],
+        curve_point_start:[_r3(wc1.x),_r3(wc1.y)], curve_point_end:[_r3(wc2.x),_r3(wc2.y)],
+        speed:e.speed||0.5, width:e.width||0.95,
+        move_direction:_dirToCode(e.direction),
+      });
+    } else {
+      robotRoads.push({
+        name:'', id_source:e.src, id_dest:e.dst,
+        point_start:[_r3(ws.x),_r3(ws.y)], point_end:[_r3(we.x),_r3(we.y)],
+        width:e.width||0.95, speed:e.speed||0.5,
+        move_direction:_dirToCode(e.direction), distance:dist,
+      });
+    }
+  }
+
+  const payload={
+    robot_maps:{
+      id:mapId, name,
+      x:tr.originX, y:tr.originY,
+      theta:0, layer:0,
+      modifytime:new Date().toISOString().slice(0,19).replace('T',' '),
+    },
+    robot_points:robotPoints, robot_roads:robotRoads, robot_benziers:robotBenziers, robot_code:[],
+  };
+
+  try{
+    const r=await fetch(`${API}/api/agv/map/upload-full`,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+    if(!r.ok){ const t=await r.text(); toast('Lỗi lưu: '+t,'error'); return; }
+    const res=await r.json();
+    const savedId=res.map_id||mapId;
+    state.mapId=savedId;
+    mapChanged=false;
+    document.getElementById('sb-map').textContent=`Đã lưu: ${name}`;
+    loadMapList(); // refresh dropdown
+
+    // Đồng bộ sang Line AGV (map_data.json) + VDA5050 topology
+    try{
+      const ex=await fetch(`${API}/api/map/export`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({map_id: savedId})
+      });
+      const exRes=await ex.json();
+      if(ex.ok){
+        toast(`Đã lưu & đồng bộ AGV thành công!`,'success');
+        console.log('[MAP_EXPORT]', exRes);
+      } else {
+        toast('Lưu OK, nhưng đồng bộ AGV thất bại','error');
+      }
+    } catch(ee){
+      toast('Đã lưu DB. Không thể đồng bộ AGV (server offline?)','error');
+      console.warn('[MAP_EXPORT] export failed', ee);
+    }
+  } catch(e){ toast('Lỗi kết nối server','error'); console.error(e); }
+}
+
+// ═══════════════════════════════════════════════════
+// LEGEND
+// ═══════════════════════════════════════════════════
+function buildLegend(){
+  const el=document.getElementById('legend-items');
+  el.innerHTML='';
+  for(const [k,col] of Object.entries(TYPE_COLOR)){
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:7px;margin-bottom:6px';
+    row.innerHTML=`<div style="width:12px;height:12px;border-radius:50%;background:${col};flex-shrink:0;border:1.5px solid rgba(255,255,255,0.3)"></div><span style="font-size:11px;color:#94a3b8">${TYPE_LABEL[k]}</span>`;
+    el.appendChild(row);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════
+applyTransform();
+buildLegend();
+loadMapList();
+renderAll();
+updateProps();
+// Center view
+setTimeout(()=>{ panX=wrap.clientWidth/2; panY=wrap.clientHeight/2; applyTransform(); },50);
+</script>
+</body>
+</html>

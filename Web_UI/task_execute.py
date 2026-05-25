@@ -3,7 +3,7 @@ from dash import html
 def layout(lang: str = "vi"):
     return html.Div(
         html.Iframe(
-            src="/assets/task_manager.html",
+            src="/assets/task_execute.html",
             style={
                 "width": "100%",
                 "height": "calc(100vh - 68px)",

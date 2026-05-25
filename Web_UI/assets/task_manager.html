@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet"/>
+<script>
+tailwind.config = {
+  darkMode:"class",
+  theme:{extend:{
+    colors:{
+      "background":"#0b1326","surface":"#0b1326",
+      "surface-container-lowest":"#060e20","surface-container-low":"#131b2e",
+      "surface-container":"#171f33","surface-container-high":"#222a3d",
+      "surface-container-highest":"#2d3449","surface-bright":"#31394d",
+      "on-surface":"#dae2fd","on-surface-variant":"#c2c6d6",
+      "primary":"#adc6ff","primary-container":"#4d8eff",
+      "on-primary":"#002e6a",
+      "outline":"#8c909f","outline-variant":"#424754",
+    },
+    fontFamily:{
+      "status-code":["JetBrains Mono"],"label-caps":["JetBrains Mono"],
+      "body-md":["Inter"],"headline-md":["Inter"],
+    },
+    fontSize:{
+      "status-code":["13px",{lineHeight:"18px",fontWeight:"500"}],
+      "label-caps":["12px",{lineHeight:"16px",letterSpacing:"0.05em",fontWeight:"600"}],
+      "headline-md":["24px",{lineHeight:"32px",letterSpacing:"-0.01em",fontWeight:"600"}],
+    },
+  }},
+}
+</script>
+<style>
+  .material-symbols-outlined{font-family:'Material Symbols Outlined';font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;font-size:24px;line-height:1;display:inline-block;vertical-align:middle;user-select:none}
+  .glass-panel{background:rgba(15,23,42,.45);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.08)}
+  .dot-grid{background-image:radial-gradient(rgba(173,198,255,.07) 1px,transparent 1px);background-size:24px 24px}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-thumb{background:#2d3449;border-radius:10px}
+  tbody tr{transition:background .15s,transform .18s cubic-bezier(.34,1.56,.64,1)}
+  tbody tr:hover{background:rgba(49,57,77,.35);transform:translateX(3px)}
+  /* edit modal */
+  #edit-modal{opacity:0;pointer-events:none;transition:opacity .25s}
+  #edit-modal.open{opacity:1;pointer-events:all}
+  #edit-box{transform:scale(.95);transition:transform .25s}
+  #edit-modal.open #edit-box{transform:scale(1)}
+</style>
+</head>
+<body class="bg-background text-on-surface font-body-md dot-grid overflow-hidden" style="height:100vh">
+
+<div class="flex flex-col h-screen overflow-hidden">
+
+  <!-- Header + Search (combined row) -->
+  <div class="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0">
+    <h1 class="text-base font-bold text-on-surface whitespace-nowrap">Danh sách Tác vụ</h1>
+    <span id="total-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold flex-shrink-0"
+      style="background:rgba(77,142,255,.12);border:1px solid rgba(77,142,255,.25);color:#7eb3ff">0 tác vụ</span>
+    <div class="flex-1 relative">
+      <span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size:16px">search</span>
+      <input id="search-input" type="text" placeholder="Tìm theo tên tác vụ..."
+        class="w-full pl-8 pr-3 py-1.5 text-sm rounded-xl outline-none"
+        style="background:rgba(45,52,73,.5);border:1px solid rgba(66,71,84,.4);color:#dae2fd"
+        oninput="renderTable()"/>
+    </div>
+    <button onclick="refresh()"
+      class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all hover:brightness-110 flex-shrink-0"
+      style="background:rgba(45,52,73,.6);border:1px solid rgba(66,71,84,.4);color:#c2c6d6">
+      <span class="material-symbols-outlined" id="refresh-icon" style="font-size:15px">refresh</span>
+      Làm mới
+    </button>
+  </div>
+
+  <!-- Table -->
+  <div class="flex-1 overflow-hidden px-5 pb-4">
+    <div class="glass-panel rounded-2xl overflow-hidden h-full flex flex-col">
+      <div class="flex-1 overflow-auto">
+        <table class="w-full text-left border-collapse">
+          <thead class="sticky top-0 z-10">
+            <tr style="background:rgba(34,42,61,.95);border-bottom:1px solid rgba(66,71,84,.3)">
+              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant whitespace-nowrap w-20">Task ID</th>
+              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant">Task Name</th>
+              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant">Thao tác</th>
+              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant whitespace-nowrap">Thời gian tạo</th>
+              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant text-right w-28"></th>
+            </tr>
+          </thead>
+          <tbody id="tmpl-tbody" class="divide-y" style="border-color:rgba(66,71,84,.15)">
+            <tr><td colspan="5" class="px-6 py-16 text-center text-on-surface-variant">
+              <span class="material-symbols-outlined block mx-auto mb-3 opacity-20" style="font-size:48px">hourglass_empty</span>
+              <span class="text-sm opacity-60">Đang tải...</span>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <div class="flex-shrink-0 px-6 py-3 flex items-center justify-between"
+        style="background:rgba(34,42,61,.5);border-top:1px solid rgba(66,71,84,.2)">
+        <p class="text-sm text-on-surface-variant">
+          Hiển thị <span class="font-semibold text-on-surface" id="pg-from">0</span>–<span class="font-semibold text-on-surface" id="pg-to">0</span>
+          trong <span class="font-semibold text-on-surface" id="pg-total">0</span> tác vụ
+        </p>
+        <div id="pagination" class="flex items-center gap-1"></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- Edit Modal -->
+<div id="edit-modal" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.6)">
+  <div id="edit-box" class="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
+    style="background:#131b2e;border:1px solid rgba(66,71,84,.4);box-shadow:0 24px 64px rgba(0,0,0,.6)">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined" style="color:#7eb3ff;font-size:20px">edit</span>
+        <span class="font-bold text-on-surface">Sửa tên tác vụ</span>
+      </div>
+      <button onclick="closeEdit()" style="background:none;border:none;cursor:pointer;color:#8c909f">
+        <span class="material-symbols-outlined" style="font-size:20px">close</span>
+      </button>
+    </div>
+    <div>
+      <label class="block text-[10px] font-bold uppercase tracking-widest mb-2 font-status-code" style="color:#8c909f">Tên tác vụ</label>
+      <input id="edit-name" type="text"
+        class="w-full px-4 py-3 rounded-xl text-sm outline-none"
+        style="background:#1e293b;border:1px solid rgba(66,71,84,.4);color:#dae2fd"/>
+    </div>
+    <div id="edit-msg" class="text-xs text-center min-h-4 font-semibold"></div>
+    <div class="flex gap-2">
+      <button onclick="saveEdit()"
+        class="flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all hover:brightness-110"
+        style="background:#4d8eff;color:#fff">
+        <span class="material-symbols-outlined" style="font-size:16px">save</span>
+        Lưu
+      </button>
+      <button onclick="closeEdit()"
+        class="flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all"
+        style="background:rgba(45,52,73,.5);border:1px solid rgba(66,71,84,.3);color:#c2c6d6">
+        Hủy
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- bg blobs -->
+<div class="fixed top-1/4 right-10 w-64 h-64 blur-[120px] -z-10 rounded-full pointer-events-none" style="background:rgba(77,142,255,.04)"></div>
+<div class="fixed bottom-10 left-10 w-96 h-96 blur-[120px] -z-10 rounded-full pointer-events-none" style="background:rgba(109,0,190,.04)"></div>
+
+<script>
+const API = `${location.protocol}//${location.hostname}:8000`;
+const PAGE_SIZE = 15;
+
+let allTemplates = [], filtered = [], currentPage = 1;
+let editingId = null;
+
+const STEP_INFO = {
+  move:        { label:'Đi đến node',    icon:'directions_car', color:'#7eb3ff',  bg:'rgba(77,142,255,.1)',   border:'rgba(77,142,255,.2)'  },
+  charge:      { label:'Sạc pin',        icon:'bolt',           color:'#fbbf24',  bg:'rgba(245,158,11,.1)',   border:'rgba(245,158,11,.2)'  },
+  'wait-zone': { label:'Chờ tại điểm',  icon:'pause_circle',   color:'#c2c6d6',  bg:'rgba(140,144,159,.1)', border:'rgba(140,144,159,.2)' },
+  wait:        { label:'Chờ',            icon:'hourglass_empty', color:'#a5b4fc', bg:'rgba(129,140,248,.1)',  border:'rgba(129,140,248,.2)' },
+};
+
+function stepText(s, idx){
+  const info = STEP_INFO[s.type] || { label: s.type||'?' };
+  let label = `Bước ${idx+1}: ${info.label}`;
+  if(s.type==='wait' && s.waitSec) label += ` ${s.waitSec}s`;
+  if(s.notes) label += ` (${s.notes})`;
+  return label;
+}
+
+window.onload = () => loadTemplates();
+
+async function loadTemplates(){
+  try{
+    const r = await fetch(`${API}/api/workflow-templates`);
+    if(!r.ok) throw new Error();
+    allTemplates = (await r.json()).sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    renderTable();
+  }catch(e){
+    document.getElementById('tmpl-tbody').innerHTML=`<tr><td colspan="5" class="px-6 py-16 text-center" style="color:#f87171">
+      <span class="material-symbols-outlined block mx-auto mb-3 opacity-40" style="font-size:48px">cloud_off</span>
+      <span class="text-sm">Không kết nối được server</span>
+    </td></tr>`;
+  }
+}
+
+function renderTable(){
+  const q = (document.getElementById('search-input').value||'').toLowerCase();
+  filtered = q ? allTemplates.filter(t=>(t.name||'').toLowerCase().includes(q)) : [...allTemplates];
+
+  const total = filtered.length;
+  const pages = Math.max(1, Math.ceil(total/PAGE_SIZE));
+  if(currentPage>pages) currentPage=pages;
+  const start = (currentPage-1)*PAGE_SIZE;
+  const slice = filtered.slice(start, start+PAGE_SIZE);
+
+  document.getElementById('pg-from').textContent  = total ? start+1 : 0;
+  document.getElementById('pg-to').textContent    = Math.min(start+PAGE_SIZE, total);
+  document.getElementById('pg-total').textContent = total;
+  document.getElementById('total-badge').textContent = `${allTemplates.length} tác vụ`;
+
+  const tbody = document.getElementById('tmpl-tbody');
+  if(!slice.length){
+    tbody.innerHTML=`<tr><td colspan="5" class="px-6 py-16 text-center text-on-surface-variant">
+      <span class="material-symbols-outlined block mx-auto mb-3 opacity-20" style="font-size:48px">inbox</span>
+      <span class="text-sm opacity-60">${q?'Không tìm thấy kết quả':'Chưa có tác vụ nào'}</span>
+    </td></tr>`;
+  } else {
+    tbody.innerHTML = slice.map((t,i)=>tmplRow(t, start+i+1)).join('');
+  }
+  renderPagination(pages);
+}
+
+function tmplRow(t, rowIdx){
+  const steps = Array.isArray(t.steps) ? t.steps : [];
+  const stepsText = steps.length
+    ? steps.map((s,i)=>stepText(s,i)).join(', ')
+    : '—';
+  const stepsHtml = `<span class="text-xs" style="color:#c2c6d6;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:360px" title="${escHtml(stepsText)}">${escHtml(stepsText)}</span>`;
+  const timeStr = formatTime(t.created_at);
+
+  return `<tr style="cursor:default">
+    <td class="px-6 py-4">
+      <span class="font-status-code text-status-code" style="color:#7eb3ff">#${rowIdx}</span>
+    </td>
+    <td class="px-6 py-4">
+      <div class="flex items-center gap-2.5">
+        <div class="size-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(77,142,255,.1);border:1px solid rgba(77,142,255,.18)">
+          <span class="material-symbols-outlined" style="font-size:16px;color:#7eb3ff;font-variation-settings:'FILL' 1">schema</span>
+        </div>
+        <span class="font-semibold text-sm text-on-surface">${escHtml(t.name||'—')}</span>
+      </div>
+    </td>
+    <td class="px-6 py-4">${stepsHtml}</td>
+    <td class="px-6 py-4 text-sm whitespace-nowrap" style="color:#8c909f;font-family:'JetBrains Mono',monospace">${timeStr}</td>
+    <td class="px-6 py-4">
+      <div class="flex items-center justify-end gap-1.5">
+        <button onclick="openEdit('${escHtml(t.template_id)}','${escHtml(t.name)}')"
+          class="p-1.5 rounded-lg transition-all hover:scale-110"
+          style="background:rgba(77,142,255,.08);border:1px solid rgba(77,142,255,.2);color:#7eb3ff" title="Sửa">
+          <span class="material-symbols-outlined" style="font-size:17px">edit</span>
+        </button>
+        <button onclick="deleteTemplate('${escHtml(t.template_id)}')"
+          class="p-1.5 rounded-lg transition-all hover:scale-110"
+          style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171" title="Xóa">
+          <span class="material-symbols-outlined" style="font-size:17px">delete</span>
+        </button>
+      </div>
+    </td>
+  </tr>`;
+}
+
+// ── EDIT ──
+function openEdit(templateId, name){
+  editingId = templateId;
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-msg').textContent = '';
+  document.getElementById('edit-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('edit-name').focus(), 50);
+}
+function closeEdit(){
+  document.getElementById('edit-modal').classList.remove('open');
+  editingId = null;
+}
+async function saveEdit(){
+  const name = document.getElementById('edit-name').value.trim();
+  const msg  = document.getElementById('edit-msg');
+  if(!name){ msg.style.color='#f87171'; msg.textContent='Vui lòng nhập tên'; return; }
+  msg.style.color='#7eb3ff'; msg.textContent='Đang lưu...';
+  try{
+    const r = await fetch(`${API}/api/workflow-templates`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({template_id: editingId, name, steps: (allTemplates.find(t=>t.template_id===editingId)||{}).steps||[]})
+    });
+    const data = await r.json();
+    if(r.ok||data.template_id){
+      msg.style.color='#34d399'; msg.textContent='✓ Đã lưu';
+      const idx = allTemplates.findIndex(t=>t.template_id===editingId);
+      if(idx>=0) allTemplates[idx].name = name;
+      renderTable();
+      setTimeout(closeEdit, 800);
+    } else {
+      msg.style.color='#f87171'; msg.textContent=data.error||'Lỗi lưu';
+    }
+  }catch(e){ msg.style.color='#f87171'; msg.textContent='Lỗi kết nối'; }
+}
+
+// ── DELETE ──
+async function deleteTemplate(templateId){
+  if(!confirm('Xóa tác vụ này? Hành động không thể hoàn tác.')) return;
+  try{
+    const r = await fetch(`${API}/api/workflow-templates/${templateId}`,{method:'DELETE'});
+    if(r.ok){
+      allTemplates = allTemplates.filter(t=>t.template_id!==templateId);
+      renderTable();
+    } else { alert('Xóa thất bại'); }
+  }catch(e){ alert('Lỗi kết nối'); }
+}
+
+// ── REFRESH ──
+async function refresh(){
+  const icon = document.getElementById('refresh-icon');
+  icon.style.animation='spin .5s linear';
+  setTimeout(()=>icon.style.animation='',500);
+  await loadTemplates();
+}
+
+// ── PAGINATION ──
+function renderPagination(pages){
+  const el = document.getElementById('pagination');
+  if(pages<=1){ el.innerHTML=''; return; }
+  let html = btnPage('chevron_left', currentPage-1, currentPage===1);
+  for(const p of getPageRange(currentPage,pages)){
+    if(p==='...') html+=`<span class="px-1 text-xs" style="color:#8c909f">...</span>`;
+    else {
+      const a=p===currentPage;
+      html+=`<button onclick="changePage(${p})" class="w-8 h-8 flex items-center justify-center rounded-lg text-sm font-bold"
+        style="${a?'background:#4d8eff;color:#fff':'background:none;color:#8c909f'};cursor:pointer;border:none">${p}</button>`;
+    }
+  }
+  html += btnPage('chevron_right', currentPage+1, currentPage===pages);
+  el.innerHTML = html;
+}
+function btnPage(icon, p, disabled){
+  return `<button onclick="changePage(${p})" ${disabled?'disabled':''} class="p-1.5 rounded-lg" style="color:#8c909f;background:none;border:none;cursor:pointer">
+    <span class="material-symbols-outlined">${icon}</span></button>`;
+}
+function getPageRange(cur,total){
+  if(total<=7) return Array.from({length:total},(_,i)=>i+1);
+  if(cur<=4) return [1,2,3,4,5,'...',total];
+  if(cur>=total-3) return [1,'...',total-4,total-3,total-2,total-1,total];
+  return [1,'...',cur-1,cur,cur+1,'...',total];
+}
+function changePage(p){ if(p<1||p>Math.ceil(filtered.length/PAGE_SIZE)) return; currentPage=p; renderTable(); }
+
+// ── HELPERS ──
+function formatTime(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  const hm = d.toLocaleTimeString('vi',{hour:'2-digit',minute:'2-digit'});
+  const dm = d.toLocaleDateString('vi',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  return `${hm} · ${dm}`;
+}
+function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+const spinStyle=document.createElement('style');
+spinStyle.textContent='@keyframes spin{to{transform:rotate(360deg)}}';
+document.head.appendChild(spinStyle);
+</script>
+</body>
+</html>

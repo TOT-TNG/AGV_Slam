@@ -1,12 +1,13 @@
-{
+﻿{
   "manufacturer": "tot",
   "mqtt": {
     "enabled": true,
-    "host": "192.168.1.25",
+    "host": "192.168.0.26",
     "port": 1883,
     "keepalive": 30,
     "interface_name": "uagv",
-    "major_version": "v3"
+    "major_version": "v3",
+    "factory": "VietDuc"
   },
   "api": {
     "enabled": true,
@@ -38,7 +39,7 @@
     "background": "assets/generated_map.png"
   },
   "map_upload": {
-    "url": "http://192.168.1.25:8000/api/agv/upload-full",
+    "url": "http://192.168.0.26:8000/api/agv/upload-full",
     "timeout_s": 10.0,
     "wrap_map_info": true,
     "id": 0,

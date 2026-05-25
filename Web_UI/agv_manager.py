@@ -12,7 +12,7 @@ try:
 except ImportError:
     psycopg2 = None
 
-STATUS_THRESHOLD_SECONDS = 3
+STATUS_THRESHOLD_SECONDS = 30
 _SCHEMA_INIT_LOCK_KEY = 4213379001
 _schema_lock = threading.Lock()
 _schema_ready = False
@@ -58,12 +58,15 @@ def _ensure_table():
                     agv_type    TEXT NOT NULL,
                     ip          INET,
                     port        INTEGER,
+                    map_id      TEXT,
                     last_seen   TIMESTAMPTZ,
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
                 """
             )
+            cur.execute("ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS map_id TEXT;")
+            cur.execute("ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS factory TEXT;")
             cur.execute(
                 """
                 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -118,6 +121,22 @@ def _status_from_last_seen(last_seen):
     return "Online" if delta <= STATUS_THRESHOLD_SECONDS else "Offline"
 
 
+def load_maps():
+    """Fetch map list from agv_maps table for dropdown."""
+    conn = _db_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name FROM agv_maps ORDER BY modify_time DESC NULLS LAST")
+            rows = cur.fetchall()
+        return [{"id": str(r[0]), "name": r[1] or f"Map {r[0]}"} for r in rows]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
 def load_agvs():
     """Fetch AGV list from DB; fallback to empty list if DB unavailable."""
     _ensure_table()
@@ -126,25 +145,29 @@ def load_agvs():
         return []
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT name, agv_type, ip, port, last_seen FROM agv_devices ORDER BY name"
+            "SELECT name, agv_type, CAST(ip AS TEXT), port, map_id, factory, last_seen "
+            "FROM agv_devices ORDER BY name"
         )
         rows = cur.fetchall()
     conn.close()
     result = []
-    for name, agv_type, ip, port, last_seen in rows:
+    for name, agv_type, ip, port, map_id, factory, last_seen in rows:
         result.append(
             {
-                "name": name,
-                "ip": str(ip) if ip else "",
-                "port": str(port) if port else "",
-                "status": _status_from_last_seen(last_seen),
-                "icon": _icon_for_type(agv_type),
+                "name":     name,
+                "ip":       ip or "",
+                "port":     str(port) if port else "",
+                "map_id":   map_id or "",
+                "factory":  factory or "",
+                "status":   _status_from_last_seen(last_seen),
+                "icon":     _icon_for_type(agv_type),
+                "agv_type": agv_type or "",
             }
         )
     return result
 
 
-def upsert_agv(name, agv_type, ip, port):
+def upsert_agv(name, agv_type, ip, port, map_id=None, factory=None):
     """Insert/update AGV without touching last_seen (stays NULL until real heartbeat)."""
     _ensure_table()
     conn = _db_conn()
@@ -154,14 +177,16 @@ def upsert_agv(name, agv_type, ip, port):
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO agv_devices (name, agv_type, ip, port, last_seen)
-            VALUES (%s, %s, %s, %s, NULL)
+            INSERT INTO agv_devices (name, agv_type, ip, port, map_id, factory, last_seen)
+            VALUES (%s, %s, %s, %s, %s, %s, NULL)
             ON CONFLICT (name) DO UPDATE
               SET agv_type = EXCLUDED.agv_type,
-                  ip = EXCLUDED.ip,
-                  port = EXCLUDED.port
+                  ip       = EXCLUDED.ip,
+                  port     = EXCLUDED.port,
+                  map_id   = EXCLUDED.map_id,
+                  factory  = EXCLUDED.factory
             """,
-            (name, agv_type or "trailer", ip, port),
+            (name, agv_type or "trailer", ip, port, map_id or None, factory or None),
         )
     conn.close()
 
@@ -181,23 +206,32 @@ def delete_agv(name):
 # ✅ FIX: truyền lang vào agv_card thay vì dùng biến lang global
 def agv_card(row, lang: str = "vi"):
     badge_color = "success" if row["status"].lower() == "online" else "secondary"
+    map_text = row.get("map_id") or "—"
+    agv_type_label = row.get("agv_type", "")
     return dbc.Card(
         [
             dbc.CardImg(
                 src=row.get("icon", "/assets/agv_icon.png"),
                 top=True,
                 style={
-                    "height": "120px",
+                    "height": "110px",
                     "objectFit": "contain",
-                    "padding": "12px",
+                    "padding": "10px",
                     "filter": "drop-shadow(0 12px 22px rgba(0,0,0,0.45)) brightness(1.05)",
                 },
             ),
             dbc.CardBody(
                 [
-                    html.H5(row["name"], className="card-title text-white"),
-                    html.P(f"IP: {row['ip']}", className="card-text mb-1 text-white-50"),
-                    html.P(f"Port: {row['port']}", className="card-text mb-2 text-white-50"),
+                    html.H5(row["name"], className="card-title text-white mb-1"),
+                    html.P(f"Type: {agv_type_label}", className="card-text mb-1 text-white-50", style={"fontSize": "12px"}),
+                    html.P(f"IP: {row['ip']}", className="card-text mb-1 text-white-50", style={"fontSize": "12px"}),
+                    html.P(f"Port: {row['port']}", className="card-text mb-1 text-white-50", style={"fontSize": "12px"}),
+                    html.P(f"Factory: {row.get('factory') or '—'}", className="card-text mb-1 text-white-50", style={"fontSize": "12px"}),
+                    html.P(
+                        [html.Span("Map: ", style={"opacity": ".6"}), html.Span(map_text, style={"color": "#adc6ff", "fontWeight": "600"})],
+                        className="card-text mb-2",
+                        style={"fontSize": "12px"},
+                    ),
                     dbc.Badge(row["status"], color=badge_color, className="px-2 py-1"),
                 ],
                 style={"textAlign": "center"},
@@ -297,19 +331,34 @@ def layout(lang: str = "vi"):
                 children=[
                     html.H4(t(lang, "agv.modal.add_title", "Add AGV"), className="mb-3"),
                     dbc.Input(id="add-agv-name", placeholder=t(lang, "agv.modal.name", "AGV Name"), className="mb-3"),
+                    dbc.Input(id="add-agv-factory", placeholder='Factory (VD: VietDuc)', className="mb-2"),
+                    html.Small("Tên factory trong MQTT topic: uagv/v2/{factory}/{agv_id}/...",
+                               style={"color": "#8c909f", "fontSize": "11px", "display": "block", "marginBottom": "12px"}),
                     dbc.Input(id="add-agv-ip", placeholder=t(lang, "agv.modal.ip", "IP Address"), className="mb-3"),
                     dbc.Input(id="add-agv-port", placeholder="Port", type="number", className="mb-3"),
-                    dbc.Label("AGV Type", className="mt-2"),
+                    dbc.Label("AGV Type", className="mt-1 mb-1", style={"fontSize": "13px", "color": "#c2c6d6"}),
                     dcc.Dropdown(
                         id="add-agv-type",
                         options=[
-                            {"label": "AGV Slam/QR Code", "value": "slam_qr"},
-                            {"label": "AGV Carry", "value": "carry"},
-                            {"label": "AGV Tow", "value": "tow"},
-                            {"label": "AGV Trailer", "value": "trailer"},
+                            {"label": "AGV Slam/QR Code (VDA5050)", "value": "slam_qr"},
+                            {"label": "AGV Carry (Line)", "value": "carry"},
+                            {"label": "AGV Tow (Line)", "value": "tow"},
+                            {"label": "AGV Trailer (Line)", "value": "trailer"},
                         ],
-                        placeholder="Chon loai AGV",
+                        placeholder="Chọn loại AGV",
                         className="mb-3",
+                    ),
+                    dbc.Label("Bản đồ", className="mt-1 mb-1", style={"fontSize": "13px", "color": "#c2c6d6"}),
+                    dcc.Dropdown(
+                        id="add-agv-map",
+                        options=[{"label": m["name"], "value": m["id"]} for m in load_maps()],
+                        placeholder="Chọn bản đồ cho AGV",
+                        className="mb-3",
+                        clearable=True,
+                    ),
+                    html.Div(
+                        "💡 Line AGV cần chọn bản đồ để hiển thị vị trí theo RFID tag.",
+                        style={"fontSize": "11px", "color": "#8c909f", "marginBottom": "16px", "fontStyle": "italic"},
                     ),
                     dbc.Button(t(lang, "agv.modal.save", "Save"), id="btn-save-agv", color="primary", className="me-2"),
                     dbc.Button("Close", id="btn-close-agv", color="secondary", outline=True),
@@ -341,30 +390,51 @@ def toggle_panel(open_click, close_click, current_style):
 
 
 @callback(
+    Output("add-agv-map", "options"),
+    Input("btn-add-agv", "n_clicks"),
+    prevent_initial_call=True,
+)
+def populate_map_dropdown(_):
+    maps = load_maps()
+    return [{"label": m["name"], "value": m["id"]} for m in maps]
+
+
+@callback(
     Output("agv-store", "data"),
     Output("add-agv-panel", "style", allow_duplicate=True),
     Output("add-agv-name", "value"),
+    Output("add-agv-factory", "value"),
     Output("add-agv-ip", "value"),
     Output("add-agv-port", "value"),
     Output("add-agv-type", "value"),
+    Output("add-agv-map", "value"),
     Input("btn-save-agv", "n_clicks"),
     State("add-agv-name", "value"),
+    State("add-agv-factory", "value"),
     State("add-agv-ip", "value"),
     State("add-agv-port", "value"),
     State("add-agv-type", "value"),
+    State("add-agv-map", "value"),
     State("agv-store", "data"),
     State("add-agv-panel", "style"),
     prevent_initial_call=True,
 )
-def save_agv(n_clicks, name, ip, port, agv_type, data, style):
+def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, data, style):
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
-    upsert_agv(name or "AGV", agv_type or "trailer", ip, port)
+    upsert_agv(name or "AGV", agv_type or "trailer", ip, port,
+               map_id=map_id, factory=factory)
+    # Reload registry trên server để AGV mới ngay lập tức được nhận diện
+    try:
+        import requests as _req
+        _req.post("http://localhost:8000/api/registry/reload", timeout=2)
+    except Exception:
+        pass
     data = load_agvs()
     if style is None:
         style = {}
     style["right"] = "-420px"
-    return data, style, "", "", "", None
+    return data, style, "", "", "", "", None, None
 
 
 # ✅ FIX: lấy lang từ Store global "lang-store" (được tạo ở main.py)

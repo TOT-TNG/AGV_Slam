@@ -7,7 +7,7 @@ def map_configure_layout():
                 src="/assets/MapConfigure.html",
                 style={
                     "width": "100%",
-                    "height": "calc(100vh - 120px)",
+                    "height": "calc(100vh - 68px)",
                     "border": "none",
                     "borderRadius": "12px",
                     "backgroundColor": "transparent"
@@ -17,6 +17,6 @@ def map_configure_layout():
         style={
             "width": "100%",
             "height": "100%",
-            "padding": "12px"
+            "padding": "4px 8px 4px 8px"
         }
     )

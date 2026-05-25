@@ -8,8 +8,10 @@ import math
 import re
 import asyncio
 import builtins
+import threading
 from typing import Optional
 from urllib.parse import unquote
+from pathlib import Path
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -22,8 +24,55 @@ from map_manager import MapManager
 # ==========================
 # MQTT Configuration
 # ==========================
-BROKER = os.getenv("MQTT_BROKER", "192.168.1.25").strip()
-PORT = int(os.getenv("MQTT_PORT", "1883"))
+
+# ── Cloud broker (iot.tot360.com.vn) ─────────────────────────────────────────
+_CLOUD_BROKER = "iot.tot360.com.vn"
+_CLOUD_PORT   = 8883
+_CLOUD_USER   = os.getenv("MQTT_CLOUD_USER", "iot_user")
+_CLOUD_PASS   = os.getenv("MQTT_CLOUD_PASS", "d7xvk5pKkqsKKMd")
+
+# ── Mode config file (mqtt_mode.json cạnh mqtt_client.py) ────────────────────
+_MQTT_MODE_FILE = Path(__file__).parent / "mqtt_mode.json"
+
+def _load_mqtt_mode() -> str:
+    try:
+        if _MQTT_MODE_FILE.exists():
+            with open(_MQTT_MODE_FILE) as f:
+                return json.load(f).get("mode", "local")
+    except Exception:
+        pass
+    return os.getenv("MQTT_MODE", "local").lower()
+
+def _save_mqtt_mode(mode: str) -> None:
+    try:
+        with open(_MQTT_MODE_FILE, "w") as f:
+            json.dump({"mode": mode}, f)
+    except Exception as e:
+        print(f"[MQTT] Cannot save mode: {e}")
+
+def _resolve_broker_port(mode: str) -> tuple[str, int]:
+    if mode == "cloud":
+        return _CLOUD_BROKER, _CLOUD_PORT
+    return os.getenv("MQTT_BROKER", "192.168.1.15").strip(), int(os.getenv("MQTT_PORT", "1883"))
+
+def _configure_client_for_mode(c, mode: str) -> None:
+    """Cài TLS + auth cho client theo mode trước khi connect."""
+    import ssl as _ssl
+    if mode == "cloud":
+        c.username_pw_set(_CLOUD_USER, _CLOUD_PASS)
+        c.tls_set(cert_reqs=_ssl.CERT_NONE)
+        c.tls_insecure_set(True)
+        print(f"[MQTT] Mode=cloud → TLS+auth configured for {_CLOUD_BROKER}:{_CLOUD_PORT}")
+    else:
+        local_user = os.getenv("MQTT_USER", "").strip()
+        if local_user:
+            c.username_pw_set(local_user, os.getenv("MQTT_PASS", ""))
+        print(f"[MQTT] Mode=local")
+
+# ── Khởi tạo mode + broker/port ──────────────────────────────────────────────
+MQTT_MODE = _load_mqtt_mode()
+BROKER, PORT = _resolve_broker_port(MQTT_MODE)
+
 QOS = int(os.getenv("MQTT_QOS", "0"))
 UAGV_INTERFACE_NAME = os.getenv("UAGV_INTERFACE_NAME", "uagv").strip() or "uagv"
 UAGV_MAJOR_VERSION = os.getenv("UAGV_MAJOR_VERSION", "v3").strip() or "v3"
@@ -57,6 +106,299 @@ _idle_block_proactive_done: set = set()
 INSTANT_ACTION_COOLDOWN_SEC = float(os.getenv("INSTANT_ACTION_COOLDOWN_SEC", "10.0"))
 PEER_STOP_REROUTE_TIMEOUT_SEC = float(os.getenv("PEER_STOP_REROUTE_TIMEOUT_SEC", "3.0"))
 REROUTE_APPLY_HOLD_SEC = float(os.getenv("REROUTE_APPLY_HOLD_SEC", "3.0"))
+
+# ════════════════════════════════════════════════════════════════════════════
+# ConflictWaitManager
+# ════════════════════════════════════════════════════════════════════════════
+# Lịch trình backoff giữa các lần retry reroute (giây)
+_WAIT_RETRY_BACKOFF = [2.0, 4.0, 8.0, 15.0, 30.0]
+_WAIT_PRIORITY_BOOST_AFTER_S = float(os.getenv("WAIT_PRIORITY_BOOST_S", "20.0"))
+_WAIT_FORCE_RESUME_AFTER_S   = float(os.getenv("WAIT_FORCE_RESUME_S",   "90.0"))
+_WAIT_MAX_RETRIES            = int(os.getenv("WAIT_MAX_RETRIES", "8"))
+
+
+class _WaitEntry:
+    __slots__ = (
+        "agv_id", "winner_agv_id", "contested_resource",
+        "reroute_reason", "since", "last_retry",
+        "retry_count", "priority_boosted",
+    )
+    def __init__(self, agv_id, winner_agv_id, contested_resource, reason):
+        self.agv_id             = agv_id
+        self.winner_agv_id      = winner_agv_id
+        self.contested_resource = contested_resource   # node_id hoặc physical_edge_id
+        self.reroute_reason     = reason
+        self.since              = time.time()
+        self.last_retry         = 0.0
+        self.retry_count        = 0
+        self.priority_boosted   = False
+
+
+class ConflictWaitManager:
+    """
+    Quản lý thông minh các AGV bị WAIT do không còn đường reroute.
+
+    Flow:
+      1. register(agv_id, winner, resource, reason)  ← gọi khi reroute fail + WAIT gán
+      2. tick(...)  ← gọi mỗi lần nhận state update (trước vòng lặp per-AGV)
+         - Kiểm tra winner đã clear resource chưa
+         - Nếu cleared → retry plan_route với backoff
+         - Thành công → gửi order mới + RESUME + release
+         - Vẫn fail → tăng backoff, thử lại sau
+         - Sau N retry → bỏ qua blocked edges (bare route)
+         - Sau hard timeout → force RESUME
+      3. release(agv_id)  ← gọi khi reroute thành công ở nơi khác
+    """
+
+    def __init__(self):
+        self._waiting: dict[str, _WaitEntry] = {}
+        self._lock = threading.Lock()
+
+    # ── Public API ─────────────────────────────────────────────────────────
+    def register(
+        self,
+        agv_id: str,
+        winner_agv_id: Optional[str],
+        contested_resource: str,
+        reason: str,
+    ) -> None:
+        with self._lock:
+            existing = self._waiting.get(agv_id)
+            # Không ghi đè nếu cùng winner (tránh reset retry counter)
+            if existing and existing.winner_agv_id == winner_agv_id:
+                return
+            self._waiting[agv_id] = _WaitEntry(agv_id, winner_agv_id, contested_resource, reason)
+        print(f"[WAIT_MGR] ↳ {agv_id} WAIT | winner={winner_agv_id} | resource={contested_resource}")
+
+    def release(self, agv_id: str, reason: str = "") -> bool:
+        with self._lock:
+            entry = self._waiting.pop(agv_id, None)
+        if entry:
+            elapsed = time.time() - entry.since
+            print(f"[WAIT_MGR] ✓ {agv_id} released | waited={elapsed:.1f}s "
+                  f"retries={entry.retry_count} | {reason}")
+            return True
+        return False
+
+    def is_waiting(self, agv_id: str) -> bool:
+        return agv_id in self._waiting
+
+    def all_waiting(self) -> list:
+        return list(self._waiting.keys())
+
+    # ── tick — gọi sau evaluate_map_controls, trước vòng per-AGV ──────────
+    def tick(
+        self,
+        map_control_results: dict,
+        traffic_map_id: str,
+        traffic_engine_ref,
+        agv_manager_ref,
+    ) -> None:
+        """Kiểm tra & retry reroute cho tất cả AGV đang chờ."""
+        if not self._waiting:
+            return
+
+        now = time.time()
+        with self._lock:
+            to_process = list(self._waiting.items())
+
+        for agv_id, entry in to_process:
+            agv_state = agv_manager_ref.get_agv(agv_id) or {}
+            winner_id = entry.winner_agv_id
+
+            # ── 1. Hard timeout → force resume ──────────────────────────────
+            elapsed = now - entry.since
+            if elapsed >= _WAIT_FORCE_RESUME_AFTER_S:
+                print(f"[WAIT_MGR] ⚠ {agv_id} FORCE RESUME (hard timeout {elapsed:.0f}s)")
+                _send_traffic_control_action(agv_id, "RESUME")
+                self.release(agv_id, "force_resume_hard_timeout")
+                continue
+
+            # ── 2. Priority boost sau ngưỡng ────────────────────────────────
+            if not entry.priority_boosted and elapsed >= _WAIT_PRIORITY_BOOST_AFTER_S:
+                self._boost_priority(agv_id, entry, traffic_engine_ref)
+
+            # ── 3. Kiểm tra winner đã clear resource chưa ──────────────────
+            winner_cleared = self._check_winner_cleared(
+                winner_id, entry.contested_resource, map_control_results, agv_manager_ref
+            )
+            if not winner_cleared:
+                continue
+
+            # ── 4. Backoff: đủ thời gian retry chưa? ───────────────────────
+            idx = min(entry.retry_count, len(_WAIT_RETRY_BACKOFF) - 1)
+            if now - entry.last_retry < _WAIT_RETRY_BACKOFF[idx]:
+                continue
+
+            entry.last_retry = now
+            entry.retry_count += 1
+
+            # ── 5. Thử reroute ──────────────────────────────────────────────
+            self._attempt_reroute(
+                entry, agv_state, traffic_map_id, traffic_engine_ref, agv_manager_ref
+            )
+
+    # ── Internal helpers ───────────────────────────────────────────────────
+    def _check_winner_cleared(
+        self,
+        winner_id: Optional[str],
+        contested: str,
+        map_control_results: dict,
+        agv_manager_ref,
+    ) -> bool:
+        """
+        True nếu winner đã rời khỏi vùng tranh chấp.
+        Kiểm tra cả từ traffic engine state lẫn agv_manager state.
+        """
+        if not winner_id:
+            return True
+
+        # Ưu tiên dùng traffic engine state (chính xác nhất)
+        winner_result = map_control_results.get(winner_id)
+        if winner_result is not None:
+            ws = winner_result.state
+            cn = str(contested).strip()
+            if ws.current_node and str(ws.current_node).strip() == cn:
+                return False
+            if ws.current_edge:
+                to_n = _to_node_of_edge(ws.current_edge)
+                if to_n and str(to_n).strip() == cn:
+                    return False
+            return True
+
+        # Fallback: agv_manager raw state
+        winner_raw = agv_manager_ref.get_agv(winner_id)
+        if not winner_raw:
+            return True   # winner offline → cleared
+        last_node = str(winner_raw.get("lastNodeId") or "").strip()
+        cur_edge  = str(winner_raw.get("currentEdge") or "").strip()
+        if last_node == str(contested).strip():
+            return False
+        if contested in cur_edge:
+            return False
+        return True
+
+    def _boost_priority(self, agv_id: str, entry: _WaitEntry, traffic_engine_ref) -> None:
+        """Tăng priority tạm thời cho AGV đã chờ quá lâu."""
+        try:
+            from traffic_core import PriorityContext
+            # Score = thời gian chờ (giây) / 10 → tăng dần theo thời gian
+            boost = int((time.time() - entry.since) / 10) + 5
+            ctx = PriorityContext(priority_score=boost)
+            traffic_engine_ref._priority_contexts[agv_id] = ctx
+            entry.priority_boosted = True
+            print(f"[WAIT_MGR] ↑ {agv_id} priority boosted (+{boost}) after "
+                  f"{time.time()-entry.since:.0f}s waiting")
+        except Exception as e:
+            print(f"[WAIT_MGR] priority boost failed: {e}")
+
+    def _attempt_reroute(
+        self,
+        entry: _WaitEntry,
+        agv_state: dict,
+        traffic_map_id: str,
+        traffic_engine_ref,
+        agv_manager_ref,
+    ) -> None:
+        agv_id = entry.agv_id
+        try:
+            from main import (
+                build_order_for_traffic_route,
+                _remember_pending_reroute_apply,
+                traffic_engine as _te,
+            )
+
+            start_node = str(
+                agv_state.get("lastNodeId") or agv_state.get("currentNode") or ""
+            ).strip()
+            if not start_node:
+                return
+
+            route = traffic_engine_ref._routes.get(agv_id)
+            if not route or not route.segments:
+                # Không có route → không biết đích → force resume
+                print(f"[WAIT_MGR] {agv_id} no active route → force resume")
+                _send_traffic_control_action(agv_id, "RESUME")
+                self.release(agv_id, "no_active_route_force_resume")
+                return
+
+            goal_node = str(route.segments[-1].to_node)
+            if start_node == goal_node:
+                # Đã đến đích → release
+                self.release(agv_id, "already_at_goal")
+                return
+
+            # Blocked edges: retry < 4 → chỉ tránh resource conflict
+            #                retry ≥ 4 → thêm toàn bộ winner's route
+            #                retry ≥ max → bare (không blocked)
+            blocked: list[str] = []
+            if entry.retry_count < _WAIT_MAX_RETRIES:
+                blocked = traffic_engine_ref.get_reserved_edges(
+                    traffic_map_id, exclude_agv=agv_id
+                )
+                if entry.retry_count >= 4 and entry.winner_agv_id:
+                    winner_route = traffic_engine_ref._routes.get(entry.winner_agv_id)
+                    if winner_route:
+                        blocked += [s.edge_id for s in winner_route.segments]
+
+            plan = traffic_engine_ref.plan_route(
+                map_id=traffic_map_id,
+                agv_id=agv_id,
+                start_node=start_node,
+                goal_node=goal_node,
+                blocked_edges=blocked,
+                reason=f"WAIT_MGR_RETRY_{entry.retry_count}",
+            )
+
+            if not plan.success or not plan.route:
+                # Lần thử cuối: bare route (không blocked edges nào)
+                if entry.retry_count >= _WAIT_MAX_RETRIES:
+                    plan = traffic_engine_ref.plan_route(
+                        map_id=traffic_map_id,
+                        agv_id=agv_id,
+                        start_node=start_node,
+                        goal_node=goal_node,
+                        blocked_edges=[],
+                        reason="WAIT_MGR_BARE",
+                    )
+                if not plan.success or not plan.route:
+                    # Vẫn không có đường → nếu đã retry quá nhiều → force resume
+                    if entry.retry_count >= _WAIT_MAX_RETRIES:
+                        print(f"[WAIT_MGR] ⚠ {agv_id} max retries → force RESUME")
+                        _send_traffic_control_action(agv_id, "RESUME")
+                        self.release(agv_id, "max_retries_force_resume")
+                    else:
+                        print(f"[WAIT_MGR] {agv_id} retry #{entry.retry_count} still no route "
+                              f"| msg={getattr(plan, 'message', '?')}")
+                    return
+
+            # ── Reroute thành công ─────────────────────────────────────────
+            next_oid = str(agv_state.get("orderId") or uuid.uuid4())
+            next_uid = int(agv_state.get("orderUpdateId") or 0) + 1
+            reroute_order, reroute_path = build_order_for_traffic_route(
+                agv_id, plan.route, agv_state,
+                order_id=next_oid, order_update_id=next_uid,
+            )
+            _remember_pending_reroute_apply(
+                agv_id, next_oid, next_uid,
+                [s.edge_id for s in plan.route.segments],
+            )
+            send_order(agv_id, reroute_order)
+            traffic_engine_ref.activate_route(agv_id, traffic_map_id, plan.route)
+
+            # RESUME sau khi gửi order
+            action_state = agv_state.get("actionState") or {}
+            if agv_state.get("paused") and not action_state.get("simPauseHold"):
+                _send_traffic_control_action(agv_id, "RESUME")
+
+            self.release(agv_id, f"rerouted_ok_retry_{entry.retry_count} → {reroute_path}")
+            print(f"[WAIT_MGR] ✓ {agv_id} rerouted retry #{entry.retry_count} → {reroute_path}")
+
+        except Exception as e:
+            print(f"[WAIT_MGR] {agv_id} attempt_reroute error: {e}")
+
+
+_conflict_wait_mgr = ConflictWaitManager()
 
 
 # ==========================
@@ -758,28 +1100,52 @@ def build_wait_name_candidates() -> list[str]:
 
 def get_agv_runtime_info(agv_id: str) -> dict:
     """
-    Lấy thông tin runtime cần thiết để điều hướng AGV:
-    - current_node
-    - raw_map
-    - resolved_map_id
+    Lấy thông tin runtime cần thiết để điều hướng AGV.
+    Hỗ trợ cả Line AGV (đọc từ line_agv_handler) và VDA5050 (đọc từ agv_manager).
     """
-    agv_state = agv_manager.get_agv(agv_id) or {}
+    from agv_registry import agv_registry
 
+    if agv_registry.is_line(agv_id):
+        # Line AGV: đọc từ line_agv_handler.state_store
+        from line_agv_handler import line_agv_handler
+        line_state = line_agv_handler.state_store.get(agv_id)
+        current_node = (str(line_state.current_tag)
+                        if (line_state is not None and line_state.current_tag is not None)
+                        else None)
+        # Ưu tiên map_id từ DB (agv_devices.map_id), fallback map_manager.current_map_id
+        raw_map = (
+            agv_registry.get_map_id(agv_id)
+            or str(getattr(map_manager, "current_map_id", "") or "").strip()
+        )
+        resolved_map_id = raw_map or None
+        agv_state = {
+            "lastNodeId":       current_node,
+            "map_id":           raw_map,
+            "battery_low":      line_state.battery_low if line_state else False,
+            "battery_blocking": line_state.battery_blocking if line_state else False,
+        }
+        return {
+            "agv_state":       agv_state,
+            "current_node":    current_node,
+            "raw_map":         raw_map,
+            "resolved_map_id": resolved_map_id,
+        }
+
+    # VDA5050: giữ nguyên logic cũ
+    agv_state    = agv_manager.get_agv(agv_id) or {}
     current_node = str(agv_state.get("lastNodeId") or "").strip() or None
-
-    raw_map = (
+    raw_map      = (
         agv_state.get("map_id")
         or agv_state.get("mapCurrent")
         or ""
     )
-    raw_map = str(raw_map).strip()
-
+    raw_map         = str(raw_map).strip()
     resolved_map_id = resolve_map_id_sync(raw_map) if raw_map else None
 
     return {
-        "agv_state": agv_state,
-        "current_node": current_node,
-        "raw_map": raw_map,
+        "agv_state":       agv_state,
+        "current_node":    current_node,
+        "raw_map":         raw_map,
         "resolved_map_id": resolved_map_id,
     }
 
@@ -812,7 +1178,9 @@ def resolve_special_target_node(agv_id: str, target_type: str) -> dict:
     else:
         raise ValueError(f"Loại target không hợp lệ: {target_type}")
 
-    node_info = find_named_node_with_action_via_pool(resolved_map_id, candidates)
+    from agv_registry import agv_registry as _reg
+    _is_line = _reg.is_line(agv_id)
+    node_info = find_named_node_with_action_via_pool(resolved_map_id, candidates, line_agv=_is_line)
     if not node_info or not node_info.get("node_id"):
         raise ValueError(
             f"Không tìm thấy node {target_type} trong map {resolved_map_id} | candidates={candidates}"
@@ -856,16 +1224,38 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
 
     route_nodes, route_edges = plan_path_for_order(agv_id, current_node, target_node)
 
-    # Hiện tại chỉ di chuyển tới node đặc biệt, chưa gắn action cuối
+    from agv_registry import agv_registry
+    if agv_registry.is_line(agv_id):
+        # Line AGV: build Line plan
+        from line_agv_plan_builder import build_line_plan
+        from line_agv_handler import line_agv_handler
+        path         = [str(n.get("nodeId") or n) for n in route_nodes]
+        points       = getattr(map_manager, "points", {}) or {}
+        node_actions = getattr(map_manager, "node_actions", {}) or {}
+        line_task    = "return_charge" if target_type == "charge" else "system"
+        order        = build_line_plan(path, points, task_type=line_task,
+                                       node_actions=node_actions, direction="fwd")
+        line_agv_handler.set_route(agv_id, path, line_task)
+        send_generated_order(agv_id, order)
+        return {
+            "success": True,
+            "agv_id": agv_id,
+            "target_type": target_type,
+            "target_node": target_node,
+            "target_name": target_info.get("name"),
+            "map_id": resolved_map_id,
+            "planId": order.get("id"),
+            "path": path,
+        }
+
+    # VDA5050: giữ nguyên logic cũ
     order = build_order_with_path(
         agv_id,
         route_nodes,
         route_edges,
         end_action_type=None
     )
-
     send_generated_order(agv_id, order)
-
     return {
         "success": True,
         "agv_id": agv_id,
@@ -877,20 +1267,38 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
         "path": [str(n.get("nodeId")) for n in route_nodes],
     }
 
-async def find_named_node_with_action_async(pool, map_id: str, candidates: list[str]) -> dict | None:
+async def find_named_node_with_action_async(
+    pool,
+    map_id: str,
+    candidates: list[str],
+    line_agv: bool = False,
+) -> dict | None:
     """
-    Tìm node theo map_id và danh sách tên có thể trong agv_map_points
-    bằng asyncpg pool đúng của hệ map.
+    Tìm node theo map_id và danh sách tên có thể trong agv_map_points.
+    line_agv=True: chỉ trả về node có agvCompat RFID/both (hoặc chưa cấu hình — backward compat).
     """
     map_id = str(map_id or "").strip()
     if not map_id or not candidates:
         return None
 
+    # Clause lọc agvCompat cho Line AGV
+    # Node chưa set agvCompat (NULL/rỗng) → backward compat: vẫn cho Line AGV dùng
+    compat_clause = (
+        """
+        AND (
+            action IS NULL
+            OR COALESCE(action->>'agvCompat', '') = ''
+            OR action->>'agvCompat' IN ('RFID', 'both')
+        )
+        """
+        if line_agv else ""
+    )
+
     try:
         async with pool.acquire() as conn:
             for name in candidates:
                 row = await conn.fetchrow(
-                    """
+                    f"""
                     SELECT name_id, name, action
                     FROM agv_map_points
                     WHERE CAST(map_id AS TEXT) = $1
@@ -898,6 +1306,7 @@ async def find_named_node_with_action_async(pool, map_id: str, candidates: list[
                             LOWER(TRIM(COALESCE(name, ''))) = LOWER(TRIM($2))
                          OR LOWER(TRIM(COALESCE(name_id, ''))) = LOWER(TRIM($2))
                       )
+                      {compat_clause}
                     LIMIT 1
                     """,
                     map_id,
@@ -914,9 +1323,14 @@ async def find_named_node_with_action_async(pool, map_id: str, candidates: list[
         print(f"[DB] find_named_node_with_action_async thất bại | map_id={map_id} | candidates={candidates} | lỗi={e}")
         return None
 
-def find_named_node_with_action_via_pool(map_id: str, candidates: list[str]) -> dict | None:
+def find_named_node_with_action_via_pool(
+    map_id: str,
+    candidates: list[str],
+    line_agv: bool = False,
+) -> dict | None:
     """
     Wrapper sync để gọi hàm async tra node map bằng app.state.db_pool.
+    line_agv=True: chỉ trả node agvCompat RFID/both (hoặc chưa cấu hình).
     """
     try:
         app = get_app()
@@ -928,7 +1342,7 @@ def find_named_node_with_action_via_pool(map_id: str, candidates: list[str]) -> 
             return None
 
         fut = asyncio.run_coroutine_threadsafe(
-            find_named_node_with_action_async(pool, map_id, candidates),
+            find_named_node_with_action_async(pool, map_id, candidates, line_agv=line_agv),
             loop
         )
         return fut.result(timeout=5)
@@ -1032,14 +1446,27 @@ async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: s
     if pool is None:
         raise ValueError("Database pool chưa khởi tạo")
 
-    agv_state = agv_manager.get_agv(agv_id) or {}
+    from agv_registry import agv_registry as _areg_plan
 
-    # Lấy map hiện tại AGV
-    raw_map = (
-        agv_state.get("map_id")
-        or agv_state.get("mapCurrent")
-        or ""
-    )
+    if _areg_plan.is_line(agv_id):
+        # Line AGV: lấy map_id từ registry (agv_devices.map_id), state từ line_agv_handler
+        from line_agv_handler import line_agv_handler as _lah
+        _line_st = _lah.state_store.get(agv_id)
+        raw_map  = _areg_plan.get_map_id(agv_id) or \
+                   str(getattr(map_manager, "current_map_id", "") or "").strip()
+        _cur_tag = str(_line_st.current_tag) if (_line_st and _line_st.current_tag) else start_node_id
+        agv_state = {
+            "map_id":    raw_map,
+            "lastNodeId": _cur_tag,
+        }
+    else:
+        agv_state = agv_manager.get_agv(agv_id) or {}
+        # Lấy map hiện tại AGV
+        raw_map = (
+            agv_state.get("map_id")
+            or agv_state.get("mapCurrent")
+            or ""
+        )
     raw_map = str(raw_map).strip()
 
     if not raw_map:
@@ -1088,19 +1515,29 @@ async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: s
 
     print(f"[PLAN] end_node: {end_node}")
 
+    # Xác định loại AGV để chọn graph/points phù hợp
+    from agv_registry import agv_registry as _reg
+    _is_line = _reg.is_line(agv_id)
+
     # Tính đường đi ngắn nhất
-    node_path = map_manager.shortest_path(start_node, end_node)
+    if _is_line:
+        node_path = map_manager.line_shortest_path(start_node, end_node)
+    else:
+        node_path = map_manager.shortest_path(start_node, end_node)
     if not node_path:
         raise ValueError(f"Không tìm được đường đi từ {start_node} -> {end_node}")
 
-    print(f"[PLAN] shortest path: {' -> '.join(map(str, node_path))}")
+    print(f"[PLAN] shortest path ({'LINE' if _is_line else 'VDA5050'}): {' -> '.join(map(str, node_path))}")
+
+    # Line AGV dùng line_points; fallback points nếu chưa cấu hình agvCompat
+    _points_lookup = (map_manager.line_points or map_manager.points) if _is_line else map_manager.points
 
     # Convert sang route_nodes / route_edges
     route_nodes = []
     route_edges = []
 
     for node_id in node_path:
-        point = map_manager.points.get(str(node_id))
+        point = _points_lookup.get(str(node_id)) or map_manager.points.get(str(node_id))
         if not point:
             raise ValueError(f"Thiếu tọa độ cho node {node_id} trong agv_map_points")
 
@@ -1208,13 +1645,8 @@ def build_order_with_path(agv_id: str, route_nodes: list, route_edges: list, end
 
 
 def send_generated_order(agv_id: str, order: dict):
-    payload_str = json.dumps(order, ensure_ascii=False)
-    results = []
-    for topic in _publish_topic_candidates(agv_id, "order"):
-        result = client.publish(topic, payload_str, qos=1)
-        results.append((topic, result.rc))
-    print(f"[MQTT] AUTO ORDER SENT -> {agv_id} | orderId={order.get('orderId')} | status={result.rc}")
-    print(json.dumps(order, indent=2, ensure_ascii=False))
+    """Gửi order — tự phân nhánh Line AGV / VDA5050 theo registry."""
+    send_order(agv_id, order)
 
 
 def has_finished_action(payload: dict, expected_node_id: str, expected_action_type: str) -> bool:
@@ -1538,6 +1970,23 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe("convQR/+/+/+/pub", qos=QOS)
     print("[MQTT] Subscribed: convQR/+/+/+/pub")
 
+    # ── Line AGV v2 — luôn subscribe wildcard, không phụ thuộc registry ──────
+    # Wildcard factory + agv_id: nhận từ mọi Line AGV bất kể factory name
+    _line_ver = os.getenv("LINE_AGV_MQTT_VERSION", "v2")
+    for _kind in ("state", "connection"):
+        _t = f"{UAGV_INTERFACE_NAME}/{_line_ver}/+/+/{_kind}"
+        client.subscribe(_t, qos=QOS)
+        print(f"[MQTT] Subscribed (LINE v2): {_t}")
+
+    # ── Setup_subscriptions (VDA5050 + thông báo registry) ───────────────────
+    try:
+        from unified_mqtt import setup_subscriptions
+        from agv_registry import agv_registry
+        _cfg = getattr(client, "_unified_config", {})
+        setup_subscriptions(client, _cfg)
+    except Exception as _e:
+        print(f"[UNIFIED_MQTT] setup_subscriptions error: {_e}")
+
 
 def on_subscribe(client, userdata, mid, granted_qos):
     print(f"[MQTT] Subscribed mid={mid}, granted_qos={granted_qos}")
@@ -1561,6 +2010,7 @@ def _parse_agv_topic(topic_parts: list[str]) -> tuple[str | None, str | None]:
 
 
 def _publish_topic_candidates(agv_id: str, suffix: str, manufacturer: str | None = None) -> list[str]:
+    """VDA5050 topics only — dùng cho AGV VDA5050. Line AGV dùng _line_agv_topic()."""
     maker = (manufacturer or UAGV_MANUFACTURER).strip() or UAGV_MANUFACTURER
     return [
         f"vda5050/agv/{agv_id}/{suffix}",
@@ -1568,9 +2018,62 @@ def _publish_topic_candidates(agv_id: str, suffix: str, manufacturer: str | None
     ]
 
 
+def _line_agv_topic(agv_id: str, suffix: str) -> str:
+    """Topic chuẩn cho Line AGV: uagv/v2/{factory}/{agv_id}/{suffix}
+    Factory đọc từ agv_registry theo AGV cụ thể, fallback LINE_AGV_FACTORY.
+    """
+    from unified_mqtt import LINE_AGV_VERSION, LINE_AGV_FACTORY
+    from agv_registry import agv_registry as _reg
+    factory = _reg.get_factory(agv_id, default=(LINE_AGV_FACTORY or "VietDuc"))
+    return f"{UAGV_INTERFACE_NAME}/{LINE_AGV_VERSION}/{factory}/{agv_id}/{suffix}"
+
+
 def on_message(client, userdata, msg):
     if _mqtt_stopping or _is_app_shutting_down():
         return
+
+    # ── Unified routing: nhận biết AGV từ topic + registry ───────────────────
+    try:
+        from unified_mqtt import topic_router
+        from line_agv_handler import line_agv_handler
+        from agv_registry import agv_registry, AGV_TYPE_LINE
+        from agv_heartbeat import touch as _hb_touch
+
+        agv_type_route, agv_id_route, kind_route = topic_router.parse(msg.topic)
+
+        if agv_id_route:
+            # Tra registry theo agv_id (ưu tiên DB — agv_type bắt đầu "slam" → VDA5050)
+            reg_type = agv_registry.get_type(agv_id_route)
+            if reg_type is None:
+                # Dùng type từ topic parser nếu chưa có trong registry
+                reg_type = agv_type_route
+                # AGV chưa có trong registry (thêm sau khi server start) → reload
+                try:
+                    agv_registry.load_from_db()
+                    reg_type = agv_registry.get_type(agv_id_route) or reg_type
+                except Exception:
+                    pass
+
+            # Route LINE AGV → line_agv_handler
+            if reg_type == AGV_TYPE_LINE:
+                try:
+                    payload_str = msg.payload.decode("utf-8", errors="replace")
+                except Exception:
+                    payload_str = ""
+                line_agv_handler.dispatch(agv_id_route, kind_route, payload_str)
+                # Update last_seen + last_tag sau khi state được parse
+                if kind_route == "state":
+                    _st = line_agv_handler.state_store.get(agv_id_route)
+                    _tag = _st.current_tag if _st else None
+                    _hb_touch(agv_id_route, tag=_tag)
+                    _broadcast_line_agv_state(agv_id_route)
+                else:
+                    _hb_touch(agv_id_route)
+                return   # Line AGV handled — không đi vào VDA5050 flow
+
+    except Exception as _route_err:
+        print(f"[UNIFIED_MQTT] routing error: {_route_err}")
+    # ─────────────────────────────────────────────────────────────────────────
 
     topic_parts = msg.topic.split("/")
     agv_id, message_kind = _parse_agv_topic(topic_parts)
@@ -1679,6 +2182,20 @@ def on_message(client, userdata, msg):
             print(f"   → Vị trí: x={float(x):.3f}, y={float(y):.3f}, θ={float(theta):.3f}")
             print(f"   → Paused: {state_data['paused']}\n")
 
+            # === VDA5050: thông báo task_queue khi AGV vừa dừng (paused=True) ===
+            _prev_paused = getattr(agv_manager, "_prev_paused_states", {})
+            was_paused   = _prev_paused.get(agv_id, False)
+            now_paused   = bool(state_data.get("paused"))
+            if not was_paused and now_paused:
+                try:
+                    from task_queue import agv_task_queue as _tq
+                    _tq.on_agv_completed(agv_id, notes="vda5050:paused")
+                except Exception as _qe:
+                    pass
+            _prev_paused[agv_id] = now_paused
+            if not hasattr(agv_manager, "_prev_paused_states"):
+                agv_manager._prev_paused_states = _prev_paused
+
             # === Nếu pickup đã FINISHED tại pickup_node thì gửi drop_order ===
             try:
                 pending = _pending_drop_orders.get(agv_id)
@@ -1753,6 +2270,7 @@ def on_message(client, userdata, msg):
                     from main import edge_coordinator, traffic_engine
                     edge_coordinator.release(agv_id)
                     traffic_engine.complete_route(agv_id)
+                    _conflict_wait_mgr.release(agv_id, "route_finished")
                     release_reason = order_status or ("INFO_STATUS" if finished_from_info else "ALL_NODES_FINISHED")
                     print(f"[COORD] Released route reservations for {agv_id} | status={release_reason}")
             except Exception as e:
@@ -1943,6 +2461,19 @@ def on_message(client, userdata, msg):
                         # back to WAIT before the reroute order is published.
                         map_control_results[agv_id] = engine_result
 
+                    # ── ConflictWaitManager tick: retry reroute cho AGV đang chờ ──────
+                    _conflict_wait_mgr.tick(
+                        map_control_results=map_control_results,
+                        traffic_map_id=traffic_map_id,
+                        traffic_engine_ref=traffic_engine,
+                        agv_manager_ref=agv_manager,
+                    )
+                    # Release các AGV đã reroute thành công (không còn trong wait state)
+                    for _wid in list(_conflict_wait_mgr.all_waiting()):
+                        _wr = map_control_results.get(_wid)
+                        if _wr and _wr.reroute_result and _wr.reroute_result.success:
+                            _conflict_wait_mgr.release(_wid, "reroute_success_external")
+
                     hold_for_reroute: set[str] = set()
                     for source_agv_id, source_result in map_control_results.items():
                         source_state_data = agv_manager.get_agv(source_agv_id) or {}
@@ -2007,8 +2538,9 @@ def on_message(client, userdata, msg):
                             # Tránh order flood (gửi order liên tục mỗi tick khi escape thành công).
                             if not _is_pending_reroute_applied(target_agv_id, target_state_data):
                                 continue
-                            # Khi có reroute thực sự → xóa yield state (AGV đổi đường, không yield nữa)
+                            # Khi có reroute thực sự → xóa yield/wait state (AGV đổi đường)
                             _yield_states.pop(target_agv_id, None)
+                            _conflict_wait_mgr.release(target_agv_id, "reroute_success_normal_flow")
                             next_order_id = str(target_state_data.get("orderId") or uuid.uuid4())
                             next_update_id = int(target_state_data.get("orderUpdateId") or 0) + 1
                             reroute_order, reroute_path = build_order_for_traffic_route(
@@ -2131,6 +2663,28 @@ def on_message(client, userdata, msg):
                             _target_has_route = bool(traffic_engine._routes.get(target_agv_id))
                             if not target_state_data.get("paused") and _target_has_route:
                                 _send_traffic_control_action(target_agv_id, "PAUSE")
+
+                            # ── Đăng ký vào ConflictWaitManager nếu reroute fail ──────────
+                            # Khi không còn đường reroute, theo dõi winner để tự động
+                            # retry + RESUME khi winner clear resource tranh chấp.
+                            if (
+                                _target_has_route
+                                and target_reroute_result is not None
+                                and not target_reroute_result.success
+                                and not _conflict_wait_mgr.is_waiting(target_agv_id)
+                            ):
+                                _wait_winner = str(target_decision.related_agv_id or "").strip() or None
+                                _wait_resource = (
+                                    _extract_contested_node_from_reason(target_decision.reason or "")
+                                    or str(target_decision.related_conflict_id or "").strip()
+                                    or str(_wait_winner or "unknown")
+                                )
+                                _conflict_wait_mgr.register(
+                                    target_agv_id,
+                                    _wait_winner,
+                                    _wait_resource,
+                                    str(target_reroute_result.message or target_decision.reason or ""),
+                                )
                         elif target_decision.action == TrafficAction.PROCEED:
                             if target_state_data.get("paused") and not sim_pause_hold:
                                 # If the winner is still physically stopped due to LIDAR detection,
@@ -2296,6 +2850,89 @@ client = mqtt.Client(client_id=f"server_{uuid.uuid4().hex[:8]}", clean_session=T
 client.on_connect = on_connect
 client.on_message = on_message
 client.socket_timeout = float(os.getenv("MQTT_SOCKET_TIMEOUT_SEC", "5"))
+_configure_client_for_mode(client, MQTT_MODE)
+
+
+def _broadcast_line_agv_state(agv_id: str) -> None:
+    """Broadcast trạng thái Line AGV ra WebSocket (cùng format với VDA5050 agv_state)."""
+    try:
+        from line_agv_handler import line_agv_handler
+        state = line_agv_handler.state_store.get(agv_id)
+        if state is None:
+            return
+        app = get_app()
+        ws_func = getattr(getattr(app, "state", None), "send_websocket_update", None)
+        if not ws_func:
+            return
+
+        async def _send():
+            await ws_func({
+                "type":          "agv_state",
+                "agv_id":        agv_id,
+                "agv_kind":      "LINE",
+                "lastNodeId":    str(state.current_tag),
+                "prev_tag":      state.prev_tag,
+                "batteryCharge": state.battery,
+                "battery_low":   state.battery_low,
+                "battery_blocking": state.battery_blocking,
+                "driving":       state.driving,
+                "paused":        state.paused,
+                "operatingMode": state.operating_mode,
+                "connection":    state.connection_state,
+                "timestamp":     datetime.datetime.now().isoformat(),
+            })
+
+        run_async_in_thread(_send())
+    except Exception as e:
+        print(f"[LINE_AGV] WS broadcast error: {e}")
+
+
+def _setup_line_agv_callbacks() -> None:
+    """
+    Inject callbacks vào line_agv_handler sau khi MQTT client sẵn sàng.
+    Gọi từ setup_unified_mqtt().
+    """
+    from line_agv_handler import line_agv_handler
+
+    def _send_window(agv_id: str, plan: dict) -> None:
+        _send_line_order(agv_id, plan)
+
+    def _on_event(agv_id: str, event_name: str, data: dict) -> None:
+        # ACK ngay để Arduino xóa pendingEvent
+        send_line_command(agv_id, "ack_event", d=event_name)
+        print(f"[LINE_AGV] ACK event '{event_name}' → {agv_id}")
+
+    def _on_battery_event(agv_id: str, event_name: str, data: dict) -> None:
+        # Dispatch xe về trạm sạc
+        try:
+            from main import _line_agv_dispatch_to_charge
+            _line_agv_dispatch_to_charge(agv_id)
+        except Exception as e:
+            print(f"[LINE_AGV] battery dispatch to charge failed: {e}")
+
+    line_agv_handler.send_window_fn    = _send_window
+    line_agv_handler.on_event          = _on_event
+    line_agv_handler.on_battery_event  = _on_battery_event
+    print("[UNIFIED_MQTT] Line AGV callbacks injected")
+
+
+def setup_unified_mqtt(agv_configs: list[dict], server_config: dict | None = None) -> None:
+    """
+    Khởi tạo unified MQTT layer: load agv_registry, gắn config vào client.
+    Phải gọi TRƯỚC start_mqtt() để on_connect biết cần subscribe gì.
+
+    agv_configs : danh sách dict từ config, mỗi dict có ít nhất {"agv_id", "agv_type"}
+    server_config: dict chứa "factory", "manufacturer" (tuỳ chọn)
+    """
+    from agv_registry import agv_registry
+    from unified_mqtt import init_publisher
+    agv_registry.load_from_config(agv_configs)
+    cfg = dict(server_config or {})
+    # Gắn config vào client object để on_connect đọc được
+    client._unified_config = cfg
+    init_publisher(client, cfg)
+    _setup_line_agv_callbacks()
+    print(f"[UNIFIED_MQTT] Registry loaded: {agv_registry}")
 
 
 def start_mqtt():
@@ -2325,22 +2962,135 @@ def stop_mqtt():
         print("[MQTT] Stopped")
 
 
+def switch_mqtt_mode(new_mode: str) -> dict:
+    """Đổi mode kết nối MQTT (local / cloud) và kết nối lại ngay.
+    Tạo client mới vì paho TLS phải cấu hình trước khi connect().
+    """
+    global client, BROKER, PORT, MQTT_MODE
+    if new_mode not in ("local", "cloud"):
+        return {"ok": False, "error": "mode phải là 'local' hoặc 'cloud'"}
+
+    _save_mqtt_mode(new_mode)
+    new_broker, new_port = _resolve_broker_port(new_mode)
+
+    print(f"[MQTT] Switching {MQTT_MODE} → {new_mode}  ({new_broker}:{new_port})")
+    stop_mqtt()
+
+    # Reload registry từ DB trước khi tạo client mới
+    try:
+        from agv_registry import agv_registry as _reg
+        _reg.load_from_db()
+        print(f"[MQTT] Registry reloaded: {_reg}")
+    except Exception as _re:
+        print(f"[MQTT] Registry reload failed: {_re}")
+
+    # Copy _unified_config từ client cũ (factory, manufacturer)
+    _old_cfg = getattr(client, "_unified_config", {})
+
+    # Tạo client mới (cần thiết vì TLS phải set trước connect)
+    new_client = mqtt.Client(
+        client_id=f"server_{uuid.uuid4().hex[:8]}",
+        clean_session=True,
+    )
+    new_client.on_connect    = on_connect
+    new_client.on_message    = on_message
+    new_client.socket_timeout = float(os.getenv("MQTT_SOCKET_TIMEOUT_SEC", "5"))
+    new_client._unified_config = _old_cfg   # giữ lại config factory/manufacturer
+    _configure_client_for_mode(new_client, new_mode)
+
+    client     = new_client
+    BROKER     = new_broker
+    PORT       = new_port
+    MQTT_MODE  = new_mode
+
+    # Gắn lại callbacks Line AGV vào client mới
+    try:
+        _setup_line_agv_callbacks()
+    except Exception:
+        pass
+
+    start_mqtt()
+    return {"ok": True, "mode": new_mode, "broker": new_broker, "port": new_port}
+
+
+def get_mqtt_mode() -> dict:
+    return {"mode": MQTT_MODE, "broker": BROKER, "port": PORT}
+
+
 # ==========================
 # ORDER & ACTION Sending
 # ==========================
 def send_order(agv_id: str, order: dict):
+    from agv_registry import agv_registry
+    if agv_registry.is_line(agv_id):
+        _send_line_order(agv_id, order)
+    else:
+        _send_vda5050_order(agv_id, order)
+
+
+def _send_line_order(agv_id: str, order: dict) -> None:
+    """Gửi plan {"c":"plan",...} đến Line AGV qua topic uagv/v2/..."""
+    topic       = _line_agv_topic(agv_id, "order")
+    payload_str = json.dumps(order, ensure_ascii=False)
+    result      = client.publish(topic, payload_str, qos=1)
+    cmd_id      = order.get("id", "")
+    if result.rc != 0:
+        print(f"[MQTT][WARN] LINE order FAILED agv={agv_id} rc={result.rc}")
+    print(f"[MQTT] LINE plan → {agv_id} | id={cmd_id} | steps={len(order.get('d', []))} | rc={result.rc}")
+    print(f"[MQTT] LINE payload: {payload_str}")
+    from line_agv_handler import line_agv_handler
+    line_agv_handler.record_sent_cmd(agv_id, cmd_id, order)
+
+
+def _send_vda5050_order(agv_id: str, order: dict) -> None:
     payload_str = json.dumps(order, ensure_ascii=False)
     results = []
     for topic in _publish_topic_candidates(agv_id, "order"):
         result = client.publish(topic, payload_str, qos=1)
         results.append((topic, result.rc))
-    rc = result.rc if results else -1
+    rc = results[-1][1] if results else -1
     if rc != 0:
         print(f"[MQTT][WARN] publish order FAILED agv={agv_id} rc={rc} — client connected={client.is_connected()}")
     print(f"[MQTT] ĐÃ GỬI order → {agv_id} | orderId={order.get('orderId')} | status={rc} | topics={[t for t,_ in results]}")
 
 
+def send_line_command(agv_id: str, cmd: str, **kwargs) -> bool:
+    """
+    Gửi lệnh tức thì cho Line AGV qua topic uagv/v2/.../instantActions.
+    cmd: "stop" | "run" | "reset" | "battery_unlock" | "ack_event" | ...
+    kwargs: tham số bổ sung, VD: d="confirm", v=150, p="fwd"
+    """
+    payload = {"c": cmd}
+    payload.update(kwargs)
+    topic = _line_agv_topic(agv_id, "instantActions")
+    result = client.publish(topic, json.dumps(payload, ensure_ascii=False), qos=1)
+    print(f"[LINE_CMD] → {agv_id}: {payload} | rc={result.rc}")
+    return result.rc == 0
+
+
 def send_instant_action(agv_id: str, action_type: str):
+    from agv_registry import agv_registry
+    if agv_registry.is_line(agv_id):
+        return _send_line_instant(agv_id, action_type)
+    return _send_vda5050_instant(agv_id, action_type)
+
+
+def _send_line_instant(agv_id: str, action_type: str) -> bool:
+    """Dịch VDA5050 action_type sang lệnh Line AGV tương đương."""
+    action = (action_type or "").upper().strip()
+    _cmd_map = {
+        "PAUSE":  "stop",
+        "RESUME": "run",
+        "CANCEL": "stop",
+    }
+    cmd = _cmd_map.get(action)
+    if not cmd:
+        print(f"[LINE_CMD] action '{action}' không hỗ trợ cho Line AGV")
+        return False
+    return send_line_command(agv_id, cmd)
+
+
+def _send_vda5050_instant(agv_id: str, action_type: str) -> bool:
     action = (action_type or "").upper().strip()
 
     if action == "PICK":

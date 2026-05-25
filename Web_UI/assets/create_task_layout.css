@@ -1,214 +1,558 @@
-/* Wrapper layout */
+/* ═══════════════════════════════════════════════════════
+   TASK CREATE — Dark Glassmorphism UI
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Variables ── */
+:root {
+  --tc-bg:       #0d1117;
+  --tc-surface:  rgba(22, 30, 46, 0.97);
+  --tc-s2:       rgba(30, 41, 59, 0.85);
+  --tc-s3:       rgba(51, 65, 85, 0.55);
+  --tc-border:   rgba(255, 255, 255, 0.08);
+  --tc-border2:  rgba(255, 255, 255, 0.14);
+  --tc-accent:   #3b82f6;
+  --tc-accent2:  #6366f1;
+  --tc-success:  #10b981;
+  --tc-warning:  #f59e0b;
+  --tc-danger:   #ef4444;
+  --tc-muted:    #475569;
+  --tc-text:     #e2e8f0;
+  --tc-text2:    #94a3b8;
+  --tc-radius:   14px;
+  --tc-radius-sm: 9px;
+}
+
+/* ── Wrapper ── */
 .task-create-wrapper {
   display: grid;
-  grid-template-columns: 260px 1fr 320px;
-  gap: 16px;
-  padding: 16px;
+  grid-template-columns: 240px 1fr 300px;
+  gap: 0;
   height: calc(100vh - 120px);
   box-sizing: border-box;
+  background: var(--tc-bg);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  color: var(--tc-text);
 }
 
-/* Panels */
+/* ── Panel base ── */
 .task-panel {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(6px);
-  padding: 14px;
-  color: white;
-
-  /* IMPORTANT: đừng cắt edge/arrowhead của ReactFlow */
-  overflow: visible; /* was hidden */
-
   display: flex;
   flex-direction: column;
+  background: var(--tc-surface);
+  border: none;
+  box-shadow: none;
+  color: var(--tc-text);
+  /* QUAN TRỌNG: overflow: visible để ReactFlow nhận drag/drop events đúng cách */
+  overflow: visible;
 }
 
-.task-panel * { color: white !important; }
+.task-panel * { color: var(--tc-text) !important; }
 
-.left-panel { overflow-y: auto; }
-
-/* IMPORTANT: center panel không được overflow hidden, nếu không edge sẽ bị cắt */
-.center-panel {
-  position: relative;
-  overflow: visible; /* was hidden */
-  display: flex;
-  flex-direction: column;
-}
-
-.right-panel { overflow-y: auto; }
-
+/* ── Panel title ── */
 .panel-title {
-  font-weight: 700;
-  font-size: 15px;
-  margin-bottom: 12px;
-  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--tc-text2) !important;
+  padding: 16px 16px 10px;
+  border-bottom: 1px solid var(--tc-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.panel-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--tc-accent), var(--tc-accent2));
+  flex-shrink: 0;
 }
 
-/* Task list tiles */
+/* ═══════════════════════════════════════════════
+   LEFT PANEL — Task Templates
+   ═══════════════════════════════════════════════ */
+.left-panel {
+  border-right: 1px solid var(--tc-border);
+  overflow-y: auto;
+}
+.left-panel::-webkit-scrollbar { width: 4px; }
+.left-panel::-webkit-scrollbar-track { background: transparent; }
+.left-panel::-webkit-scrollbar-thumb { background: var(--tc-s3); border-radius: 2px; }
+
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  padding: 10px 12px 16px;
 }
+
 .task-tile {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  gap: 10px;
+  padding: 10px 11px;
+  border-radius: var(--tc-radius-sm);
+  border: 1px solid var(--tc-border);
+  background: var(--tc-s3);
   cursor: grab;
+  transition: all .18s ease;
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+}
+.task-tile::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--tc-accent), var(--tc-accent2));
+  opacity: 0;
+  transition: opacity .18s;
 }
 .task-tile:hover {
-  background: rgba(59, 130, 246, 0.14);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+  transform: translateX(3px);
+}
+.task-tile:hover::before { opacity: 1; }
+.task-tile:active { cursor: grabbing; }
+.task-tile.active {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.45);
+}
+.task-tile.active::before { opacity: 1; }
+
+.task-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(59,130,246,.25), rgba(99,102,241,.25));
+  border: 1px solid rgba(99,102,241,.2);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
 }
 
-/* Workflow card */
-/*.workflow-card {
-  overflow: hidden; 
-  flex: 1;            
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(14, 165, 233, 0.05));
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 16px;
+/* Màu icon theo loại task */
+.task-tile:nth-child(1) .task-icon { background: linear-gradient(135deg,rgba(59,130,246,.2),rgba(99,102,241,.2)); }
+.task-tile:nth-child(2) .task-icon { background: linear-gradient(135deg,rgba(16,185,129,.2),rgba(5,150,105,.2)); }
+.task-tile:nth-child(3) .task-icon { background: linear-gradient(135deg,rgba(245,158,11,.2),rgba(251,191,36,.2)); }
+.task-tile:nth-child(4) .task-icon { background: linear-gradient(135deg,rgba(239,68,68,.2),rgba(220,38,38,.2)); }
+.task-tile:nth-child(5) .task-icon { background: linear-gradient(135deg,rgba(139,92,246,.2),rgba(124,58,237,.2)); }
+.task-tile:nth-child(6) .task-icon { background: linear-gradient(135deg,rgba(236,72,153,.2),rgba(219,39,119,.2)); }
+.task-tile:nth-child(7) .task-icon { background: linear-gradient(135deg,rgba(20,184,166,.2),rgba(13,148,136,.2)); }
+
+.task-label {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+  line-height: 1.3;
+  color: var(--tc-text) !important;
 }
 
-.workflow-card-title {
-  font-weight: 700;
-  font-size: 16px;
-  margin-bottom: 10px;
-}
-/* Center panel = khung workflow duy nhất */
-.center-panel{
-  padding: 14px;
-  overflow: hidden;          /* không tràn */
+/* ═══════════════════════════════════════════════
+   CENTER PANEL — Workflow Canvas
+   ═══════════════════════════════════════════════ */
+.center-panel {
+  position: relative;
   display: flex;
   flex-direction: column;
+  background: #0a0f1a;
+  border-left: 1px solid var(--tc-border);
+  border-right: 1px solid var(--tc-border);
+  /* QUAN TRỌNG: không đặt overflow:hidden ở đây — phá vỡ ReactFlow drag/drop */
+  overflow: visible;
+  min-height: 0;
 }
 
-/* Canvas workflow */
-#wf-root{
-  flex: 1;                   /* chiếm hết chiều cao còn lại */
-  background: #f7f8fb;
-  border-radius: 14px;
-  overflow: auto;            /* SCROLL Ở ĐÂY */
+/* toolbar row (Save Workflow button) */
+.center-panel > div:nth-child(2) {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--tc-border);
+  background: var(--tc-surface);
+  flex-shrink: 0;
 }
 
-/* ReactFlow không được phá khung */
-#wf-root .react-flow,
-#wf-root .react-flow__renderer,
-#wf-root .react-flow__viewport,
-#wf-root .react-flow__pane{
-  overflow: visible;         /* để arrow không bị cắt */
+.wf-scroll {
+  flex: 1;
+  min-height: 0;
+  /* overflow: auto để scroll được nội dung dài — KHÔNG dùng hidden (cắt drop zone) */
+  overflow: auto;
+  background:
+    radial-gradient(circle, rgba(59,130,246,.06) 1px, transparent 1px),
+    #080e1a;
+  background-size: 28px 28px;
 }
+.wf-scroll::-webkit-scrollbar { width: 5px; }
+.wf-scroll::-webkit-scrollbar-thumb { background: var(--tc-s3); border-radius: 3px; }
 
-/* ReactFlow mount area */
 #wf-root {
   width: 100%;
-  height: 100%;
-  min-height: 560px;
-}
-
-/* Responsive */
-@media (max-width: 1200px) {
-  .task-create-wrapper { grid-template-columns: 1fr; height: auto; }
-  .task-panel { min-height: 0; }
-}
-/* Cho phép flex con được scroll (QUAN TRỌNG) */
-.center-panel { min-height: 0; }
-.workflow-card { min-height: 0; }
-
-/* wf-scroll đang gắn trực tiếp lên #wf-root trong python */
-.wf-scroll{
-  flex: 1;
-  min-height: 0;      /* QUAN TRỌNG trong flex column */
-  overflow: auto;     /* BẬT SCROLL */
-  background: #f7f8fb;
-  border-radius: 12px;
-}
-
-/* #wf-root hiện đang height:100% -> giữ, nhưng bỏ min-height cứng để scroll “đúng” */
-#wf-root{
-  width: 100%;
+  /* Đảm bảo có chiều cao tối thiểu để làm drop zone khi chưa có node */
+  min-height: 520px;
   height: auto;
-  min-height: 0;      /* thay vì 560px */
-}
-.right-panel,
-.right-panel *{
-  color: #fff !important;
 }
 
-/* các control của bootstrap hay bị chữ đen */
-.right-panel .form-label,
-.right-panel label,
-.right-panel .form-check-label{
-  color: #fff !important;
+/* ReactFlow overrides */
+.react-flow__background { background: transparent !important; }
+.react-flow__pane { cursor: default !important; }
+
+/* ── ReactFlow Node Card ── */
+.wf-nodewrap {
+  position: relative;
+  width: 230px;
 }
 
-.right-panel input,
-.right-panel select,
-.right-panel textarea{
-  color: #fff !important;
-  background: rgba(0,0,0,.18) !important;
-  border: 1px solid rgba(255,255,255,.22) !important;
+.wf-node {
+  display: flex;
+  border-radius: 10px;
+  border: 1px solid rgba(59,130,246,.22);
+  background: rgba(15, 23, 42, 0.97);
+  box-shadow: 0 3px 16px rgba(0,0,0,.5), 0 0 0 1px rgba(59,130,246,.06);
+  overflow: hidden;
+  transition: box-shadow .2s, border-color .2s;
 }
-/* Panel phải: chữ trắng, nhưng giữ checkbox rõ */
-.right-panel, .right-panel * { color: #fff !important; }
+.wf-nodewrap:hover .wf-node {
+  border-color: rgba(59,130,246,.5);
+  box-shadow: 0 6px 24px rgba(0,0,0,.6), 0 0 0 1px rgba(59,130,246,.15);
+}
 
-.right-panel .form-check-input {
-  accent-color: #2563eb;
-  border-color: rgba(255,255,255,.5) !important;
+.wf-node__left {
+  width: 30px;
+  flex-shrink: 0;
+  background: linear-gradient(180deg, var(--tc-accent), var(--tc-accent2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
 }
-.right-panel .form-check-input:checked {
-  background-color: #2563eb !important;
-  border-color: #2563eb !important;
+
+.wf-node__title {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: #fff !important;
+  padding: 8px 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 110px;
 }
-/* Checkbox rõ ràng + dấu tick đẹp */
-.right-panel .form-check-input{
+
+.wf-node__right {
+  flex: 1;
+  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.wf-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255,255,255,.04);
+}
+.wf-step:last-child { border-bottom: none; }
+
+.wf-step__idx {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  background: rgba(59,130,246,.15);
+  border: 1px solid rgba(59,130,246,.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  color: #60a5fa !important;
+  flex-shrink: 0;
+}
+
+.wf-step__pill {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--tc-text2) !important;
+  background: var(--tc-s3);
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,.08);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Order badge */
+.wf-order {
+  position: absolute;
+  top: -9px;
+  left: 8px;
+  width: 19px;
+  height: 19px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, var(--tc-accent), var(--tc-accent2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff !important;
+  box-shadow: 0 2px 6px rgba(59,130,246,.5);
+  z-index: 10;
+}
+
+/* Delete button */
+.wf-del {
+  position: absolute;
+  top: -9px;
+  right: 5px;
   width: 18px;
   height: 18px;
-  margin-top: 0.15rem;
-  accent-color: #2563eb;        /* modern browsers */
-  border: 1px solid rgba(255,255,255,.55) !important;
-  background-color: rgba(0,0,0,.15) !important;
+  border-radius: 50%;
+  background: rgba(239,68,68,.2);
+  border: 1px solid rgba(239,68,68,.4);
+  color: #f87171 !important;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: .15s;
+  line-height: 1;
+  padding: 0;
 }
-.right-panel .form-check-input:checked{
-  background-color: #2563eb !important;
-  border-color: #2563eb !important;
+.wf-del:hover {
+  background: rgba(239,68,68,.45);
+  border-color: var(--tc-danger);
 }
-.right-panel .form-check-label{
-  color: #fff !important;
+
+/* Edge arrow */
+.wf-edge-path {
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px rgba(59,130,246,.6));
 }
-/* ===== Fix tick trắng cho checkbox Bootstrap ===== */
+.react-flow__edge-path {
+  stroke: #3b82f6 !important;
+  stroke-width: 2px !important;
+}
+.wf-edge-arrow {
+  filter: drop-shadow(0 0 3px rgba(59,130,246,.5));
+}
+/* Đảm bảo edges hiển thị trên nền */
+.react-flow__edges { z-index: 5 !important; }
+
+/* ═══════════════════════════════════════════════
+   RIGHT PANEL — Settings
+   ═══════════════════════════════════════════════ */
+.right-panel {
+  overflow-y: auto;
+  border-left: 1px solid var(--tc-border);
+}
+.right-panel::-webkit-scrollbar { width: 4px; }
+.right-panel::-webkit-scrollbar-thumb { background: var(--tc-s3); border-radius: 2px; }
+
+.settings-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Fix form controls */
+.right-panel .form-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--tc-radius-sm);
+  border: 1px solid var(--tc-border);
+  background: var(--tc-s3);
+  transition: .15s;
+  cursor: pointer;
+  margin: 0;
+}
+.right-panel .form-check:hover {
+  background: rgba(59,130,246,.08);
+  border-color: rgba(59,130,246,.2);
+}
+
 .right-panel .form-check-input {
-  width: 18px;
-  height: 18px;
-  margin-top: 0.15rem;
-  border: 1px solid rgba(255,255,255,.55) !important;
-  background-color: rgba(0,0,0,.15) !important;
+  width: 17px !important;
+  height: 17px !important;
+  margin: 0 !important;
+  flex-shrink: 0;
+  accent-color: var(--tc-accent);
+  border: 1px solid rgba(255,255,255,.35) !important;
+  background-color: rgba(0,0,0,.2) !important;
+  border-radius: 4px !important;
+  cursor: pointer;
 }
-
-/* khi checked: nền xanh + tick trắng (svg) */
 .right-panel .form-check-input:checked {
-  border-color: #2563eb !important;
-  background-color: #2563eb !important;
-
-  /* ép icon tick trắng */
+  background-color: var(--tc-accent) !important;
+  border-color: var(--tc-accent) !important;
   background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10l3 3 6-7'/%3e%3c/svg%3e") !important;
 }
 
-/* label trắng */
 .right-panel .form-check-label,
 .right-panel label,
 .right-panel .form-label {
-  color: #fff !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  color: var(--tc-text) !important;
+  cursor: pointer;
+  margin: 0 !important;
 }
 
-/* dropdown/text cũng trắng */
+.right-panel .form-label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--tc-text2) !important;
+  margin-bottom: 5px !important;
+}
+
 .right-panel .form-select,
-.right-panel .form-control {
+.right-panel .form-control,
+.right-panel select,
+.right-panel input:not([type=checkbox]) {
+  background: var(--tc-s3) !important;
+  border: 1px solid var(--tc-border2) !important;
+  border-radius: var(--tc-radius-sm) !important;
+  color: var(--tc-text) !important;
+  font-size: 13px !important;
+  padding: 8px 10px !important;
+  outline: none !important;
+  transition: .15s !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 100%;
+}
+.right-panel .form-select option,
+.right-panel select option { background: #1e293b; }
+.right-panel .form-select:focus,
+.right-panel .form-control:focus,
+.right-panel select:focus {
+  border-color: var(--tc-accent) !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15) !important;
+}
+
+/* Hr separator */
+.right-panel hr {
+  border-color: var(--tc-border) !important;
+  opacity: 1 !important;
+}
+
+/* Save button in right panel */
+.right-panel .btn-primary,
+#btn-save-task {
+  width: 100% !important;
+  padding: 10px !important;
+  border-radius: var(--tc-radius-sm) !important;
+  border: none !important;
+  background: linear-gradient(135deg, var(--tc-accent), var(--tc-accent2)) !important;
   color: #fff !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: .2s !important;
+  box-shadow: 0 4px 14px rgba(59,130,246,.3) !important;
+  letter-spacing: .02em;
+}
+.right-panel .btn-primary:hover,
+#btn-save-task:hover {
+  opacity: .9 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 6px 18px rgba(59,130,246,.4) !important;
+}
+
+/* Save workflow button */
+#btn-save-workflow-open {
+  padding: 7px 16px !important;
+  border-radius: var(--tc-radius-sm) !important;
+  border: 1px solid rgba(16,185,129,.4) !important;
+  background: rgba(16,185,129,.12) !important;
+  color: #34d399 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  transition: .15s !important;
+}
+#btn-save-workflow-open:hover {
+  background: rgba(16,185,129,.22) !important;
+  border-color: var(--tc-success) !important;
+}
+
+/* Messages / alerts */
+#save-msg .alert,
+#wf-save-error .alert {
+  border-radius: var(--tc-radius-sm) !important;
+  font-size: 12px !important;
+  padding: 8px 12px !important;
+  margin: 0 !important;
+}
+
+/* Modal */
+.modal-content {
+  background: #1e293b !important;
+  border: 1px solid var(--tc-border2) !important;
+  border-radius: var(--tc-radius) !important;
+  color: var(--tc-text) !important;
+}
+.modal-header {
+  border-bottom: 1px solid var(--tc-border) !important;
+  padding: 16px 20px !important;
+}
+.modal-body { padding: 16px 20px !important; }
+.modal-footer {
+  border-top: 1px solid var(--tc-border) !important;
+  padding: 12px 20px !important;
+}
+.modal-title { font-size: 15px !important; font-weight: 700 !important; }
+
+.modal-body .form-label { color: var(--tc-text2) !important; font-size: 12px !important; }
+.modal-body input.form-control {
+  background: var(--tc-s3) !important;
+  border: 1px solid var(--tc-border2) !important;
+  color: var(--tc-text) !important;
+  border-radius: var(--tc-radius-sm) !important;
+}
+.modal-body input.form-control:focus {
+  border-color: var(--tc-accent) !important;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15) !important;
+}
+
+.modal-footer .btn-secondary {
+  background: var(--tc-s3) !important;
+  border-color: var(--tc-border2) !important;
+  color: var(--tc-text2) !important;
+  font-size: 13px !important;
+  border-radius: var(--tc-radius-sm) !important;
+}
+.modal-footer .btn-primary {
+  background: linear-gradient(135deg, var(--tc-accent), var(--tc-accent2)) !important;
+  border: none !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  border-radius: var(--tc-radius-sm) !important;
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .task-create-wrapper {
+    grid-template-columns: 200px 1fr 260px;
+    height: auto;
+  }
 }

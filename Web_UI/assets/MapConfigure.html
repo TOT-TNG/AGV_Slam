@@ -222,6 +222,7 @@ select option:checked {
 
     #map-container { position: absolute; inset: 0; overflow: hidden; }
     #scene { width: 100%; height: 100%; position: relative; background: #020617; cursor: default; }
+    #scene.no-image { background: #f8fafc; }
 
     #map-inner {
       position: absolute;
@@ -265,6 +266,22 @@ select option:checked {
       border-color: #facc15;
       box-shadow: 0 0 0 6px rgba(250, 204, 21, 0.22);
     }
+
+    /* RFID tag node: hình thoi */
+    .node-rfid {
+      border-radius: 3px;
+      transform: translate(-50%, -50%) rotate(45deg) !important;
+      width: 16px;
+      height: 16px;
+    }
+    .node-rfid:hover {
+      transform: translate(-50%, -50%) rotate(45deg) scale(1.15) !important;
+    }
+    .node-rfid.selected {
+      transform: translate(-50%, -50%) rotate(45deg) !important;
+    }
+    /* both node: vuông bo góc */
+    .node-both { border-radius: 5px; }
 
     #config-header {
       padding: 18px 18px 14px;
@@ -457,6 +474,38 @@ select option:checked {
           </select>
         </div>
 
+        <div class="field">
+          <label for="cfgAgvCompat">Tương thích AGV</label>
+          <select id="cfgAgvCompat" onchange="updateTurnFieldsVisibility()">
+            <option value="slam_qr">SLAM-QR — Chỉ AGV VDA5050 / SLAM</option>
+            <option value="RFID">RFID Tag — Chỉ AGV Line (thẻ RFID vật lý)</option>
+            <option value="both">BOTH — Cả hai loại AGV</option>
+          </select>
+          <small>RFID: node có thẻ RFID trên sàn, AGV Line đọc được (hiển thị hình thoi 🔶). SLAM-QR: chỉ AGV VDA5050 điều hướng (hình tròn).</small>
+        </div>
+
+        <!-- Cấu hình rẽ cho Line AGV (chỉ hiện khi RFID/both) -->
+        <div id="turn-config-section" style="display:none;border:1px solid rgba(249,115,22,.3);border-radius:8px;padding:10px 12px;background:rgba(249,115,22,.04);margin-bottom:8px">
+          <div style="font-size:11px;font-weight:600;color:#f97316;margin-bottom:8px">⟳ Cấu hình rẽ tại tag RFID này</div>
+          <div class="field">
+            <label for="cfgFwdTurn">Rẽ chiều TIẾN (khi xe đi tới)</label>
+            <select id="cfgFwdTurn">
+              <option value="none">— Không rẽ (đi thẳng)</option>
+              <option value="right">↷ Rẽ PHẢI</option>
+              <option value="left">↶ Rẽ TRÁI</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="cfgBwdTurn">Rẽ chiều LÙI (khi xe đi lùi)</label>
+            <select id="cfgBwdTurn">
+              <option value="none">— Không rẽ (đi thẳng)</option>
+              <option value="right">↷ Rẽ PHẢI</option>
+              <option value="left">↶ Rẽ TRÁI</option>
+            </select>
+            <small>Chiều lùi thường ngược với chiều tiến ở cùng giao lộ.</small>
+          </div>
+        </div>
+
         <div class="actions-row">
           <div class="btn btn-primary" id="saveNodeBtn">Lưu cấu hình node</div>
           <div class="btn btn-danger" id="clearNodeBtn">Xóa toàn bộ gán hiện tại</div>
@@ -469,7 +518,7 @@ select option:checked {
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const API_BASE = "http://192.168.1.25:8000"; // ← Sửa IP/port backend nếu khác
+      const API_BASE = 'http://' + (window.location.hostname || '192.168.1.15') + ':8000';
 
       const RES_DEFAULT = 0.05;
 
@@ -489,6 +538,7 @@ select option:checked {
       let mapData = null;
       let currentMapId = null;
       let selectedNode = null;
+      let isSchematic = false;
 
       // ── DOM elements ────────────────────────────────────────
       const topBarWrapper    = document.getElementById('top-bar-wrapper');
@@ -513,9 +563,19 @@ select option:checked {
       const cfgFunctionName  = document.getElementById('cfgFunctionName');
       const cfgLocationType  = document.getElementById('cfgLocationType');
       const cfgDefaultAction = document.getElementById('cfgDefaultAction');
+      const cfgAgvCompat     = document.getElementById('cfgAgvCompat');
       const saveNodeBtn      = document.getElementById('saveNodeBtn');
       const clearNodeBtn     = document.getElementById('clearNodeBtn');
       const saveStatus       = document.getElementById('save-status');
+
+      // ── Hiện/ẩn phần cấu hình rẽ dựa trên agvCompat ────────
+      function updateTurnFieldsVisibility() {
+        const compat = document.getElementById('cfgAgvCompat').value;
+        const section = document.getElementById('turn-config-section');
+        if (section) {
+          section.style.display = (compat === 'RFID' || compat === 'both') ? 'block' : 'none';
+        }
+      }
 
       // ── Hàm ẩn/hiện thanh top-bar ───────────────────────────
       function updateTopBarTogglePosition() {
@@ -549,27 +609,45 @@ select option:checked {
 
       function getNodeColor(point) {
   const action = normalizeNodeAction(point.action);
-  const type = String(action.locationType || '').toUpperCase();
+  const agvCompat = action.agvCompat || 'slam_qr';
 
+  // agvCompat xác định màu chính — RFID/both có màu riêng biệt
+  if (agvCompat === 'RFID') return '#f97316';   // cam — thẻ RFID vật lý
+  if (agvCompat === 'both') return '#06b6d4';   // cyan — node dùng chung
+
+  // slam_qr: màu theo locationType như cũ
+  const type = String(action.locationType || '').toUpperCase();
   switch (type) {
-    case 'CONVEYOR':
-      return '#0ea5e9';
-    case 'CHARGER':
-      return '#f59e0b';
-    case 'DROPOFF':
-      return '#ef4444';
-    case 'HOME':
-      return '#22c55e';
-    case 'BUFFER':
-      return '#a855f7';
-    case 'PARKING':
-      return '#14b8a6';
-    default:
-      return '#94a3b8';
+    case 'CONVEYOR': return '#0ea5e9';
+    case 'CHARGER':  return '#f59e0b';
+    case 'DROPOFF':  return '#ef4444';
+    case 'HOME':     return '#22c55e';
+    case 'BUFFER':   return '#a855f7';
+    case 'PARKING':  return '#14b8a6';
+    default:         return '#94a3b8';
   }
 }
 
+      function detectCoordSystem(points, roads) {
+        let maxAbs = 0;
+        for (const p of (points||[])) maxAbs = Math.max(maxAbs, Math.abs(+p.x||0), Math.abs(+p.y||0));
+        for (const r of (roads||[])) maxAbs = Math.max(maxAbs, Math.abs(r.point_start_x||0), Math.abs(r.point_start_y||0), Math.abs(r.point_end_x||0), Math.abs(r.point_end_y||0));
+        isSchematic = maxAbs > 100;
+      }
+
+      function setCanvasFromBBox(points) {
+        let maxX = 200, maxY = 200;
+        for (const p of (points||[])) { maxX = Math.max(maxX, +p.x+50); maxY = Math.max(maxY, +p.y+50); }
+        imgNatW = maxX; imgNatH = maxY;
+        mapCanvas.width = imgNatW; mapCanvas.height = imgNatH;
+        overlayCanvas.width = imgNatW; overlayCanvas.height = imgNatH;
+        mapCanvas.style.width = imgNatW+'px'; mapCanvas.style.height = imgNatH+'px';
+        overlayCanvas.style.width = imgNatW+'px'; overlayCanvas.style.height = imgNatH+'px';
+        nodeLayer.style.width = imgNatW+'px'; nodeLayer.style.height = imgNatH+'px';
+      }
+
       function worldToPixel(wx, wy) {
+        if (isSchematic) return { x: wx, y: wy };
         const pxRelative = (wx - originX) / resolution;
         const pyRelative = (wy - originY) / resolution;
         const px = imgNatW - pyRelative;
@@ -645,6 +723,10 @@ select option:checked {
             rawAction.DefaultAction ||
             rawAction.default_action ||
             '',
+            agvCompat:
+            rawAction.agvCompat ||
+            rawAction.agv_compat ||
+            'slam_qr',
         };
       }
 
@@ -653,9 +735,10 @@ select option:checked {
   cfgMapId.textContent = currentMapId || '—';
   cfgNodeId.textContent = '—';
   cfgNodeCoord.textContent = '—';
-  cfgFunctionName.value = '';
-  cfgLocationType.value = '';
+  cfgFunctionName.value  = '';
+  cfgLocationType.value  = '';
   cfgDefaultAction.value = '';
+  cfgAgvCompat.value     = 'slam_qr';
   saveStatus.textContent = '';
   document.querySelectorAll('.node-click.selected').forEach((el) => {
     el.classList.remove('selected');
@@ -671,9 +754,13 @@ select option:checked {
   cfgNodeId.textContent = point.name_id ?? '—';
   cfgNodeCoord.textContent = `(${Number(point.x ?? 0).toFixed(3)}, ${Number(point.y ?? 0).toFixed(3)})`;
 
-  cfgFunctionName.value = point.name || '';
-  cfgLocationType.value = action.locationType || '';
+  cfgFunctionName.value  = point.name || '';
+  cfgLocationType.value  = action.locationType  || '';
   cfgDefaultAction.value = action.defaultAction || '';
+  cfgAgvCompat.value     = action.agvCompat     || 'slam_qr';
+  document.getElementById('cfgFwdTurn').value = action.fwd_turn || 'none';
+  document.getElementById('cfgBwdTurn').value = action.bwd_turn || 'none';
+  updateTurnFieldsVisibility();
 
   console.log('[FILL NODE]', point);
   console.log('[FILL ACTION PARSED]', action);
@@ -700,17 +787,23 @@ select option:checked {
         ctx.drawImage(img, 0, 0, imgNatW, imgNatH);
       }
 
-      function buildEdges(roads) {
+      function buildEdges(roads, points) {
+        // Lookup map để fallback tọa độ từ node khi DB thiếu point_start/end
+        const nodeMap = {};
+        for (const p of (points||[])) nodeMap[String(p.name_id)] = p;
+
         const ctx = overlayCanvas.getContext('2d');
         ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         ctx.strokeStyle = '#d1d5db';
         ctx.lineWidth = 12;
         ctx.lineCap = 'round';
         roads.forEach((r) => {
-          const sx = r.point_start_x ?? (Array.isArray(r.point_start) ? r.point_start[0] : 0);
-          const sy = r.point_start_y ?? (Array.isArray(r.point_start) ? r.point_start[1] : 0);
-          const ex = r.point_end_x ?? (Array.isArray(r.point_end) ? r.point_end[0] : 0);
-          const ey = r.point_end_y ?? (Array.isArray(r.point_end) ? r.point_end[1] : 0);
+          let sx = r.point_start_x ?? (Array.isArray(r.point_start) ? r.point_start[0] : null);
+          let sy = r.point_start_y ?? (Array.isArray(r.point_start) ? r.point_start[1] : null);
+          let ex = r.point_end_x   ?? (Array.isArray(r.point_end)   ? r.point_end[0]   : null);
+          let ey = r.point_end_y   ?? (Array.isArray(r.point_end)   ? r.point_end[1]   : null);
+          if (sx == null || sy == null) { const n = nodeMap[String(r.id_source)]; if (n) { sx = +n.x; sy = +n.y; } }
+          if (ex == null || ey == null) { const n = nodeMap[String(r.id_dest)];   if (n) { ex = +n.x; ey = +n.y; } }
           const s = worldToPixel(Number(sx || 0), Number(sy || 0));
           const e = worldToPixel(Number(ex || 0), Number(ey || 0));
           ctx.beginPath();
@@ -720,17 +813,23 @@ select option:checked {
         });
       }
 
-      function buildBeziers(beziers) {
+      function buildBeziers(beziers, points) {
         if (!Array.isArray(beziers) || beziers.length === 0) return;
+        const nodeMap = {};
+        for (const p of (points||[])) nodeMap[String(p.name_id)] = p;
+
         const ctx = overlayCanvas.getContext('2d');
         ctx.strokeStyle = '#d1d5db';
         ctx.lineWidth = 12;
         ctx.lineCap = 'round';
         beziers.forEach((b) => {
-          const p0 = worldToPixel(
-            Number((b.point_start_x ?? (Array.isArray(b.point_start) ? b.point_start[0] : 0)) || 0),
-            Number((b.point_start_y ?? (Array.isArray(b.point_start) ? b.point_start[1] : 0)) || 0)
-          );
+          let bsx = b.point_start_x ?? (Array.isArray(b.point_start) ? b.point_start[0] : null);
+          let bsy = b.point_start_y ?? (Array.isArray(b.point_start) ? b.point_start[1] : null);
+          let bex = b.point_end_x   ?? (Array.isArray(b.point_end)   ? b.point_end[0]   : null);
+          let bey = b.point_end_y   ?? (Array.isArray(b.point_end)   ? b.point_end[1]   : null);
+          if (bsx == null || bsy == null) { const n = nodeMap[String(b.id_source)]; if (n) { bsx = +n.x; bsy = +n.y; } }
+          if (bex == null || bey == null) { const n = nodeMap[String(b.id_dest)];   if (n) { bex = +n.x; bey = +n.y; } }
+          const p0 = worldToPixel(Number(bsx || 0), Number(bsy || 0));
           const p1 = worldToPixel(
             Number((b.curve_point_start_x ?? (Array.isArray(b.curve_point_start) ? b.curve_point_start[0] : 0)) || 0),
             Number((b.curve_point_start_y ?? (Array.isArray(b.curve_point_start) ? b.curve_point_start[1] : 0)) || 0)
@@ -739,10 +838,7 @@ select option:checked {
             Number((b.curve_point_end_x ?? (Array.isArray(b.curve_point_end) ? b.curve_point_end[0] : 0)) || 0),
             Number((b.curve_point_end_y ?? (Array.isArray(b.curve_point_end) ? b.curve_point_end[1] : 0)) || 0)
           );
-          const p3 = worldToPixel(
-            Number((b.point_end_x ?? (Array.isArray(b.point_end) ? b.point_end[0] : 0)) || 0),
-            Number((b.point_end_y ?? (Array.isArray(b.point_end) ? b.point_end[1] : 0)) || 0)
-          );
+          const p3 = worldToPixel(Number(bex || 0), Number(bey || 0));
           ctx.beginPath();
           ctx.moveTo(p0.x, p0.y);
           ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
@@ -761,16 +857,29 @@ select option:checked {
     console.log('[BUILD NODE]', p);
     console.log('[BUILD NODE COLOR]', p.name_id, color, p.action);
 
-    ctx.beginPath();
+    const agvCompat = (normalizeNodeAction(p.action).agvCompat) || 'slam_qr';
     ctx.fillStyle = color;
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
-    ctx.arc(pos.x, pos.y, 7, 0, Math.PI * 2);
+    ctx.beginPath();
+    if (agvCompat === 'RFID') {
+      // Hình thoi (rotated square) cho RFID tag
+      ctx.save();
+      ctx.translate(pos.x, pos.y);
+      ctx.rotate(Math.PI / 4);
+      ctx.rect(-5.5, -5.5, 11, 11);
+      ctx.restore();
+    } else {
+      ctx.arc(pos.x, pos.y, 7, 0, Math.PI * 2);
+    }
     ctx.fill();
     ctx.stroke();
 
     const div = document.createElement('div');
-    div.className = 'node-click';
+    const cls = agvCompat === 'RFID' ? 'node-click node-rfid'
+              : agvCompat === 'both' ? 'node-click node-both'
+              : 'node-click';
+    div.className = cls;
     div.style.left = `${pos.x}px`;
     div.style.top = `${pos.y}px`;
     div.style.background = color;
@@ -833,31 +942,57 @@ select option:checked {
           console.log("[ĐƯỜNG DẪN ẢNH ĐANG LOAD]", imgSrc);
 
           if (!imgSrc) {
-            throw new Error("Không tìm thấy dữ liệu ảnh trong robot_maps.image hoặc image_path");
+            // Map không có ảnh (AGV Line) — dùng nền trắng, bỏ qua lỗi
+            document.getElementById('scene').classList.add('no-image');
+            imgSrc = null;
+          } else {
+            document.getElementById('scene').classList.remove('no-image');
+          }
+          if (!imgSrc) {
+            // Không có ảnh → vẫn vẽ nodes/edges lên canvas trắng
+            const pts0 = data.robot_points || data.points || [];
+            const rds0 = data.robot_roads  || data.roads  || [];
+            detectCoordSystem(pts0, rds0);
+            setCanvasFromBBox(pts0);
+            buildEdges(rds0, pts0);
+            buildBeziers(data.benziers || data.robot_benziers || [], pts0);
+            buildNodes(pts0);
+            autoFit();
+            setStatus('Bản đồ không có ảnh nền — hiển thị trên nền trắng');
+            return;
           }
 
-          const img = await new Promise((resolve, reject) => {
+          const points = data.robot_points || data.points || [];
+          const roads  = data.robot_roads  || data.roads  || [];
+          const beziers = data.benziers || data.robot_benziers || data.beziers || [];
+          detectCoordSystem(points, roads);
+
+          const img = await new Promise((resolve) => {
             const i = new Image();
-            i.onload = () => resolve(i);
+            i.onload  = () => resolve(i);
             i.onerror = () => {
-              console.error("[LỖI TẢI ẢNH]", imgSrc);
-              reject(new Error("Không tải được ảnh bản đồ"));
+              console.warn("[WARN] Không tải được ảnh bản đồ — dùng nền trắng:", imgSrc);
+              resolve(null);  // Không throw — gracefully tiếp tục không có ảnh
             };
             i.src = imgSrc;
           });
 
-          drawMapImage(img);
+          if (!img) {
+            // Ảnh không tải được hoặc không có — dùng nền trắng
+            document.getElementById('scene').classList.add('no-image');
+            if (isSchematic) setCanvasFromBBox(points);
+          } else {
+            document.getElementById('scene').classList.remove('no-image');
+            drawMapImage(img);
+          }
 
-          const points = data.robot_points || data.points || [];
-          const roads = data.robot_roads || data.roads || [];
-          const beziers = data.benziers || data.robot_benziers || data.beziers || [];
-
-          buildEdges(roads);
-          buildBeziers(beziers);
+          buildEdges(roads, points);
+          buildBeziers(beziers, points);
           buildNodes(points);
           autoFit();
 
-          setStatus(`Đã tải thành công bản đồ: ${rm.name || data.name || mapId}`);
+          const mapLabel = rm.name || data.name || mapId;
+          setStatus(img ? `Đã tải: ${mapLabel}` : `Đã tải: ${mapLabel} (không có ảnh nền)`);
         } catch (err) {
           console.error("Lỗi khi tải bản đồ:", err);
           setStatus(`Lỗi tải bản đồ: ${err.message}`);
@@ -913,13 +1048,18 @@ select option:checked {
           return;
         }
 
+        const fwdTurn = document.getElementById('cfgFwdTurn').value;
+        const bwdTurn = document.getElementById('cfgBwdTurn').value;
         const payload = {
           mapId: currentMapId,
           nodeId: selectedNode.name_id,
           config: {
             name: cfgFunctionName.value.trim(),
             locationType: cfgLocationType.value,
-            defaultAction: cfgDefaultAction.value
+            defaultAction: cfgDefaultAction.value,
+            agvCompat: cfgAgvCompat.value || 'slam_qr',
+            fwd_turn: fwdTurn !== 'none' ? fwdTurn : null,
+            bwd_turn: bwdTurn !== 'none' ? bwdTurn : null,
           }
         };
 
@@ -940,7 +1080,8 @@ select option:checked {
           selectedNode.name = payload.config.name;
           selectedNode.action = {
             locationType: payload.config.locationType,
-            defaultAction: payload.config.defaultAction
+            defaultAction: payload.config.defaultAction,
+            agvCompat: payload.config.agvCompat,
           };
 
           const points = mapData.robot_points || mapData.points || [];
@@ -948,8 +1089,8 @@ select option:checked {
           const roads = mapData.robot_roads || mapData.roads || [];
           const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
 
-          buildEdges(roads);
-          buildBeziers(beziers);
+          buildEdges(roads, points);
+          buildBeziers(beziers, points);
           buildNodes(points);
 
           saveStatus.textContent = 'Đã lưu cấu hình node thành công.';
@@ -996,8 +1137,8 @@ select option:checked {
           const roads = mapData.robot_roads || mapData.roads || [];
           const beziers = mapData.benziers || mapData.robot_benziers || mapData.beziers || [];
 
-          buildEdges(roads);
-          buildBeziers(beziers);
+          buildEdges(roads, points);
+          buildBeziers(beziers, points);
           buildNodes(points);
 
           saveStatus.textContent = 'Đã xóa cấu hình node thành công.';

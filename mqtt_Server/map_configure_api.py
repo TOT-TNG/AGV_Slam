@@ -29,11 +29,26 @@ async def save_node_config(payload: MapNodeConfigRequest, request: Request):
     name = (config.get("name") or "").strip()
     location_type = (config.get("locationType") or "").strip().upper()
     default_action = (config.get("defaultAction") or "").strip().upper()
+    agv_compat = (config.get("agvCompat") or "slam_qr").strip()
+    if agv_compat not in ("slam_qr", "RFID", "both"):
+        agv_compat = "slam_qr"
 
-    action_json = {
-        "locationType": location_type,
-        "defaultAction": default_action
+    fwd_turn = (config.get("fwd_turn") or "").strip().lower()
+    bwd_turn = (config.get("bwd_turn") or "").strip().lower()
+    if fwd_turn not in ("right", "left"):
+        fwd_turn = None
+    if bwd_turn not in ("right", "left"):
+        bwd_turn = None
+
+    action_json: dict = {
+        "locationType":  location_type,
+        "defaultAction": default_action,
+        "agvCompat":     agv_compat,
     }
+    if fwd_turn:
+        action_json["fwd_turn"] = fwd_turn
+    if bwd_turn:
+        action_json["bwd_turn"] = bwd_turn
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(

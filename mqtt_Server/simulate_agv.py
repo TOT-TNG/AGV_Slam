@@ -4,7 +4,7 @@ import json
 import time
 import random
 
-BROKER = "192.168.1.25"
+BROKER = "192.168.0.26"
 PORT = 1883
 AGV_ID = "QR-SLAM-AGV-001"
 

@@ -18,6 +18,15 @@ class MapManager:
         # [ {name_id, name, x, y, action}, ... ]
         self.robot_points = []
 
+        # Toàn bộ road data (có speed, move_direction) cho topology builder và export
+        self.roads = []   # [ {id_source, id_dest, speed, move_direction, distance, width} ]
+        self.all_points = []  # [ {name_id, name, x, y, action, agv_compat} ] đầy đủ cho export
+
+        # Sub-graph và points chỉ dành cho Line AGV (node có agvCompat RFID/both)
+        self.line_graph   = nx.DiGraph()
+        self.line_points:  dict = {}   # {name_id: (x, y)}
+        self.node_actions: dict = {}   # {name_id: action_dict} chứa fwd_turn/bwd_turn
+
     async def resolve_map_id(self, pool, value: str):
         """
         Cho phép truyền vào map_id hoặc map name.
@@ -60,12 +69,13 @@ class MapManager:
             print(f"[MapManager] Using cached graph | map_id={map_id}")
             return
 
-        g = nx.Graph()
+        # DiGraph để pathfinding tôn trọng chiều đi (move_direction)
+        g = nx.DiGraph()
 
         async with pool.acquire() as conn:
             roads = await conn.fetch(
                 """
-                SELECT id_source, id_dest, distance
+                SELECT id_source, id_dest, distance, speed, move_direction, width
                 FROM agv_map_roads
                 WHERE CAST(map_id AS TEXT) = $1
                 """,
@@ -74,7 +84,8 @@ class MapManager:
 
             benziers = await conn.fetch(
                 """
-                SELECT id_source, id_dest
+                SELECT id_source, id_dest, speed, move_direction,
+                       point_start_x, point_start_y, point_end_x, point_end_y
                 FROM agv_map_benziers
                 WHERE CAST(map_id AS TEXT) = $1
                 """,
@@ -90,20 +101,57 @@ class MapManager:
                 map_id,
             )
 
+        roads_data = []
         for r in roads:
             src = str(r["id_source"])
             dst = str(r["id_dest"])
             weight = float(r["distance"]) if r["distance"] is not None else 1.0
+            speed  = float(r["speed"])  if r["speed"]    is not None else 0.5
+            mdir   = int(r["move_direction"]) if r["move_direction"] is not None else 0
+            width  = float(r["width"]) if r["width"] is not None else 0.95
+            attrs  = dict(weight=weight, speed=speed, move_direction=mdir)
+
             g.add_node(src)
             g.add_node(dst)
-            g.add_edge(src, dst, weight=weight)
+
+            # 0=both, 1=forward(src→dst), 2=backward(dst→src), 3=blocked
+            if mdir == 0:           # 2 chiều
+                g.add_edge(src, dst, **attrs)
+                g.add_edge(dst, src, **attrs)
+            elif mdir == 1:         # 1 chiều tiến
+                g.add_edge(src, dst, **attrs)
+            elif mdir == 2:         # 1 chiều lùi (đảo hướng)
+                g.add_edge(dst, src, **attrs)
+            # mdir == 3 (blocked): thêm node nhưng không thêm edge
+
+            roads_data.append({
+                "id_source": src, "id_dest": dst,
+                "speed": speed, "move_direction": mdir,
+                "distance": weight, "width": width,
+            })
 
         for b in benziers:
             src = str(b["id_source"])
             dst = str(b["id_dest"])
+            b_speed = float(b["speed"]) if b["speed"] is not None else 0.5
+            b_mdir  = int(b["move_direction"]) if b["move_direction"] is not None else 0
+            # Tính distance từ tọa độ đầu-cuối
+            try:
+                dx = float(b["point_end_x"]) - float(b["point_start_x"])
+                dy = float(b["point_end_y"]) - float(b["point_start_y"])
+                b_weight = (dx**2 + dy**2) ** 0.5 or 1.0
+            except Exception:
+                b_weight = 1.0
+            b_attrs = dict(weight=b_weight, speed=b_speed, move_direction=b_mdir)
             g.add_node(src)
             g.add_node(dst)
-            g.add_edge(src, dst, weight=1.0)
+            if b_mdir == 0:
+                g.add_edge(src, dst, **b_attrs)
+                g.add_edge(dst, src, **b_attrs)
+            elif b_mdir == 1:
+                g.add_edge(src, dst, **b_attrs)
+            elif b_mdir == 2:
+                g.add_edge(dst, src, **b_attrs)
 
         # Dữ liệu point cho planner
         point_dict = {
@@ -111,22 +159,63 @@ class MapManager:
             for p in points
         }
 
+        import json as _json_mm
+        all_points = []
+        rfid_node_ids: set = set()
+        for row in points:
+            try:
+                act = row["action"] or {}
+                if isinstance(act, str):
+                    act = _json_mm.loads(act)
+            except Exception:
+                act = {}
+            agv_compat = str(act.get("agvCompat") or "slam_qr")
+            nid = str(row["name_id"])
+            all_points.append({
+                "name_id":   nid,
+                "name":      row["name"] or "",
+                "x":         float(row["x"]),
+                "y":         float(row["y"]),
+                "action":    row["action"] if row["action"] is not None else None,
+                "agv_compat": agv_compat,
+            })
+            if agv_compat in ("RFID", "both"):
+                rfid_node_ids.add(nid)
+
+        # Sub-graph cho Line AGV: chỉ bao gồm node RFID / both
+        line_g = g.__class__()
+        for nid in rfid_node_ids:
+            if g.has_node(nid):
+                line_g.add_node(nid)
+        for u, v, data in g.edges(data=True):
+            if u in rfid_node_ids and v in rfid_node_ids:
+                line_g.add_edge(u, v, **data)
+        line_points = {nid: xy for nid, xy in point_dict.items() if nid in rfid_node_ids}
+
         # Dữ liệu point cho UI / debug nếu cần
-        robot_points = [
-            {
-                "name_id": str(row["name_id"]),
-                "name": row["name"],
-                "x": float(row["x"]),
-                "y": float(row["y"]),
-                "action": row["action"] if row["action"] is not None else None,
-            }
-            for row in points
-        ]
+        robot_points = all_points[:]
+
+        # node_actions: {name_id_str: action_dict} — dùng để đọc fwd_turn/bwd_turn
+        node_actions: dict = {}
+        for row in points:
+            nid = str(row["name_id"])
+            try:
+                act = row["action"] or {}
+                if isinstance(act, str):
+                    act = _json_mm.loads(act)
+            except Exception:
+                act = {}
+            node_actions[nid] = act
 
         self.graph = g
         self.points = point_dict
         self.robot_points = robot_points
+        self.all_points = all_points
+        self.roads = roads_data
         self.current_map_id = map_id
+        self.line_graph   = line_g
+        self.line_points  = line_points
+        self.node_actions = node_actions  # {nid: {agvCompat, fwd_turn, bwd_turn, ...}}
 
         print(
             f"[MapManager] Loaded graph from DB | map_id={map_id} | "
@@ -134,6 +223,7 @@ class MapManager:
         )
         print(f"[MapManager] Points loaded for planner: {len(self.points)}")
         print(f"[MapManager] Points loaded for UI: {len(self.robot_points)}")
+        print(f"[MapManager] Line AGV nodes (RFID/both): {len(rfid_node_ids)}")
 
     def nearest_node(self, x: float, y: float):
         """Tìm node gần nhất theo tọa độ (x,y) từ agv_map_points đã load."""
@@ -169,6 +259,32 @@ class MapManager:
         except nx.NodeNotFound as e:
             print(f"[MapManager] Lỗi NodeNotFound: {e}")
             print(f"[MapManager] Nodes hiện có: {list(self.graph.nodes)}")
+            return None
+
+    def line_shortest_path(self, start: str, end: str):
+        """Tìm đường đi cho Line AGV — chỉ qua node RFID/both.
+        Fallback về full graph nếu line_graph chưa có node (map chưa set agvCompat).
+        """
+        g = self.line_graph
+        if g is None or g.number_of_nodes() == 0:
+            print("[MapManager] line_graph rỗng — fallback full graph (map chưa cấu hình agvCompat)")
+            return self.shortest_path(start, end)
+        # Kiểm tra node start/end có trong line_graph không
+        if not g.has_node(str(start)) or not g.has_node(str(end)):
+            missing = []
+            if not g.has_node(str(start)): missing.append(f"start={start}")
+            if not g.has_node(str(end)):   missing.append(f"end={end}")
+            print(f"[MapManager] line_graph thiếu node {missing} — fallback full graph")
+            return self.shortest_path(start, end)
+        try:
+            path = nx.shortest_path(g, source=str(start), target=str(end), weight="weight")
+            print(f"[MapManager] Line AGV path: {' → '.join(path)}")
+            return path
+        except nx.NetworkXNoPath:
+            print(f"[MapManager] line_graph: không có đường {start}→{end} — fallback full graph")
+            return self.shortest_path(start, end)
+        except nx.NodeNotFound as e:
+            print(f"[MapManager] line_shortest_path NodeNotFound: {e}")
             return None
 
         except nx.NetworkXNoPath:

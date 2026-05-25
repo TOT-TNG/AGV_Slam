@@ -1,7 +1,7 @@
-# main.py - PHIÊN BẢN HOÀN CHỈNH 2025 - REAL-TIME ĐA CLIENT + BROADCAST MỌI SỰ KIỆN
+﻿# main.py - PHIÊN BẢN HOÀN CHỈNH 2025 - REAL-TIME ĐA CLIENT + BROADCAST MỌI SỰ KIỆN
 from fastapi import FastAPI, HTTPException, APIRouter, UploadFile, File, Form, Request, WebSocket
 from pydantic import BaseModel
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -17,6 +17,7 @@ import base64
 import os
 from mqtt_client import (
     start_mqtt,
+    setup_unified_mqtt,
     send_order,
     agv_manager,
     map_manager,
@@ -30,6 +31,8 @@ from mqtt_client import (
     send_agv_to_special_target,
     cancel_agv_order,
     get_agv_special_targets,
+    switch_mqtt_mode,
+    get_mqtt_mode,
 )
 from order_builder import build_order
 from map_configure_api import router as map_config_router
@@ -58,6 +61,12 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import List, Dict
 import json
+
+# Fix Windows terminal encoding (cp1252 → utf-8) để print tiếng Việt không crash
+if hasattr(sys.stdout, 'buffer') and getattr(sys.stdout, 'encoding', 'utf-8').lower() != 'utf-8':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+if hasattr(sys.stderr, 'buffer') and getattr(sys.stderr, 'encoding', 'utf-8').lower() != 'utf-8':
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 traffic_engine = TrafficEngine()
 _last_main_log_ts: dict[str, float] = {}
@@ -174,23 +183,78 @@ def _build_traffic_topology_from_loaded_map() -> TrafficTopologyMap:
         for node_id, pos in map_manager.points.items()
     ]
 
+    # Build từ roads list — tôn trọng move_direction
+    # move_direction: 0=both, 1=forward(src→dst), 2=backward(dst→src), 3=blocked
     edges = []
-    for src, dst, data in map_manager.graph.edges(data=True):
-        src_id = str(src)
-        dst_id = str(dst)
-        length = float(data.get("weight") or 1.0)
-        physical_edge_id = "__".join(sorted((src_id, dst_id)))
-        edges.append(
-            TrafficEdge(
+    seen_physical: set[str] = set()   # tránh tạo duplicate cho 2-chiều
+
+    for r in (getattr(map_manager, 'roads', []) or []):
+        src_id   = str(r['id_source'])
+        dst_id   = str(r['id_dest'])
+        mdir     = int(r.get('move_direction') or 0)
+        length   = float(r.get('distance') or 1.0)
+        max_speed = float(r.get('speed') or 0.5)
+        phys_id  = "__".join(sorted((src_id, dst_id)))
+
+        if mdir == 3:               # blocked — bỏ qua hoàn toàn
+            continue
+
+        if mdir == 0:               # 2 chiều — tạo 1 edge bidirectional=True
+            if phys_id in seen_physical:
+                continue            # đã tạo từ lần lặp ngược
+            seen_physical.add(phys_id)
+            edges.append(TrafficEdge(
                 edge_id=f"{src_id}_to_{dst_id}",
-                from_node=src_id,
-                to_node=dst_id,
-                length=length,
-                max_speed=1.0,
-                bidirectional=True,
-                physical_edge_id=physical_edge_id,
-            )
+                from_node=src_id, to_node=dst_id,
+                length=length, max_speed=max_speed,
+                bidirectional=True,             # TopologyMap tự tạo reverse
+                physical_edge_id=phys_id,
+            ))
+
+        elif mdir == 1:             # 1 chiều tiến src→dst
+            edges.append(TrafficEdge(
+                edge_id=f"{src_id}_to_{dst_id}",
+                from_node=src_id, to_node=dst_id,
+                length=length, max_speed=max_speed,
+                bidirectional=False,
+                physical_edge_id=phys_id,
+            ))
+
+        elif mdir == 2:             # 1 chiều lùi → đảo thành dst→src
+            edges.append(TrafficEdge(
+                edge_id=f"{dst_id}_to_{src_id}",
+                from_node=dst_id, to_node=src_id,
+                length=length, max_speed=max_speed,
+                bidirectional=False,
+                physical_edge_id=phys_id,
+            ))
+
+    # Bezier curves — luôn 2 chiều (không có move_direction trong DB)
+    for src, dst, data in map_manager.graph.edges(data=True):
+        if int(data.get('move_direction', 0)) != 0:
+            continue    # roads đã xử lý ở trên
+        src_id = str(src); dst_id = str(dst)
+        phys_id = "__".join(sorted((src_id, dst_id)))
+        if phys_id in seen_physical:
+            continue
+        # Edge này đến từ benzier (không có trong roads_data)
+        in_roads = any(
+            (str(r['id_source']) == src_id and str(r['id_dest']) == dst_id) or
+            (str(r['id_source']) == dst_id and str(r['id_dest']) == src_id)
+            for r in (getattr(map_manager, 'roads', []) or [])
         )
+        if in_roads:
+            continue
+        seen_physical.add(phys_id)
+        edges.append(TrafficEdge(
+            edge_id=f"{src_id}_to_{dst_id}",
+            from_node=src_id, to_node=dst_id,
+            length=float(data.get('weight') or 1.0),
+            max_speed=float(data.get('speed') or 0.5),
+            bidirectional=True,
+            physical_edge_id=phys_id,
+        ))
+
     return TrafficTopologyMap(nodes, edges)
 
 
@@ -225,6 +289,51 @@ def _route_to_node_path(route) -> list[str]:
     return [str(route.start_node)] + [str(segment.to_node) for segment in route.segments]
 
 
+def _line_agv_dispatch_to_charge(agv_id: str) -> None:
+    """
+    Dispatch Line AGV về trạm sạc.
+    Gọi từ _on_battery_event callback trong mqtt_client.
+    """
+    try:
+        from mqtt_client import (
+            send_order,
+            plan_path_for_order,
+            resolve_special_target_node,
+            get_agv_runtime_info,
+        )
+        from line_agv_plan_builder import build_line_plan
+        from line_agv_handler import line_agv_handler
+
+        info = get_agv_runtime_info(agv_id)
+        current_node = info["current_node"]
+        if not current_node:
+            print(f"[LINE_CHARGE] {agv_id}: không biết vị trí hiện tại")
+            return
+
+        target_info = resolve_special_target_node(agv_id, "charge")
+        target_node = target_info["node_id"]
+
+        if str(current_node) == str(target_node):
+            print(f"[LINE_CHARGE] {agv_id}: đã ở trạm sạc {target_node}")
+            return
+
+        route_nodes, _ = plan_path_for_order(agv_id, current_node, target_node)
+        path = [str(n["nodeId"]) for n in route_nodes]
+        if not path:
+            print(f"[LINE_CHARGE] {agv_id}: không tìm được đường về trạm sạc")
+            return
+
+        points = getattr(map_manager, "points", {}) or {}
+        plan   = build_line_plan(path, points, task_type="return_charge")
+
+        line_agv_handler.set_route(agv_id, path, "return_charge")
+        send_order(agv_id, plan)
+        print(f"[LINE_CHARGE] {agv_id}: dispatched to charge {target_node} | path={path}")
+
+    except Exception as e:
+        print(f"[LINE_CHARGE] {agv_id}: dispatch error: {e}")
+
+
 def build_order_for_traffic_route(
     agv_id: str,
     route,
@@ -232,7 +341,38 @@ def build_order_for_traffic_route(
     order_id: str | None = None,
     order_update_id: int = 0,
 ):
+    from agv_registry import agv_registry
+
     node_path = _route_to_node_path(route)
+
+    # ── Line AGV: trả về plan {"c":"plan","id":...,"d":[...]} ─────────────────
+    if agv_registry.is_line(agv_id):
+        from line_agv_plan_builder import build_plan_window, first_window_end
+        from line_agv_handler import line_agv_handler
+
+        str_path  = [str(p) for p in node_path]
+        points    = getattr(map_manager, "points", {}) or {}
+        task_type = str(agv_state.get("task_type", "delivery") or "delivery")
+        cmd_id    = str(order_id)[:8] if order_id else None
+
+        # Lưu route để handler quản lý rolling plan
+        line_agv_handler.set_route(agv_id, str_path, task_type)
+
+        # Chỉ gửi cửa sổ đầu tiên
+        w_end    = first_window_end(str_path)
+        is_final = (w_end == len(str_path) - 1)
+        plan = build_plan_window(
+            full_path=str_path,
+            w_start=0,
+            w_end=w_end,
+            points=points,
+            is_final=is_final,
+            task_type=task_type,
+            cmd_id=cmd_id,
+        )
+        return plan, str_path
+
+    # ── VDA5050: giữ nguyên logic cũ ─────────────────────────────────────────
     external_path = _format_path_for_agv_node_ids(node_path, agv_state.get("lastNodeId"))
     coords_lookup = {}
     if getattr(map_manager, "points", None):
@@ -524,6 +664,44 @@ async def lifespan(app: FastAPI):
 
     set_app(app)
 
+    # ── Load AGV registry từ DB (agv_devices) ────────────────────────────────
+    # Ưu tiên DB; fallback về simulator.json nếu DB chưa sẵn sàng
+    try:
+        from agv_registry import agv_registry as _registry
+        if app.state.db_pool:
+            _registry.load_from_db()
+            print(f"[REGISTRY] Loaded from DB: {_registry}")
+        else:
+            raise RuntimeError("DB pool not ready")
+    except Exception as _re:
+        print(f"[REGISTRY] DB load failed ({_re}), falling back to simulator.json")
+        try:
+            import json as _json, os as _os
+            _cfg_path = _os.path.join(_os.path.dirname(__file__), "..", "agv_vda5050_simulator", "config", "simulator.json")
+            if _os.path.exists(_cfg_path):
+                with open(_cfg_path, encoding="utf-8") as _f:
+                    _sim = _json.load(_f)
+                from agv_registry import agv_registry as _registry
+                _registry.load_from_config(_sim.get("agvs", []))
+        except Exception as _fe:
+            print(f"[REGISTRY] Fallback also failed: {_fe}")
+
+    # ── Khởi tạo unified MQTT (dùng registry vừa load) ───────────────────────
+    try:
+        import json as _json, os as _os
+        _cfg_path = _os.path.join(_os.path.dirname(__file__), "..", "agv_vda5050_simulator", "config", "simulator.json")
+        _server_cfg: dict = {}
+        if _os.path.exists(_cfg_path):
+            with open(_cfg_path, encoding="utf-8") as _f:
+                _sim = _json.load(_f)
+            _server_cfg = {
+                "factory":      _sim.get("mqtt", {}).get("interface_name", "uagv"),
+                "manufacturer": _sim.get("manufacturer", "tot"),
+            }
+        setup_unified_mqtt([], _server_cfg)   # agv_cfgs rỗng — registry đã load từ DB
+    except Exception as _ue:
+        print(f"[UNIFIED_MQTT] init warning (non-fatal): {_ue}")
+
     # Khởi động MQTT
     print("[MQTT] Đang khởi động và chờ AGV kết nối thực tế...")
     app.state.mqtt_connected = start_mqtt()
@@ -531,6 +709,100 @@ async def lifespan(app: FastAPI):
     app.state.offline_task = asyncio.create_task(monitor_offline(app.state.offline_stop))
     if not app.state.mqtt_connected:
         print("[WARNING] MQTT broker is unavailable; server continues without broker state stream")
+
+    # ── Tạo bảng agv_task_executions nếu chưa có ────────────────────────────────
+    if app.state.db_pool:
+        try:
+            async with app.state.db_pool.acquire() as _conn:
+                await _conn.execute("""
+                    CREATE TABLE IF NOT EXISTS agv_task_executions (
+                        id            SERIAL PRIMARY KEY,
+                        cmd_id        VARCHAR(16) UNIQUE NOT NULL,
+                        agv_id        VARCHAR(50),
+                        command       VARCHAR(50),
+                        dest_node     VARCHAR(100),
+                        status        VARCHAR(20) DEFAULT 'queued',
+                        queued_at     TIMESTAMPTZ DEFAULT NOW(),
+                        started_at    TIMESTAMPTZ,
+                        completed_at  TIMESTAMPTZ,
+                        notes         TEXT
+                    )
+                """)
+            print("[DB] Table agv_task_executions ready")
+            # Thêm cột map_id vào agv_devices nếu chưa có
+            await _conn.execute(
+                "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS map_id TEXT"
+            )
+            await _conn.execute(
+                "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS factory TEXT"
+            )
+            print("[DB] Columns agv_devices.map_id / factory ensured")
+            # Lưu vị trí RFID cuối của Line AGV
+            await _conn.execute(
+                "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS last_tag TEXT"
+            )
+            print("[DB] Column agv_devices.last_tag ensured")
+        except Exception as _te:
+            print(f"[DB] Create table error (non-fatal): {_te}")
+
+    # ── Khôi phục vị trí AGV Line từ DB (last_tag) ───────────────────────────
+    try:
+        async with app.state.db_pool.acquire() as _c:
+            _rows = await _c.fetch(
+                "SELECT name, last_tag FROM agv_devices WHERE last_tag IS NOT NULL"
+            )
+        if _rows:
+            from line_agv_handler import line_agv_handler as _lah
+            for _r in _rows:
+                _agv_id = str(_r["name"]).strip()
+                _tag_str = str(_r["last_tag"]).strip()
+                if _tag_str.lstrip("-").isdigit():
+                    _lah.override_position(_agv_id, int(_tag_str))
+                    print(f"[STARTUP] Restored last_tag={_tag_str} for {_agv_id}")
+    except Exception as _re:
+        print(f"[STARTUP] Restore last_tag failed (non-fatal): {_re}")
+
+    # ── Khởi tạo AGVTaskQueue ─────────────────────────────────────────────────
+    try:
+        from task_queue import agv_task_queue as _queue
+        if app.state.db_pool:
+            _queue.set_pool(app.state.db_pool)
+
+        def _queue_dispatch(cmd) -> bool:
+            from task_queue import CMD_GO_TO, CMD_GO_CHARGE, CMD_GO_WAIT, CMD_STOP, CMD_RESUME
+            from mqtt_client import (
+                send_agv_to_special_target, send_instant_action,
+                send_line_command, plan_path_for_order,
+            )
+            from agv_registry import agv_registry
+            try:
+                if cmd.command == CMD_STOP:
+                    if agv_registry.is_line(cmd.agv_id):
+                        return send_line_command(cmd.agv_id, "stop")
+                    return send_instant_action(cmd.agv_id, "PAUSE")
+                if cmd.command == CMD_RESUME:
+                    if agv_registry.is_line(cmd.agv_id):
+                        return send_line_command(cmd.agv_id, "run")
+                    return send_instant_action(cmd.agv_id, "RESUME")
+                if cmd.command == CMD_GO_CHARGE:
+                    send_agv_to_special_target(cmd.agv_id, "charge")
+                    return True
+                if cmd.command == CMD_GO_WAIT:
+                    send_agv_to_special_target(cmd.agv_id, "wait")
+                    return True
+                if cmd.command == CMD_GO_TO and cmd.dest_node:
+                    return bool(_dispatch_go_to(cmd.agv_id, cmd.dest_node,
+                                                start_node=getattr(cmd, "start_node", None)))
+                return False
+            except Exception as _e:
+                print(f"[QUEUE_DISPATCH] error: {_e}")
+                cmd.notes = str(_e)   # lưu lỗi thật để API trả về
+                return False
+
+        _queue.dispatch_fn = _queue_dispatch
+        print("[QUEUE] AGVTaskQueue ready")
+    except Exception as _qe:
+        print(f"[QUEUE] init error (non-fatal): {_qe}")
 
     print("[SYSTEM] Hệ thống đã sẵn sàng!")
     print("[INFO] AGV sẽ xuất hiện khi gửi state thật qua MQTT")
@@ -568,19 +840,14 @@ app = FastAPI(
     redoc_url="/api-agv-redoc",
     openapi_url="/openapi.json"
 )
-app.include_router(map_config_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://192.168.1.25:8050",
-        #"http://192.168.1.25:8050",
-        # "http://192.168.1.25:*",   # nếu muốn cho phép mọi port trên IP này (test tạm)
-        # "*"                        # test tạm cho phép tất cả (không nên để lâu)
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(map_config_router)
 # ==========================
 # WEBSOCKET CONNECTION MANAGER + BROADCAST
 # ==========================
@@ -679,6 +946,36 @@ MAP_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 app.mount("/maps", StaticFiles(directory=MAP_DIR), name="maps")
 
+@app.get("/api/map/slam-image/{map_id}")
+async def get_slam_image_flipped(map_id: str):
+    """Trả về ảnh SLAM đã flip ngang (horizontal mirror) để dùng trong map editor."""
+    import io
+    img_path = MAP_DIR / f"{map_id}.png"
+    if not img_path.exists():
+        raise HTTPException(status_code=404, detail=f"Image not found: {map_id}.png")
+    try:
+        from PIL import Image as PILImage
+        img = PILImage.open(img_path).convert("RGBA")
+        flipped = img.transpose(PILImage.Transpose.FLIP_LEFT_RIGHT)
+        buf = io.BytesIO()
+        flipped.save(buf, format="PNG")
+        buf.seek(0)
+        return StreamingResponse(buf, media_type="image/png",
+                                 headers={"Cache-Control": "max-age=3600"})
+    except ImportError:
+        pass
+    try:
+        import cv2
+        img_cv = cv2.imread(str(img_path))
+        flipped_cv = cv2.flip(img_cv, 1)
+        _, buf_cv = cv2.imencode(".png", flipped_cv)
+        return StreamingResponse(io.BytesIO(buf_cv.tobytes()), media_type="image/png",
+                                 headers={"Cache-Control": "max-age=3600"})
+    except ImportError:
+        pass
+    return FileResponse(img_path)  # fallback: ảnh gốc nếu không có PIL/cv2
+
+
 @app.get("/")
 @app.get("/AgvMap")
 @app.get("/AgvMap.html")
@@ -694,7 +991,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.1.25:8050/home")
+    return RedirectResponse(url="http://192.168.1.15:8050/home")
 
 # ==========================
 # DEBUG ROUTES
@@ -924,6 +1221,197 @@ def release_order(req: ReleaseRequest):
     return {"status": "OK", "message": f"Đã giải phóng khóa đường cho {req.agv_id}"}
 
 # ==========================
+# EXPORT MAP → LINE AGV (map_data.json) + VDA5050 topology reload
+# ==========================
+
+_LINE_AGV_MAP_PATH = os.path.join(
+    os.path.dirname(__file__), "..",
+    "AGV_NewVersion - Copy", "AGV_NewVersion - Copy",
+    "python-manager", "config", "map_data.json"
+)
+
+# move_direction từ Web UI → w (weight/directionality) trong map_data.json
+# 0=both → w=1 (bidirectional: planner add cả 2 chiều)
+# 1=forward → w=2 (1 chiều u→v)
+# 2=backward → w=2 (1 chiều v→u, đảo u/v khi tạo edge)
+# 3=blocked → bỏ qua
+_MDIR_TO_W = {0: 1, 1: 2, 2: 2, 3: None}
+
+# locationType → type/role cho Line AGV
+_LOC_TYPE_MAP = {
+    "CHARGER": ("station", "charger"),
+    "CONVEYOR": ("station", "pickup"),
+    "DROPOFF": ("station", "dropoff"),
+    "HOME": ("station", "home"),
+    "BUFFER": ("normal", "wait"),
+    "PARKING": ("normal", "parking"),
+}
+
+
+def _build_line_agv_map(points: list, roads: list, benziers: list = None) -> dict:
+    """Convert từ DB format → map_data.json format cho Line AGV."""
+    import json as _json
+
+    nodes = {}
+    for p in points:
+        nid = str(p["name_id"])
+        action = p.get("action") or {}
+        if isinstance(action, str):
+            try:
+                action = _json.loads(action)
+            except Exception:
+                action = {}
+        loc_type = str(action.get("locationType") or "").upper()
+        node_type, node_role = _LOC_TYPE_MAP.get(loc_type, ("normal", None))
+        entry = {
+            "x": float(p["x"]),
+            "y": float(p["y"]),
+            "disp_x": float(p["x"]),
+            "disp_y": float(p["y"]),
+            "type": node_type,
+        }
+        if node_role:
+            entry["role"] = node_role
+        if p.get("name"):
+            entry["name"] = p["name"]
+        entry["actions"] = []
+        nodes[nid] = entry
+
+    def _road_to_edge(r, is_bezier=False):
+        src = str(r["id_source"])
+        dst = str(r["id_dest"])
+        mdir = int(r.get("move_direction") or 0)
+        w = _MDIR_TO_W.get(mdir)
+        if w is None:
+            return None  # blocked → skip
+        speed_ms = float(r.get("speed") or 0.5)
+        p_val = int(speed_ms * 100) if speed_ms > 0 else 0
+
+        if is_bezier:
+            # Tính khoảng cách từ tọa độ đầu-cuối
+            try:
+                dx = float(r["point_end_x"]) - float(r["point_start_x"])
+                dy = float(r["point_end_y"]) - float(r["point_start_y"])
+                dist = round((dx**2 + dy**2) ** 0.5, 3)
+            except Exception:
+                dist = 1.0
+        else:
+            dist = float(r.get("distance") or 1.0)
+
+        if mdir == 2:  # backward → đảo u/v
+            src, dst = dst, src
+
+        edge_entry = {"u": _to_int(src), "v": _to_int(dst), "w": w, "a": 3, "p": p_val}
+        if dist and dist != 1.0:
+            edge_entry["distance"] = dist
+        return edge_entry
+
+    edges = []
+    for r in roads:
+        e = _road_to_edge(r, is_bezier=False)
+        if e:
+            edges.append(e)
+    for b in (benziers or []):
+        e = _road_to_edge(b, is_bezier=True)
+        if e:
+            edges.append(e)
+
+    return {"nodes": nodes, "edges": edges}
+
+
+def _to_int(node_id: str):
+    """Cố gắng convert node_id sang int (Line AGV dùng int tag); fallback về string."""
+    try:
+        return int(node_id)
+    except (ValueError, TypeError):
+        return node_id
+
+
+class MapExportRequest(BaseModel):
+    map_id: str
+
+
+@app.post("/api/map/export")
+async def export_map(req: MapExportRequest, request: Request):
+    """
+    Đồng bộ bản đồ từ DB sang:
+    1. Line AGV: ghi ra map_data.json (với edge speed, direction)
+    2. VDA5050: invalidate topology cache → rebuild lần sau khi cần
+    """
+    pool = request.app.state.db_pool
+    if not pool:
+        raise HTTPException(status_code=503, detail="Database pool not initialized")
+
+    map_id = str(req.map_id).strip()
+    if not map_id:
+        raise HTTPException(status_code=400, detail="map_id is required")
+
+    # ── Load từ DB ─────────────────────────────────────────────────────────────
+    try:
+        async with pool.acquire() as conn:
+            points_rows = await conn.fetch(
+                "SELECT name_id, x, y, name, action FROM agv_map_points WHERE CAST(map_id AS TEXT)=$1",
+                map_id,
+            )
+            roads_rows = await conn.fetch(
+                "SELECT id_source, id_dest, speed, move_direction, distance, width "
+                "FROM agv_map_roads WHERE CAST(map_id AS TEXT)=$1",
+                map_id,
+            )
+            benziers_rows = await conn.fetch(
+                "SELECT id_source, id_dest, speed, move_direction, "
+                "point_start_x, point_start_y, point_end_x, point_end_y "
+                "FROM agv_map_benziers WHERE CAST(map_id AS TEXT)=$1",
+                map_id,
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB query failed: {e}")
+
+    points   = [dict(r) for r in points_rows]
+    roads    = [dict(r) for r in roads_rows]
+    benziers = [dict(r) for r in benziers_rows]
+
+    if not points:
+        raise HTTPException(status_code=404, detail=f"Map {map_id} not found or has no points")
+
+    result = {"map_id": map_id, "nodes": len(points), "edges": len(roads) + len(benziers)}
+
+    # ── 1. Export cho Line AGV ─────────────────────────────────────────────────
+    line_map = _build_line_agv_map(points, roads, benziers)
+    try:
+        line_path = os.path.abspath(_LINE_AGV_MAP_PATH)
+        os.makedirs(os.path.dirname(line_path), exist_ok=True)
+        import json as _json
+        with open(line_path, "w", encoding="utf-8") as f:
+            _json.dump(line_map, f, ensure_ascii=False, indent=2)
+        result["line_agv_export"] = f"OK → {line_path}"
+        print(f"[MAP_EXPORT] Line AGV map_data.json saved: {line_path} "
+              f"({len(line_map['nodes'])} nodes, {len(line_map['edges'])} edges)")
+    except Exception as e:
+        result["line_agv_export"] = f"ERROR: {e}"
+        print(f"[MAP_EXPORT] Line AGV export failed: {e}")
+
+    # ── 2. VDA5050: invalidate topology cache + reload map_manager ─────────────
+    try:
+        # Xóa context cũ khỏi traffic engine → lần sau gọi ensure_topology sẽ rebuild với speed mới
+        with traffic_engine._lock:
+            traffic_engine._contexts.pop(map_id, None)
+        result["vda5050_topology"] = "cache_invalidated"
+    except Exception as e:
+        result["vda5050_topology"] = f"warn: {e}"
+
+    # Force reload map_manager để có roads data với speed đầy đủ
+    try:
+        map_manager.current_map_id = None   # buộc load lại
+        await map_manager.load_from_db(pool, map_id)
+        result["vda5050_map_manager"] = "reloaded"
+    except Exception as e:
+        result["vda5050_map_manager"] = f"warn: {e}"
+
+    return {"status": "ok", **result}
+
+
+# ==========================
 # UPLOAD MAP HOÀN CHỈNH + BROADCAST MAP MỚI
 # ==========================
 
@@ -1002,35 +1490,32 @@ async def get_map_detail(map_id: str):
 
         # Lấy points
         points = await conn.fetch("""
-            SELECT name_id, name, x, y , action
-            FROM agv_map_points 
+            SELECT name_id, name, x, y, action, type, speed
+            FROM agv_map_points
             WHERE map_id = $1
         """, map_id)
 
         # Lấy roads
         roads = await conn.fetch("""
-            SELECT id_source, id_dest, 
-                   point_start_x, point_start_y, 
+            SELECT id_source, id_dest,
+                   point_start_x, point_start_y,
                    point_end_x, point_end_y,
-                   move_direction, width
-            FROM agv_map_roads 
+                   move_direction, width, speed, distance
+            FROM agv_map_roads
             WHERE map_id = $1
         """, map_id)
-        
-        # =========================================================================
-        # [MỚI] LẤY ĐƯỜNG CONG BEZIER
-        # =========================================================================
+
+        # Lấy bezier curves
         benziers = await conn.fetch("""
-            SELECT id_source, id_dest, 
-                   point_start_x, point_start_y, 
+            SELECT id_source, id_dest,
+                   point_start_x, point_start_y,
                    point_end_x, point_end_y,
                    curve_point_start_x, curve_point_start_y,
                    curve_point_end_x, curve_point_end_y,
-                   move_direction, width
+                   move_direction, width, speed
             FROM agv_map_benziers
             WHERE map_id = $1
         """, map_id)
-        # =========================================================================
 
         return {
             "id": map_info["id"],
@@ -1038,19 +1523,21 @@ async def get_map_detail(map_id: str):
             "origin_x": map_info["origin_x"],
             "origin_y": map_info["origin_y"],
             "origin_theta": map_info["origin_theta"],
-            "image_path": f"/maps/{map_info['id']}.png",  # phục vụ qua static
+            "image_path": f"/maps/{map_info['id']}.png" if map_info['image_path'] else None,
             "robot_points": [
                 {
                     "name_id": str(p["name_id"]),
                     "name": p["name"],
                     "x": float(p["x"]),
                     "y": float(p["y"]),
+                    "type": int(p["type"]) if p["type"] is not None else 0,
+                    "speed": float(p["speed"]) if p["speed"] is not None else 0.5,
                     "action": p["action"] if p["action"] is not None else None,
                 }
                 for p in points
             ],
             "roads": [dict(r) for r in roads],
-            "benziers": [dict(b) for b in benziers] # THÊM TRƯỜNG BEZIERS VÀO PHẢN HỒI
+            "benziers": [dict(b) for b in benziers],
         }
     
 @app.post("/api/agv/position")
@@ -1142,22 +1629,111 @@ async def save_node_config(payload: MapNodeConfigRequest, request: Request):
             },
         }
 
+@app.options("/api/agv/map/upload-full")
+async def upload_full_preflight():
+    return JSONResponse({}, headers={
+        "Access-Control-Allow-Origin":  "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    })
+
+
 @app.post("/api/agv/map/upload-full")
 async def agv_upload_full_json(request: Request):
     global last_map_id
+    _CORS = {"Access-Control-Allow-Origin": "*"}
 
     try:
         payload = await request.json()
     except Exception as e:
         print("Lỗi parse JSON:", e)
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+        return JSONResponse({"error": "Invalid JSON", "detail": str(e)}, status_code=400, headers=_CORS)
 
-    # In JSON nhận được để debug
-    print("\n" + "="*80)
-    print("NHẬN ĐƯỢC MAP MỚI TỪ AGV")
-    print("="*80)
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
-    print("="*80 + "\n")
+    try:
+        _upload_result = await _do_upload_map(payload)
+        return JSONResponse(_upload_result, headers=_CORS)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[UPLOAD-MAP ERROR] {e}")
+        return JSONResponse({"error": str(e)}, status_code=500, headers=_CORS)
+
+
+async def _do_upload_map(payload: dict):
+    global last_map_id
+
+    print("[UPLOAD-MAP] Nhận payload, đang xử lý...")
+
+    # ================== AUTO-CREATE TABLES IF NOT EXIST ==================
+    if pool is None:
+        raise Exception("Database pool chưa khởi tạo")
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS agv_maps (
+                id           TEXT PRIMARY KEY,
+                name         TEXT,
+                origin_x     FLOAT DEFAULT 0,
+                origin_y     FLOAT DEFAULT 0,
+                origin_theta FLOAT DEFAULT 0,
+                image_path   TEXT,
+                modify_time  TIMESTAMPTZ DEFAULT NOW(),
+                layer        INT DEFAULT 0,
+                updated_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS agv_map_points (
+                id        SERIAL PRIMARY KEY,
+                map_id    TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
+                name_id   TEXT,
+                name      TEXT,
+                x         FLOAT, y FLOAT, theta FLOAT DEFAULT 0,
+                type      INT DEFAULT 0,
+                zone      TEXT DEFAULT '',
+                action    JSONB DEFAULT '{}',
+                speed     FLOAT DEFAULT 0.5,
+                carrier   INT DEFAULT 0,
+                available BOOLEAN DEFAULT FALSE,
+                accuracy  INT DEFAULT 0
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS agv_map_roads (
+                id             SERIAL PRIMARY KEY,
+                map_id         TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
+                name           TEXT DEFAULT '',
+                id_source      TEXT, id_dest TEXT,
+                point_start_x  FLOAT, point_start_y FLOAT,
+                point_end_x    FLOAT, point_end_y FLOAT,
+                width          FLOAT DEFAULT 0.95,
+                speed          FLOAT DEFAULT 0.3,
+                move_direction INT DEFAULT 0,
+                distance       FLOAT DEFAULT 0
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS agv_map_benziers (
+                id                    SERIAL PRIMARY KEY,
+                map_id                TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
+                name                  TEXT DEFAULT '',
+                id_source             TEXT, id_dest TEXT,
+                point_start_x         FLOAT, point_start_y FLOAT,
+                point_end_x           FLOAT, point_end_y FLOAT,
+                curve_point_start_x   FLOAT, curve_point_start_y FLOAT,
+                curve_point_end_x     FLOAT, curve_point_end_y FLOAT,
+                width                 FLOAT DEFAULT 0.3,
+                speed                 FLOAT DEFAULT 0.3,
+                move_direction        INT DEFAULT 0
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS agv_map_codes (
+                id      SERIAL PRIMARY KEY,
+                map_id  TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
+                code_id TEXT, code TEXT,
+                x FLOAT, y FLOAT, theta FLOAT DEFAULT 0
+            )
+        """)
 
     # ================== LẤY THÔNG TIN TỪ robot_maps ==================
     robot_maps = payload.get("robot_maps", {})
@@ -1212,6 +1788,8 @@ async def agv_upload_full_json(request: Request):
         print(f"Đã lưu ảnh thành công: {image_file} ({len(image_data)} bytes)")
 
     # ================== LƯU DB ==================
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database pool chưa khởi tạo")
     async with pool.acquire() as conn:
         async with conn.transaction():
             # Upsert map
@@ -1237,15 +1815,22 @@ async def agv_upload_full_json(request: Request):
             # Lưu points (có thể rỗng)
             points = payload.get("robot_points", [])
             for p in points:
+                # Đảm bảo action là JSON string trước khi insert vào cột jsonb
+                _action = p.get("action")
+                if isinstance(_action, dict):
+                    _action = json.dumps(_action, ensure_ascii=False)
+                elif _action is None:
+                    _action = "{}"
                 await conn.execute("""
                     INSERT INTO agv_map_points
-                    (map_id, name_id, name, x, y, theta, type, zone, action, carrier, available, accuracy)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                    (map_id, name_id, name, x, y, theta, type, zone, action, speed, carrier, available, accuracy)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13)
                 """, map_id,
                     str(p.get("name_id", "")),
                     p.get("name", ""),
                     p.get("x"), p.get("y"), p.get("theta"),
-                    p.get("type", 0), p.get("zone", ""), p.get("action"),
+                    p.get("type", 0), p.get("zone", ""), _action,
+                    float(p.get("speed", 0.5)),
                     p.get("carrier", 0), p.get("available", False), p.get("accuracy", 0))
 
             # Lưu roads (có thể rỗng)
@@ -1307,7 +1892,7 @@ async def agv_upload_full_json(request: Request):
                     )
             # =========================================================================
 
-    print(f"Upload map thành công! ID: {map_id} | Tên: {map_name} | Points: {len(points)} | Roads: {len(roads)} | Codes: {len(codes)} | Benziers: {len(benziers)}\n")
+    print(f"Upload map thành công! ID: {map_id} | Tên: {map_name} | Points: {len(points)} | Roads: {len(roads)} | Benziers: {len(benziers)}")
 
     return {
         "status": "success",
@@ -1317,7 +1902,7 @@ async def agv_upload_full_json(request: Request):
         "points": len(points),
         "roads": len(roads),
         "codes": len(codes),
-        "benziers": len(benziers), # THÊM SỐ LƯỢNG BEZIER VÀO PHẢN HỒI
+        "benziers": len(benziers),
         "server_time": datetime.now(timezone(timedelta(hours=7))).isoformat()
     }
 
@@ -1430,6 +2015,725 @@ async def api_cancel_order(req: AgvActionRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
+
+# ==========================
+# TASK MANAGER API
+# ==========================
+
+@app.get("/api/tasks")
+async def get_tasks(limit: int = 200, status: str = None):
+    async with pool.acquire() as conn:
+        if status and status != "all":
+            rows = await conn.fetch(
+                "SELECT * FROM agv_tasks WHERE status=$1 ORDER BY created_at DESC LIMIT $2",
+                status, limit,
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT * FROM agv_tasks ORDER BY created_at DESC LIMIT $1", limit
+            )
+    return [
+        {**dict(r), "created_at": r["created_at"].isoformat(), "updated_at": r["updated_at"].isoformat()}
+        for r in rows
+    ]
+
+
+@app.post("/api/tasks")
+async def create_task(request: Request):
+    if not pool:
+        raise HTTPException(503, "Database chưa sẵn sàng")
+
+    data = await request.json()
+    agv_id      = (data.get("agv_id") or "").strip()
+    destination = (data.get("destination") or "").strip()
+    map_id      = (data.get("map_id") or "").strip() or None
+    notes       = (data.get("notes") or "").strip()
+    send_order  = data.get("send_order", True)   # False = chỉ lưu, không gửi lệnh
+
+    if not agv_id or not destination:
+        raise HTTPException(400, "agv_id và destination là bắt buộc")
+
+    import uuid as _uuid
+    task_id = str(_uuid.uuid4())
+
+    # Luôn INSERT vào DB trước — dù gửi lệnh thành công hay không
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO agv_tasks (task_id, agv_id, destination, map_id, status, notes) "
+                "VALUES ($1,$2,$3,$4,'pending',$5)",
+                task_id, agv_id, destination, map_id, notes,
+            )
+    except Exception as e:
+        print(f"[TASK] INSERT thất bại: {e}")
+        raise HTTPException(500, f"Lỗi lưu DB: {e}")
+
+    # Các điểm đặc biệt (WAIT, CHARGE…) → chỉ lưu, không gửi /order
+    VIRTUAL_DESTINATIONS = {"WAIT", "CHARGE", "HOME", "STANDBY"}
+    if destination.upper() in VIRTUAL_DESTINATIONS or not send_order:
+        return {"task_id": task_id, "status": "pending", "order_id": ""}
+
+    # Gửi lệnh di chuyển thực sự
+    try:
+        cmd = MoveCommand(agv_id=agv_id, destination=destination, map_id=map_id)
+        result = await move_agv(cmd)
+        order_id = result.get("orderId", "")
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE agv_tasks SET status='running', order_id=$1, updated_at=NOW() WHERE task_id=$2",
+                order_id, task_id,
+            )
+        return {"task_id": task_id, "status": "running", "order_id": order_id}
+    except HTTPException as e:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE agv_tasks SET status='failed', updated_at=NOW() WHERE task_id=$1", task_id
+            )
+        # Vẫn trả 200 kèm error detail để frontend biết task đã được lưu
+        return {"task_id": task_id, "status": "failed", "error": e.detail}
+    except Exception as e:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE agv_tasks SET status='failed', updated_at=NOW() WHERE task_id=$1", task_id
+            )
+        return {"task_id": task_id, "status": "failed", "error": str(e)}
+
+
+@app.post("/api/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM agv_tasks WHERE task_id=$1", task_id)
+        if not row:
+            raise HTTPException(404, "Task không tồn tại")
+        await conn.execute(
+            "UPDATE agv_tasks SET status='cancelled', updated_at=NOW() WHERE task_id=$1", task_id
+        )
+    try:
+        await asyncio.to_thread(cancel_agv_order, row["agv_id"])
+    except Exception:
+        pass
+    return {"status": "cancelled", "task_id": task_id}
+
+
+@app.post("/api/tasks/{task_id}/done")
+async def mark_task_done(task_id: str):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE agv_tasks SET status='done', updated_at=NOW() WHERE task_id=$1", task_id
+        )
+    return {"status": "done", "task_id": task_id}
+
+
+# ==========================
+# WORKFLOW TEMPLATE API
+# ==========================
+
+@app.get("/api/workflow-templates")
+async def list_workflow_templates():
+    import json as _json, traceback as _tb
+    try:
+        if not pool:
+            return JSONResponse({"error": "Database chưa sẵn sàng"}, status_code=503)
+        async with pool.acquire() as conn:
+            # Tạo bảng nếu chưa tồn tại
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS agv_workflow_templates (
+                    id SERIAL PRIMARY KEY,
+                    template_id VARCHAR(36) DEFAULT gen_random_uuid()::text UNIQUE,
+                    name VARCHAR(200) NOT NULL,
+                    steps JSONB NOT NULL DEFAULT '[]',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            rows = await conn.fetch(
+                "SELECT id, template_id, name, steps, created_at, updated_at "
+                "FROM agv_workflow_templates ORDER BY created_at ASC"
+            )
+        result = []
+        for r in rows:
+            steps = r["steps"]
+            if isinstance(steps, str):
+                try: steps = _json.loads(steps)
+                except Exception: steps = []
+            result.append({
+                "id": r["id"],
+                "template_id": r["template_id"],
+                "name": r["name"],
+                "steps": steps,
+                "step_count": len(steps) if isinstance(steps, list) else 0,
+                "created_at": r["created_at"].isoformat(),
+                "updated_at": r["updated_at"].isoformat(),
+            })
+        return result
+    except Exception as e:
+        _tb.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/workflow-templates")
+async def save_workflow_template(request: Request):
+    import uuid as _uuid, json as _json, traceback as _tb
+    try:
+        if not pool:
+            return JSONResponse({"error": "Database chưa sẵn sàng"}, status_code=503)
+
+        data = await request.json()
+        name        = (data.get("name") or "").strip()
+        steps       = data.get("steps") or []
+        template_id = (data.get("template_id") or "").strip() or str(_uuid.uuid4())
+
+        if not name:
+            return JSONResponse({"error": "Tên workflow là bắt buộc"}, status_code=400)
+        if not isinstance(steps, list):
+            steps = []
+
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS agv_workflow_templates (
+                    id SERIAL PRIMARY KEY,
+                    template_id VARCHAR(36) DEFAULT gen_random_uuid()::text UNIQUE,
+                    name VARCHAR(200) NOT NULL,
+                    steps JSONB NOT NULL DEFAULT '[]',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
+            # Kiểm tra trùng tên (loại trừ chính template đang update)
+            existing = await conn.fetchrow(
+                "SELECT template_id FROM agv_workflow_templates WHERE name=$1 AND template_id!=$2",
+                name, template_id
+            )
+            if existing:
+                return JSONResponse(
+                    {"error": f"Tên \"{name}\" đã tồn tại, vui lòng chọn tên khác"},
+                    status_code=409
+                )
+
+            await conn.execute("""
+                INSERT INTO agv_workflow_templates (template_id, name, steps)
+                VALUES ($1, $2, $3::jsonb)
+                ON CONFLICT (template_id) DO UPDATE
+                    SET name=$2, steps=$3::jsonb, updated_at=NOW()
+            """, template_id, name, _json.dumps(steps, ensure_ascii=False))
+
+        print(f"[WORKFLOW] Lưu thành công: {name} | {len(steps)} bước | id={template_id[:8]}")
+        return {"template_id": template_id, "name": name, "step_count": len(steps)}
+
+    except Exception as e:
+        _tb.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.delete("/api/workflow-templates/{template_id}")
+async def delete_workflow_template(template_id: str):
+    if not pool:
+        raise HTTPException(503, "Database chưa sẵn sàng")
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM agv_workflow_templates WHERE template_id=$1", template_id
+        )
+    if result == "DELETE 0":
+        raise HTTPException(404, "Template không tồn tại")
+    return {"status": "deleted", "template_id": template_id}
+
+
+@app.post("/api/agv/registry/reload")
+async def reload_agv_registry():
+    """
+    Reload agv_registry từ bảng agv_devices trong DB.
+    Gọi sau khi thêm/xóa AGV qua Web UI AGV Manager để server nhận biết ngay.
+    """
+    try:
+        from agv_registry import agv_registry as _registry
+        await asyncio.to_thread(_registry.load_from_db)
+        return {
+            "status": "ok",
+            "line_agvs":    _registry.line_agv_ids(),
+            "vda5050_agvs": _registry.vda5050_agv_ids(),
+            "ip_map":       _registry.ip_index(),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/agv/registry")
+async def get_agv_registry():
+    """Xem danh sách AGV đã đăng ký và phân loại hiện tại."""
+    from agv_registry import agv_registry as _registry
+    return {
+        "line_agvs":    _registry.line_agv_ids(),
+        "vda5050_agvs": _registry.vda5050_agv_ids(),
+        "ip_map":       _registry.ip_index(),
+        "total":        len(_registry.all_ids()),
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# EXECUTE TASK — AGV điều phối tức thì / hàng chờ
+# ════════════════════════════════════════════════════════════════════════════
+
+def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) -> bool:
+    """Tính đường + gửi order (LINE hoặc VDA5050) từ vị trí hiện tại đến dest_node."""
+    from mqtt_client import (
+        get_agv_runtime_info, plan_path_for_order,
+        send_agv_to_special_target, send_order,
+    )
+    from agv_registry import agv_registry
+    info         = get_agv_runtime_info(agv_id)
+    current_node = info.get("current_node")
+
+    # Nếu không biết vị trí và có start_node từ UI → lưu vào state_store rồi dùng
+    if not current_node and start_node:
+        if agv_registry.is_line(agv_id):
+            from line_agv_handler import line_agv_handler
+            try:
+                line_agv_handler.override_position(agv_id, int(start_node))
+                current_node = start_node
+                print(f"[DISPATCH] {agv_id}: used manual start_node={start_node}")
+            except (ValueError, TypeError):
+                pass
+
+    if not current_node:
+        raise ValueError(
+            f"{agv_id}: không biết vị trí hiện tại — "
+            f"hãy chọn 'Vị trí xuất phát' trên bản đồ trước khi gửi lệnh"
+        )
+    if str(current_node) == str(dest_node):
+        raise ValueError(f"{agv_id}: đã ở tại {dest_node}")
+
+    route_nodes, route_edges = plan_path_for_order(agv_id, current_node, dest_node)
+
+    if agv_registry.is_line(agv_id):
+        from line_agv_plan_builder import build_line_plan
+        from line_agv_handler import line_agv_handler
+        path         = [str(n.get("nodeId") or n) for n in route_nodes]
+        points       = getattr(map_manager, "points", {}) or {}
+        node_actions = getattr(map_manager, "node_actions", {}) or {}
+        plan         = build_line_plan(path, points, task_type="delivery",
+                                       node_actions=node_actions, direction="fwd")
+        line_agv_handler.set_route(agv_id, path, "delivery")
+        send_order(agv_id, plan)
+    else:
+        from mqtt_client import build_order_with_path, send_generated_order
+        order = build_order_with_path(agv_id, route_nodes, route_edges, end_action_type=None)
+        send_generated_order(agv_id, order)
+    return True
+
+
+@app.get("/api/execute/agv-list")
+async def execute_agv_list():
+    """Danh sách AGV từ bảng agv_devices, kết hợp trạng thái real-time.
+    Dùng psycopg2 (sync trong thread) — cùng pattern với agv_manager.py."""
+    from line_agv_handler import line_agv_handler, OFFLINE_TIMEOUT_SEC as _LINE_OFFLINE_SEC
+    from task_queue import agv_task_queue
+
+    # ── Đọc từ DB bằng psycopg2 (giống agv_manager.py, không bị lỗi INET type) ─
+    def _fetch_devices():
+        import psycopg2, os
+        cfg = {
+            "host":     os.environ.get("PGHOST",     "localhost"),
+            "port":     os.environ.get("PGPORT",     "5432"),
+            "user":     os.environ.get("PGUSER",     "postgres"),
+            "password": os.environ.get("PGPASSWORD", "ducmanh1801"),
+            "dbname":   os.environ.get("PGDATABASE", "TOT_AGV"),
+        }
+        conn = psycopg2.connect(**cfg)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, agv_type, CAST(ip AS TEXT), port, factory, last_seen "
+                    "FROM agv_devices ORDER BY name"
+                )
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    try:
+        db_rows = await asyncio.to_thread(_fetch_devices)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"DB error: {e}")
+
+    # psycopg2 trả về tuple: (name, agv_type, ip_text, port, factory, last_seen)
+    result = []
+    for (name, agv_type_raw, ip_text, port, factory_val, last_seen) in db_rows:
+        agv_id       = str(name)
+        agv_type_raw = str(agv_type_raw or "")
+        is_line      = not agv_type_raw.lower().startswith("slam")
+        agv_type     = "LINE" if is_line else "VDA5050"
+        last_seen_iso = last_seen.isoformat() if last_seen else None
+
+        if is_line:
+            st = line_agv_handler.state_store.get(agv_id)
+            # Ưu tiên connection_state == "ONLINE" (set bởi _on_state, cleared bởi LWT thật)
+            # Fallback: time-based nếu chưa nhận state nào (last_update == 0)
+            if st and st.last_update > 0 and st.connection_state == "ONLINE":
+                line_conn = "ONLINE"
+            elif st and st.last_update > 0 and (time.time() - st.last_update) < _LINE_OFFLINE_SEC:
+                line_conn = "ONLINE"
+            else:
+                line_conn = "OFFLINE"
+            result.append({
+                "agv_id":           agv_id,
+                "agv_type":         agv_type,
+                "agv_type_raw":     agv_type_raw,
+                "ip":               ip_text or None,
+                "port":             port,
+                "factory":          factory_val or "",
+                "last_seen":        last_seen_iso,
+                "current_node":     (str(st.current_tag)
+                                     if (st and st.current_tag is not None) else None),
+                "battery":          st.battery if st else None,
+                "battery_low":      st.battery_low if st else False,
+                "battery_blocking": st.battery_blocking if st else False,
+                "driving":          st.driving if st else False,
+                "paused":           st.paused if st else False,
+                "connection":       line_conn,
+                "operating_mode":   st.operating_mode if st else "MANUAL",
+                "is_busy":          agv_task_queue.is_busy(agv_id),
+                "queue_size":       agv_task_queue.queue_size(agv_id),
+                "running_cmd":      agv_task_queue.get_running(agv_id),
+            })
+        else:
+            st   = agv_manager.get_agv(agv_id) or {}
+            batt = (st.get("batteryState") or {}).get("batteryCharge")
+            result.append({
+                "agv_id":           agv_id,
+                "agv_type":         agv_type,
+                "agv_type_raw":     agv_type_raw,
+                "ip":               ip_text or None,
+                "port":             port,
+                "factory":          factory_val or "",
+                "last_seen":        last_seen_iso,
+                "current_node":     str(st.get("lastNodeId") or "") or None,
+                "battery":          batt,
+                "battery_low":      False,
+                "battery_blocking": False,
+                "driving":          bool(st.get("driving")),
+                "paused":           bool(st.get("paused")),
+                "connection":       "ONLINE" if st else "OFFLINE",
+                "operating_mode":   st.get("operatingMode", "MANUAL"),
+                "is_busy":          agv_task_queue.is_busy(agv_id),
+                "queue_size":       agv_task_queue.queue_size(agv_id),
+                "running_cmd":      agv_task_queue.get_running(agv_id),
+            })
+
+    return {"agvs": result, "total": len(result)}
+
+
+@app.get("/api/execute/map-nodes")
+async def execute_map_nodes():
+    """Danh sách node từ bản đồ đang load (dùng để chọn điểm đến)."""
+    points    = getattr(map_manager, "all_points", []) or []
+    map_id    = getattr(map_manager, "current_map_id", None)
+    node_list = [
+        {
+            "node_id": str(p.get("name_id", "")),
+            "name":    p.get("name") or str(p.get("name_id", "")),
+            "x":       p.get("x"),
+            "y":       p.get("y"),
+            "action":  p.get("action"),
+        }
+        for p in points
+        if p.get("name_id") is not None
+    ]
+    return {"map_id": map_id, "nodes": node_list, "total": len(node_list)}
+
+
+@app.get("/api/execute/agv-positions")
+async def execute_agv_positions(map_id: str):
+    """Vị trí thực tế của các AGV được gán cho bản đồ map_id.
+    Tra cứu agv_map_points bằng current_node từ live state."""
+    from line_agv_handler import line_agv_handler
+
+    def _fetch(mid: str):
+        import psycopg2, os
+        cfg = {
+            "host":     os.environ.get("PGHOST",     "localhost"),
+            "port":     os.environ.get("PGPORT",     "5432"),
+            "user":     os.environ.get("PGUSER",     "postgres"),
+            "password": os.environ.get("PGPASSWORD", "ducmanh1801"),
+            "dbname":   os.environ.get("PGDATABASE", "TOT_AGV"),
+        }
+        conn = psycopg2.connect(**cfg)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, agv_type FROM agv_devices WHERE map_id = %s",
+                    (mid,)
+                )
+                devices = cur.fetchall()
+                cur.execute(
+                    "SELECT CAST(name_id AS TEXT), x, y FROM agv_map_points "
+                    "WHERE CAST(map_id AS TEXT) = %s",
+                    (mid,)
+                )
+                pts = {r[0]: {"x": float(r[1] or 0), "y": float(r[2] or 0)}
+                       for r in cur.fetchall()}
+            return devices, pts
+        finally:
+            conn.close()
+
+    try:
+        devices, pts = await asyncio.to_thread(_fetch, map_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    result = []
+    for (name, agv_type_raw) in devices:
+        agv_id       = str(name)
+        agv_type_raw = str(agv_type_raw or "")
+        is_line      = not agv_type_raw.lower().startswith("slam")
+
+        if is_line:
+            from line_agv_handler import OFFLINE_TIMEOUT_SEC as _LINE_OFF_SEC
+            st           = line_agv_handler.state_store.get(agv_id)
+            current_node = str(st.current_tag) if (st and st.current_tag) else None
+            if st and st.last_update > 0 and st.connection_state == "ONLINE":
+                connection = "ONLINE"
+            elif st and st.last_update > 0 and (time.time() - st.last_update) < _LINE_OFF_SEC:
+                connection = "ONLINE"
+            else:
+                connection = "OFFLINE"
+            driving      = st.driving if st else False
+        else:
+            st           = agv_manager.get_agv(agv_id) or {}
+            current_node = str(st.get("lastNodeId") or "") or None
+            connection   = "ONLINE" if st else "OFFLINE"
+            driving      = bool(st.get("driving"))
+
+        pt = pts.get(current_node) if current_node else None
+        result.append({
+            "agv_id":       agv_id,
+            "agv_type_raw": agv_type_raw,
+            "x":            pt["x"] if pt else None,
+            "y":            pt["y"] if pt else None,
+            "current_node": current_node,
+            "connection":   connection,
+            "driving":      driving,
+            "has_position": pt is not None,
+        })
+
+    return {"positions": result, "map_id": map_id}
+
+
+class ExecuteDispatchRequest(BaseModel):
+    agv_id:     str
+    command:    str             # go_to | go_charge | go_wait | stop | resume
+    dest_node:  str | None = None   # bắt buộc khi command=go_to
+    start_node: str | None = None   # override vị trí xuất phát (khi AGV chưa tự báo vị trí)
+
+
+@app.post("/api/execute/dispatch")
+async def execute_dispatch(req: ExecuteDispatchRequest):
+    """
+    Gửi lệnh cho AGV.
+    - Nếu AGV rảnh  → dispatch ngay, trả về status=dispatched
+    - Nếu AGV đang bận → xếp hàng chờ, trả về status=queued
+    """
+    from task_queue import agv_task_queue, CMD_GO_TO
+    from agv_registry import agv_registry
+    from line_agv_handler import line_agv_handler
+    from mqtt_client import get_agv_runtime_info
+
+    agv_id  = req.agv_id.strip()
+    command = req.command.strip()
+
+    # Validate AGV tồn tại
+    if agv_id not in agv_registry.all_ids():
+        raise HTTPException(status_code=404, detail=f"AGV '{agv_id}' không tìm thấy")
+
+    # Validate dest_node khi go_to
+    if command == CMD_GO_TO and not req.dest_node:
+        raise HTTPException(status_code=400, detail="dest_node bắt buộc khi command=go_to")
+
+    # Kiểm tra battery_blocking (chặn lệnh không phải go_charge)
+    info = get_agv_runtime_info(agv_id)
+    if info["agv_state"].get("battery_blocking") and command != "go_charge":
+        raise HTTPException(
+            status_code=409,
+            detail=f"AGV {agv_id} đang bị khóa do pin yếu — chỉ cho phép lệnh 'go_charge'",
+        )
+
+    # Chạy trong thread pool để tránh deadlock:
+    # dispatch_or_queue → _dispatch_go_to → plan_path_for_order dùng
+    # asyncio.run_coroutine_threadsafe(...).result() — phải gọi từ ngoài event loop thread
+    cmd, dispatched = await asyncio.to_thread(
+        agv_task_queue.dispatch_or_queue,
+        agv_id,
+        command,
+        req.dest_node,
+        req.start_node,
+    )
+
+    from task_queue import STATUS_FAILED, STATUS_QUEUED
+    if not dispatched and cmd.status == STATUS_FAILED:
+        raise HTTPException(
+            status_code=422,
+            detail=cmd.notes or "Dispatch thất bại — kiểm tra log server",
+        )
+
+    return {
+        "cmd_id":     cmd.cmd_id,
+        "agv_id":     agv_id,
+        "command":    command,
+        "dest_node":  req.dest_node,
+        "start_node": req.start_node,
+        "status":     "dispatched" if dispatched else "queued",
+        "queue_size": agv_task_queue.queue_size(agv_id),
+        "message":    (
+            f"Lệnh đã được gửi đến {agv_id}"
+            if dispatched else
+            f"AGV {agv_id} đang bận — lệnh đã xếp vào hàng chờ (vị trí #{agv_task_queue.queue_size(agv_id)})"
+        ),
+    }
+
+
+@app.post("/api/execute/manual-control")
+async def manual_control(request: Request):
+    """Điều khiển thủ công Line AGV qua bàn phím."""
+    from agv_registry import agv_registry
+    from mqtt_client import send_line_command
+    body = await request.json()
+    agv_id  = str(body.get("agv_id", "")).strip()
+    action  = str(body.get("action", "")).strip()   # up | down | left | right
+
+    if not agv_id:
+        raise HTTPException(400, "agv_id required")
+    if not agv_registry.is_line(agv_id):
+        raise HTTPException(400, "Chỉ hỗ trợ Line AGV")
+
+    spd = int(body.get("speed", 150))
+    if action == "up":
+        ok = send_line_command(agv_id, "deba", spd=spd, dir="toi")
+    elif action == "down":
+        ok = send_line_command(agv_id, "deba", spd=spd, dir="lui")
+    elif action == "right":
+        ok = send_line_command(agv_id, "action", a=5, v=0)
+    elif action == "left":
+        ok = send_line_command(agv_id, "action", a=6, v=0)
+    else:
+        raise HTTPException(400, f"action không hợp lệ: {action}")
+
+    return {"ok": ok, "agv_id": agv_id, "action": action}
+
+
+@app.post("/api/execute/request-position/{agv_id}")
+async def request_agv_position(agv_id: str):
+    """Gửi lệnh yêu cầu AGV Line báo vị trí hiện tại (ping firmware)."""
+    from agv_registry import agv_registry
+    from mqtt_client import send_line_command
+    agv_id = agv_id.strip()
+    if not agv_registry.is_line(agv_id):
+        raise HTTPException(400, "Chỉ hỗ trợ Line AGV")
+    # Gửi instant action "report" — firmware phản hồi bằng 1 state message
+    ok = send_line_command(agv_id, "report")
+    return {"sent": ok, "agv_id": agv_id,
+            "note": "AGV sẽ publish state trong vài giây nếu firmware hỗ trợ lệnh 'report'"}
+
+
+@app.get("/api/execute/queue-status/{agv_id}")
+async def queue_status(agv_id: str):
+    """Trạng thái hàng chờ: lệnh đang chạy + danh sách chờ."""
+    from task_queue import agv_task_queue
+    return agv_task_queue.status_summary(agv_id.strip())
+
+
+@app.delete("/api/execute/cancel-running/{agv_id}")
+async def cancel_running_cmd(agv_id: str):
+    """Force-cancel lệnh đang stuck, giải phóng AGV."""
+    from task_queue import agv_task_queue
+    result = agv_task_queue.cancel_running(agv_id.strip())
+    if result is None:
+        return {"cancelled": False, "message": f"Không có lệnh đang chạy cho {agv_id}"}
+    return {"cancelled": True, "cmd": result}
+
+
+@app.delete("/api/execute/cancel-queue/{agv_id}")
+async def cancel_queue_cmds(agv_id: str):
+    """Hủy toàn bộ lệnh đang chờ (chưa chạy) của AGV."""
+    from task_queue import agv_task_queue
+    n = agv_task_queue.cancel_queue(agv_id.strip())
+    return {"cancelled_count": n, "agv_id": agv_id}
+
+
+@app.delete("/api/execute/cancel-all/{agv_id}")
+async def cancel_all_cmds(agv_id: str):
+    """Hủy lệnh đang chạy + toàn bộ hàng chờ (dùng khi AGV bị stuck)."""
+    from task_queue import agv_task_queue
+    result = agv_task_queue.cancel_all(agv_id.strip())
+    return {"agv_id": agv_id, **result}
+
+
+@app.delete("/api/execute/cancel-cmd/{cmd_id}")
+async def cancel_single_cmd(cmd_id: str):
+    """Hủy 1 lệnh cụ thể trong hàng chờ theo cmd_id."""
+    from task_queue import agv_task_queue
+    ok = agv_task_queue.cancel_cmd(cmd_id.strip())
+    if not ok:
+        raise HTTPException(404, f"Không tìm thấy lệnh {cmd_id} trong hàng chờ")
+    return {"cancelled": True, "cmd_id": cmd_id}
+
+
+@app.get("/api/execute/history")
+async def execute_history(agv_id: str | None = None, limit: int = 50):
+    """Lịch sử lệnh đã thực hiện từ DB."""
+    from task_queue import agv_task_queue
+    return {"history": agv_task_queue.get_history(agv_id, limit)}
+
+
+@app.get("/api/execute/queue-status")
+async def execute_queue_status(agv_id: str):
+    """Trạng thái hàng chờ real-time của 1 AGV."""
+    from task_queue import agv_task_queue
+    return agv_task_queue.status_summary(agv_id)
+
+
+@app.delete("/api/execute/cancel-queue/{agv_id}")
+async def execute_cancel_queue(agv_id: str):
+    """Xóa toàn bộ hàng chờ của AGV (không hủy lệnh đang chạy)."""
+    from task_queue import agv_task_queue
+    count = agv_task_queue.cancel_queue(agv_id)
+    return {"agv_id": agv_id, "cancelled": count}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MQTT MODE CONFIG
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/registry/reload")
+async def api_reload_registry():
+    """Reload agv_registry từ DB — gọi sau khi thêm/sửa AGV qua UI."""
+    from agv_registry import agv_registry as _reg
+    def _reload():
+        _reg.load_from_db()
+        return {"line": _reg.line_agv_ids(), "vda5050": _reg.vda5050_agv_ids()}
+    result = await asyncio.to_thread(_reload)
+    print(f"[REGISTRY] Reloaded via API: {result}")
+    return {"ok": True, "registry": result}
+
+
+@app.get("/api/config/mqtt-mode")
+async def api_get_mqtt_mode():
+    """Trả về mode MQTT đang dùng (local / cloud)."""
+    return get_mqtt_mode()
+
+
+class MqttModeRequest(BaseModel):
+    mode: str   # "local" | "cloud"
+
+@app.post("/api/config/mqtt-mode")
+async def api_set_mqtt_mode(req: MqttModeRequest):
+    """Đổi mode MQTT và kết nối lại ngay.
+    mode='local'  → broker nội bộ (không TLS)
+    mode='cloud'  → iot.tot360.com.vn:8883 (TLS, iot_user)
+    """
+    result = await asyncio.to_thread(switch_mqtt_mode, req.mode)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return result
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

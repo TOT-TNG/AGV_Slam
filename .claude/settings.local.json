@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Admin\\\\Desktop\\\\AGVmqtt\\\\mqtt_Server\" -Recurse -File -Filter \"*.py\")",
+      "Bash(Select-Object -ExpandProperty FullName)"
+    ]
+  }
+}

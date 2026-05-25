@@ -211,6 +211,15 @@ body {
   color: white;
   transform: translateX(6px);
 }
+.menu-item.active {
+  color: #60a5fa;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(96,165,250,.15);
+  border-left: 3px solid #60a5fa;
+  transform: translateX(0) !important;
+}
 
 /* ----- Top bar ----- */
 .topbar {
@@ -540,11 +549,22 @@ body {
   background: rgba(255,255,255,0.05);
 }
 
-/* ===== SUBMENU MAP ===== */
+/* ===== SUBMENU ===== */
 .submenu {
   display: flex;
   flex-direction: column;
   margin-left: 25px;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.3s cubic-bezier(0.4,0,0.2,1),
+              opacity 0.25s ease,
+              margin-top 0.25s ease;
+  margin-top: 0;
+}
+.submenu.open {
+  max-height: 300px;
+  opacity: 1;
   margin-top: 5px;
 }
 
@@ -559,6 +579,13 @@ body {
 .submenu-item:hover {
   color: white;
   transform: translateX(4px);
+}
+.submenu-item.active {
+  color: #93c5fd;
+  font-weight: 600;
+  padding-left: 6px;
+  border-left: 2px solid #60a5fa;
+  transform: translateX(0) !important;
 }
 
 /* ==================== CREATE MAP PAGE (RIGHT TOOLBOX) ==================== */
