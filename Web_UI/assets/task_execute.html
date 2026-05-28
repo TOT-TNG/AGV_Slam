@@ -106,6 +106,7 @@
     <!-- SVG map canvas -->
     <div id="map-wrap" style="flex:1;position:relative;overflow:hidden;background:#050d1a;min-height:0">
       <svg id="map-svg" style="position:absolute;inset:0;width:100%;height:100%">
+        <defs id="map-defs"></defs>
         <g id="world-g"></g>
         <g id="anim-g" pointer-events="none"></g>
       </svg>
@@ -143,22 +144,9 @@
       </div>
     </div>
 
-    <!-- Gán vị trí thủ công (override — luôn hiện khi Line AGV được chọn) -->
-    <div id="override-pos-row" style="display:none;flex-shrink:0;padding:6px 12px;border-top:1px solid rgba(255,255,255,.06)">
-      <div style="display:flex;align-items:center;gap:6px">
-        <span class="material-symbols-outlined" style="color:#adc6ff;font-size:14px">pin_drop</span>
-        <span class="sec-label" style="white-space:nowrap">Gán vị trí thủ công</span>
-        <div style="position:relative;flex:1">
-          <select id="override-node-select">
-            <option value="">-- Chọn node --</option>
-          </select>
-          <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#8c909f">expand_more</span>
-        </div>
-        <button id="btn-override-pos" onclick="assignAgvPosition('override')"
-          style="padding:4px 11px;border-radius:7px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.5);color:#a5b4fc;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;flex-shrink:0">
-          <span class="material-symbols-outlined" style="font-size:12px">pin_drop</span>Gán
-        </button>
-      </div>
+    <!-- Notification row: trạng thái lệnh + điểm đến + lỗi -->
+    <div id="notif-row" style="display:none;flex-shrink:0;padding:7px 12px;border-top:1px solid rgba(255,255,255,.07)">
+      <div id="notif-content"></div>
     </div>
 
     <!-- Step destination selectors (multi-step) -->
@@ -222,6 +210,22 @@
     </div>
 
     <div id="manual-status" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#424754;margin-left:auto"></div>
+  </div>
+  <!-- Gán vị trí thủ công (ẩn trong manual bar) -->
+  <div id="manual-pos-wrap" style="display:none;margin-top:5px;padding-top:6px;border-top:1px solid rgba(77,142,255,.15)">
+    <div style="display:flex;align-items:center;gap:6px">
+      <span class="material-symbols-outlined" style="color:#8c909f;font-size:13px;flex-shrink:0">pin_drop</span>
+      <span style="font-size:9px;color:#8c909f;white-space:nowrap;flex-shrink:0">Gán vị trí:</span>
+      <div style="position:relative;flex:1">
+        <select id="override-node-select" style="font-size:10px;padding:4px 8px;width:100%">
+          <option value="">-- Chọn node --</option>
+        </select>
+      </div>
+      <button id="btn-override-pos" onclick="assignAgvPosition('override')"
+        style="padding:3px 9px;border-radius:6px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.5);color:#a5b4fc;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;flex-shrink:0">
+        <span class="material-symbols-outlined" style="font-size:11px">pin_drop</span>Gán
+      </button>
+    </div>
   </div>
 </div>
 
@@ -438,6 +442,7 @@ async function loadAgvs(){
     updateStartNodeRow();
     updateManualBar();
     updateLifecycleBar();
+    updateNotifRow();
     renderAgvs(); updateStartBtn();
   }catch(e){
     console.error('[AGV]',e);
@@ -504,6 +509,7 @@ function selectAgv(id){
   updateStartNodeRow();
   updateManualBar();
   updateLifecycleBar();
+  updateNotifRow();
   renderAgvs(); updateSummary(); updateStartBtn();
 }
 
@@ -521,7 +527,6 @@ function _populateNodeSel(selEl, savedId){
 
 function updateStartNodeRow(){
   const row=document.getElementById('start-node-row');
-  const overRow=document.getElementById('override-pos-row');
   const isLine = selAgv && selAgv.agv_type==='LINE';
   const needStart = isLine && !selAgv.current_node;
 
@@ -539,12 +544,71 @@ function updateStartNodeRow(){
     sel.appendChild(o);
   });
 
-  // Row override: hiện khi Line AGV đã có vị trí (để gán đè)
-  if(overRow){
-    overRow.style.display = (isLine && selAgv.current_node) ? 'flex' : 'none';
-    const overSel=document.getElementById('override-node-select');
-    if(overSel) _populateNodeSel(overSel, selAgv?.current_node);
+  updateNotifRow();
+}
+
+function updateNotifRow(){
+  const row=document.getElementById('notif-row');
+  const content=document.getElementById('notif-content');
+  if(!selAgv){ row.style.display='none'; return; }
+
+  row.style.display='block';
+  const a=selAgv;
+  const lines=[];
+
+  // ── Lỗi kết nối ──────────────────────────────────────────────────────────
+  if(a.connection!=='ONLINE'){
+    lines.push(`<div style="display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:6px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25)">
+      <span class="material-symbols-outlined" style="color:#ff5050;font-size:13px">wifi_off</span>
+      <span style="font-size:10px;color:#ff5050;font-weight:600">AGV OFFLINE — không có kết nối</span>
+    </div>`);
+    content.innerHTML=lines.join('');
+    return;
   }
+
+  // ── Lỗi lệnh (notes chứa thông báo lỗi) ─────────────────────────────────
+  if(a.last_error){
+    lines.push(`<div style="display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:6px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);margin-bottom:3px">
+      <span class="material-symbols-outlined" style="color:#ff5050;font-size:13px">error</span>
+      <span style="font-size:10px;color:#ff5050;font-weight:600">Lỗi: ${a.last_error}</span>
+    </div>`);
+  }
+
+  // ── Lệnh đang chạy + điểm đến ────────────────────────────────────────────
+  if(a.running_cmd){
+    const dest=a.running_cmd.dest_node
+      ?`<span style="color:#555"> → </span><b style="color:#ffd700">${a.running_cmd.dest_node}</b>`
+      :'';
+    const qBadge=a.queue_size>0
+      ?`<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(255,183,0,.12);color:#ffb700;border:1px solid rgba(255,183,0,.2);margin-left:4px">+${a.queue_size} chờ</span>`
+      :'';
+    lines.push(`<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+      <span class="material-symbols-outlined" style="color:#eab308;font-size:13px">play_arrow</span>
+      <span style="font-size:10px;color:#eab308;font-weight:600">${a.running_cmd.command_label}</span>
+      <span style="font-size:10px">${dest}</span>${qBadge}
+    </div>`);
+    // notes lỗi trong lệnh
+    if(a.running_cmd.notes&&a.running_cmd.notes.includes('fail')){
+      lines.push(`<div style="font-size:9px;color:#ff7070;margin-top:2px;font-family:'JetBrains Mono',monospace">⚠ ${a.running_cmd.notes}</div>`);
+    }
+  } else {
+    const qBadge=a.queue_size>0
+      ?`<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(255,183,0,.12);color:#ffb700;border:1px solid rgba(255,183,0,.2);margin-left:4px">+${a.queue_size} chờ</span>`
+      :'';
+    lines.push(`<div style="display:flex;align-items:center;gap:4px">
+      <span class="material-symbols-outlined" style="color:#22c55e;font-size:13px">check_circle</span>
+      <span style="font-size:10px;color:#22c55e">Sẵn sàng nhận lệnh</span>${qBadge}
+    </div>`);
+  }
+
+  // ── Vị trí hiện tại ───────────────────────────────────────────────────────
+  if(a.current_node){
+    const nd=mapNodes.find(n=>String(n.name_id)===String(a.current_node));
+    const posLabel=nd&&nd.name?`${nd.name} (tag: ${a.current_node})`:`Tag: ${a.current_node}`;
+    lines.push(`<div style="font-size:9px;color:#555;font-family:'JetBrains Mono',monospace;margin-top:2px">📍 ${posLabel}</div>`);
+  }
+
+  content.innerHTML=lines.join('');
 }
 
 async function assignAgvPosition(mode){
@@ -958,8 +1022,8 @@ function renderMap(){
     const glow=document.createElementNS(NS,'line');
     glow.setAttribute('x1',s.x); glow.setAttribute('y1',s.y);
     glow.setAttribute('x2',e.x); glow.setAttribute('y2',e.y);
-    glow.setAttribute('stroke','rgba(120,185,255,.22)');
-    glow.setAttribute('stroke-width',String(7/vp.zoom));
+    glow.setAttribute('stroke','rgba(255,220,50,.4)');
+    glow.setAttribute('stroke-width',String(8/vp.zoom));
     glow.setAttribute('stroke-linecap','round');
     glow.setAttribute('pointer-events','none');
     g.appendChild(glow);
@@ -967,9 +1031,9 @@ function renderMap(){
     const el=document.createElementNS(NS,'line');
     el.setAttribute('x1',s.x); el.setAttribute('y1',s.y);
     el.setAttribute('x2',e.x); el.setAttribute('y2',e.y);
-    el.setAttribute('stroke','#7cb9ff');
-    el.setAttribute('stroke-opacity','0.85');
-    el.setAttribute('stroke-width',String(2/vp.zoom));
+    el.setAttribute('stroke','#ffd700');
+    el.setAttribute('stroke-opacity','1');
+    el.setAttribute('stroke-width',String(2.5/vp.zoom));
     el.setAttribute('stroke-linecap','round');
     el.setAttribute('pointer-events','none');
     g.appendChild(el);
@@ -986,20 +1050,24 @@ function renderMap(){
     const d=`M ${p0.x} ${p0.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${p1.x} ${p1.y}`;
     // Glow
     const glowP=document.createElementNS(NS,'path');
-    glowP.setAttribute('d',d); glowP.setAttribute('stroke','rgba(120,185,255,.18)');
-    glowP.setAttribute('stroke-width',String(6/vp.zoom)); glowP.setAttribute('fill','none');
+    glowP.setAttribute('d',d); glowP.setAttribute('stroke','rgba(255,220,50,.35)');
+    glowP.setAttribute('stroke-width',String(7/vp.zoom)); glowP.setAttribute('fill','none');
     glowP.setAttribute('pointer-events','none'); g.appendChild(glowP);
     // Main
     const el=document.createElementNS(NS,'path');
-    el.setAttribute('d',d); el.setAttribute('stroke','#7cb9ff');
-    el.setAttribute('stroke-opacity','0.7');
-    el.setAttribute('stroke-width',String(1.5/vp.zoom)); el.setAttribute('fill','none');
+    el.setAttribute('d',d); el.setAttribute('stroke','#ffd700');
+    el.setAttribute('stroke-opacity','0.95');
+    el.setAttribute('stroke-width',String(2/vp.zoom)); el.setAttribute('fill','none');
     el.setAttribute('stroke-dasharray',`${6/vp.zoom} ${3/vp.zoom}`);
     el.setAttribute('stroke-linecap','round'); el.setAttribute('pointer-events','none');
     g.appendChild(el);
   });
 
   // ── AGV Routes (animated dashed path + arrow markers) ─────────────────────
+  // Reset defs markers
+  const mapDefs=document.getElementById('map-defs');
+  mapDefs.innerHTML='';
+
   Object.entries(agvRoutes).forEach(([agv_id,rt])=>{
     if(!rt.driving||!rt.path||rt.path.length<2) return;
     const remaining=rt.path.slice(Math.max(0,rt.current_idx));
@@ -1008,17 +1076,18 @@ function renderMap(){
     if(pts.length<2) return;
     const col=agvRouteColor(agv_id);
     const ptStr=pts.map(p=>`${p.x},${p.y}`).join(' ');
-    // Glow dưới đường đi
+
+    // Glow layer
     const glowL=document.createElementNS(NS,'polyline');
     glowL.setAttribute('points',ptStr); glowL.setAttribute('stroke',col);
-    glowL.setAttribute('stroke-width',String(14/vp.zoom)); glowL.setAttribute('stroke-opacity','0.13');
+    glowL.setAttribute('stroke-width',String(22/vp.zoom)); glowL.setAttribute('stroke-opacity','0.22');
     glowL.setAttribute('fill','none'); glowL.setAttribute('pointer-events','none');
     glowL.setAttribute('stroke-linecap','round'); glowL.setAttribute('stroke-linejoin','round');
     g.appendChild(glowL);
     // Solid highlight line
     const hl=document.createElementNS(NS,'polyline');
     hl.setAttribute('points',ptStr); hl.setAttribute('stroke',col);
-    hl.setAttribute('stroke-width',String(3.5/vp.zoom)); hl.setAttribute('stroke-opacity','0.65');
+    hl.setAttribute('stroke-width',String(6/vp.zoom)); hl.setAttribute('stroke-opacity','0.95');
     hl.setAttribute('fill','none'); hl.setAttribute('pointer-events','none');
     hl.setAttribute('stroke-linecap','round'); hl.setAttribute('stroke-linejoin','round');
     g.appendChild(hl);
@@ -1063,9 +1132,9 @@ function renderMap(){
     const circle=document.createElementNS(NS,'circle');
     circle.setAttribute('cx',x); circle.setAttribute('cy',y);
     circle.setAttribute('r',isSel?R*1.9:isStart?R*1.6:R);
-    circle.setAttribute('fill',isSel?col+'cc':isStart?col+'88':col+'44');
-    circle.setAttribute('stroke',isSel||isStart?'#ffffffcc':col+'99');
-    circle.setAttribute('stroke-width',String((isSel||isStart)?1.8/vp.zoom:0.8/vp.zoom));
+    circle.setAttribute('fill',isSel?col+'cc':isStart?col+'88':col+'88');
+    circle.setAttribute('stroke',isSel||isStart?'#ffffffcc':col+'ee');
+    circle.setAttribute('stroke-width',String((isSel||isStart)?1.8/vp.zoom:1.4/vp.zoom));
 
     const hit=document.createElementNS(NS,'circle');
     hit.setAttribute('cx',x); hit.setAttribute('cy',y);
@@ -1073,13 +1142,13 @@ function renderMap(){
     hit.setAttribute('fill','transparent'); hit.style.cursor='pointer';
     hit.addEventListener('click',e=>{e.stopPropagation();pickNode(n);});
     hit.addEventListener('mouseenter',()=>{circle.setAttribute('fill',col+'99');circle.setAttribute('r',String(R*1.5));});
-    hit.addEventListener('mouseleave',()=>{if(!isSel&&!isStart){circle.setAttribute('fill',col+'44');circle.setAttribute('r',String(R));}});
+    hit.addEventListener('mouseleave',()=>{if(!isSel&&!isStart){circle.setAttribute('fill',col+'88');circle.setAttribute('r',String(R));}});
 
     const label=document.createElementNS(NS,'text');
     label.setAttribute('x',x); label.setAttribute('y',String(y-R*2.4));
     label.setAttribute('text-anchor','middle');
     label.setAttribute('font-size',String(Math.max(8,10/vp.zoom)));
-    label.setAttribute('fill',isSel?'#fff':'rgba(200,215,255,.8)');
+    label.setAttribute('fill',isSel?'#fff':'rgba(220,235,255,1)');
     label.setAttribute('pointer-events','none');
     label.setAttribute('font-family','JetBrains Mono,monospace');
     label.setAttribute('font-weight',isSel?'700':'400');
@@ -1447,6 +1516,14 @@ function updateManualBar(){
   const bar = document.getElementById('manual-bar');
   const isLine = selAgv && selAgv.agv_type === 'LINE';
   bar.style.display = isLine ? 'flex' : 'none';
+
+  // Hiện/ẩn + populate override-node-select
+  const posWrap = document.getElementById('manual-pos-wrap');
+  if(posWrap){
+    posWrap.style.display = isLine ? 'block' : 'none';
+    const overSel = document.getElementById('override-node-select');
+    if(overSel && isLine) _populateNodeSel(overSel, selAgv?.current_node);
+  }
 }
 
 function toggleManual(){

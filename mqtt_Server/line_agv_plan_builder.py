@@ -315,13 +315,23 @@ def _build_steps(
         _turn_src_cur   = ""
         if _from_for_turn and global_i + 1 < n_full:
             if _using_initial_prev:
-                # AGV arrived backward: front toward from_tag → cần đảo chiều turn
-                turn_at_current, _turn_src_cur = _resolve_turn_bwd_arrival(
-                    tag_str,
-                    _from_for_turn,
-                    full_path[global_i + 1],
-                    points, node_actions,
-                )
+                if direction == "fwd":
+                    # Hiếm gặp: arrived bwd, new plan fwd → bù đảo chiều
+                    turn_at_current, _turn_src_cur = _resolve_turn_bwd_arrival(
+                        tag_str,
+                        _from_for_turn,
+                        full_path[global_i + 1],
+                        points, node_actions,
+                    )
+                else:
+                    # AGV vừa đến bwd, tiếp tục bwd → turn bình thường theo direction=bwd
+                    turn_at_current, _turn_src_cur = _resolve_turn(
+                        tag_str,
+                        _from_for_turn,
+                        full_path[global_i + 1],
+                        points, node_actions,
+                        direction,
+                    )
             else:
                 turn_at_current, _turn_src_cur = _resolve_turn(
                     tag_str,

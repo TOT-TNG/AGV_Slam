@@ -2479,22 +2479,14 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
         # (mũi xe ngược chiều đi tiếp). Nếu đến theo chiều tiến thì mũi đã đúng hướng.
         _initial_prev = _prev_tag if (_last_tdir_pre == 'bwd' and not _is_post_charge) else None
 
-        # Mặc định tiến; nhưng nếu vừa xong backward transit (không phải trạm sạc)
-        # và path tiếp thẳng hàng → mũi xe ngược chiều path[1] → tiếp tục direction='bwd'
-        _line_dir = "fwd"
-        if _last_tdir_pre == 'bwd' and not _is_post_charge and _prev_tag and len(path) >= 2:
-            from line_agv_plan_builder import _resolve_turn as _rt_dir
-            _dir_turn, _ = _rt_dir(str(path[0]), _prev_tag, str(path[1]),
-                                   points, node_actions, "fwd")
-            if _dir_turn is None:  # STRAIGHT → đuôi đang hướng về path[1] → tiếp tục lùi
-                _line_dir = "bwd"
-                print(f"[DISPATCH] {agv_id}: post-backward STRAIGHT → direction=bwd "
-                      f"({_prev_tag}→{path[0]}→{path[1]})")
+        # Khi AGV vừa xong bwd transit → tiếp tục direction=bwd (rẽ + lùi tiếp).
+        # KHÔNG dùng direction=fwd vì firmware có thể chạy tiến trước khi rẽ.
+        _line_dir = "bwd" if (_last_tdir_pre == 'bwd' and not _is_post_charge) else "fwd"
 
         if _lstate:
             _lstate.last_transit_direction = ''
-        if _line_dir == "fwd":
-            print(f"[DISPATCH] {agv_id}: direction=fwd (final_approach_bwd handled by plan_builder)")
+        print(f"[DISPATCH] {agv_id}: direction={_line_dir} "
+              f"(last_tdir={_last_tdir_pre!r}, post_charge={_is_post_charge})")
 
         if split_idx is not None:
             first_seg = path[:split_idx + 1]
