@@ -198,6 +198,28 @@ class AGVTaskQueue:
                 self._running[agv_id] = None
                 self._db_update(next_cmd)
 
+    def insert_next(
+        self,
+        agv_id:    str,
+        command:   str,
+        dest_node: Optional[str] = None,
+    ) -> QueuedCommand:
+        """
+        Chèn lệnh vào ĐẦU hàng chờ — sẽ chạy ngay sau lệnh hiện tại.
+        Dùng khi split route tại intermediate arrival_action node.
+        """
+        cmd = QueuedCommand(
+            cmd_id=str(uuid.uuid4())[:8],
+            agv_id=agv_id,
+            command=command,
+            dest_node=dest_node,
+            status=STATUS_QUEUED,
+        )
+        self._queues.setdefault(agv_id, deque()).appendleft(cmd)
+        self._db_insert(cmd)
+        print(f"[QUEUE] {agv_id}: insert_next '{command}' dest={dest_node} id={cmd.cmd_id}")
+        return cmd
+
     def cancel_running(self, agv_id: str) -> Optional[dict]:
         """Force-cancel lệnh đang chạy (bị stuck), giải phóng AGV để dispatch lệnh tiếp."""
         cmd = self._running.get(agv_id)

@@ -40,6 +40,26 @@ async def save_node_config(payload: MapNodeConfigRequest, request: Request):
     if bwd_turn not in ("right", "left"):
         bwd_turn = None
 
+    arrival_action = (config.get("arrival_action") or "").strip().lower()
+    if arrival_action not in ("wait_sys", "wait_user", "wait_charge"):
+        arrival_action = None
+
+    approach_dir = (config.get("approach_dir") or "").strip().lower()
+    if approach_dir not in ("bwd",):
+        approach_dir = None
+
+    # turn_map: {"from_to": "left"|"right"|"straight"} — explicit junction turn config
+    raw_turn_map = config.get("turn_map")
+    turn_map: dict | None = None
+    if isinstance(raw_turn_map, dict) and raw_turn_map:
+        turn_map = {}
+        for k, v in raw_turn_map.items():
+            v_clean = str(v or "").strip().lower()
+            if v_clean in ("left", "right", "straight"):
+                turn_map[str(k).strip()] = v_clean
+        if not turn_map:
+            turn_map = None
+
     action_json: dict = {
         "locationType":  location_type,
         "defaultAction": default_action,
@@ -49,6 +69,12 @@ async def save_node_config(payload: MapNodeConfigRequest, request: Request):
         action_json["fwd_turn"] = fwd_turn
     if bwd_turn:
         action_json["bwd_turn"] = bwd_turn
+    if arrival_action:
+        action_json["arrival_action"] = arrival_action
+    if approach_dir:
+        action_json["approach_dir"] = approach_dir
+    if turn_map:
+        action_json["turn_map"] = turn_map
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(

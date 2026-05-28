@@ -53,7 +53,7 @@ def _save_mqtt_mode(mode: str) -> None:
 def _resolve_broker_port(mode: str) -> tuple[str, int]:
     if mode == "cloud":
         return _CLOUD_BROKER, _CLOUD_PORT
-    return os.getenv("MQTT_BROKER", "192.168.1.15").strip(), int(os.getenv("MQTT_PORT", "1883"))
+    return os.getenv("MQTT_BROKER", "192.168.0.58").strip(), int(os.getenv("MQTT_PORT", "1883"))
 
 def _configure_client_for_mode(c, mode: str) -> None:
     """Cài TLS + auth cho client theo mode trước khi connect."""
@@ -1110,7 +1110,9 @@ def get_agv_runtime_info(agv_id: str) -> dict:
         from line_agv_handler import line_agv_handler
         line_state = line_agv_handler.state_store.get(agv_id)
         current_node = (str(line_state.current_tag)
-                        if (line_state is not None and line_state.current_tag is not None)
+                        if (line_state is not None
+                            and line_state.current_tag is not None
+                            and line_state.current_tag != 0)
                         else None)
         # Ưu tiên map_id từ DB (agv_devices.map_id), fallback map_manager.current_map_id
         raw_map = (
@@ -1180,7 +1182,34 @@ def resolve_special_target_node(agv_id: str, target_type: str) -> dict:
 
     from agv_registry import agv_registry as _reg
     _is_line = _reg.is_line(agv_id)
-    node_info = find_named_node_with_action_via_pool(resolved_map_id, candidates, line_agv=_is_line)
+
+    # type integer trong DB: 2=charger, 5=buffer(wait zone), 7=wait
+    _TYPE_INT = {"charge": 2, "wait": 5}
+    type_int = _TYPE_INT.get(target_type)
+
+    # Ưu tiên 1: tìm theo locationType JSONB + type integer (cấu hình trong map editor)
+    node_info = None
+    if type_int is not None:
+        node_info = find_node_by_type_via_pool(resolved_map_id, type_int, line_agv=_is_line)
+        if node_info and node_info.get("node_id"):
+            print(f"[SPECIAL] Tìm thấy node '{target_type}' qua locationType/type={type_int}: "
+                  f"node_id={node_info['node_id']} name={node_info.get('name')}")
+
+    # Fallback 2: tìm theo tên (legacy)
+    if not node_info or not node_info.get("node_id"):
+        node_info = find_named_node_with_action_via_pool(resolved_map_id, candidates, line_agv=_is_line)
+
+    # Fallback 3: tìm theo arrival_action JSONB
+    if not node_info or not node_info.get("node_id"):
+        fallback_action = {"charge": "wait_charge", "wait": "wait_sys"}.get(target_type)
+        if fallback_action:
+            node_info = find_node_by_arrival_action_via_pool(
+                resolved_map_id, fallback_action, line_agv=_is_line
+            )
+            if node_info and node_info.get("node_id"):
+                print(f"[SPECIAL] Tìm thấy node '{target_type}' qua arrival_action JSONB: "
+                      f"node_id={node_info['node_id']} name={node_info.get('name')}")
+
     if not node_info or not node_info.get("node_id"):
         raise ValueError(
             f"Không tìm thấy node {target_type} trong map {resolved_map_id} | candidates={candidates}"
@@ -1226,17 +1255,97 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
 
     from agv_registry import agv_registry
     if agv_registry.is_line(agv_id):
-        # Line AGV: build Line plan
-        from line_agv_plan_builder import build_line_plan
+        from line_agv_plan_builder import build_line_plan, build_edge_speeds, build_edge_lidar
         from line_agv_handler import line_agv_handler
+        from task_queue import agv_task_queue as _atq_s, CMD_GO_TO as _CGT_S, CMD_GO_CHARGE as _CGC_S, CMD_GO_WAIT as _CGW_S
         path         = [str(n.get("nodeId") or n) for n in route_nodes]
-        points       = getattr(map_manager, "points", {}) or {}
+        points       = getattr(map_manager, "points",       {}) or {}
         node_actions = getattr(map_manager, "node_actions", {}) or {}
+        roads        = getattr(map_manager, "roads",        []) or []
+        edge_spd     = build_edge_speeds(roads)
+        edge_lidar   = build_edge_lidar(roads)
         line_task    = "return_charge" if target_type == "charge" else "system"
-        order        = build_line_plan(path, points, task_type=line_task,
-                                       node_actions=node_actions, direction="fwd")
-        line_agv_handler.set_route(agv_id, path, line_task)
+
+        # Đọc hướng xe hiện tại
+        _lstate   = line_agv_handler.state_store.get(agv_id)
+        _prev_tag = str(_lstate.prev_tag) if (_lstate and _lstate.prev_tag) else None
+
+        # Xử lý đoạn lùi đầu đường (nếu planner chọn lùi trước)
+        if _prev_tag and len(path) >= 2 and str(path[1]) == _prev_tag:
+            _last_tdir_bwd = getattr(_lstate, 'last_transit_direction', '') if _lstate else ''
+            # Kiểm tra xe có đang ở trạm sạc không (approach_dir=bwd HOẶC arrival_action=wait_charge).
+            _cur_node_cfg  = node_actions.get(str(path[0])) or {}
+            _cur_approach  = str(_cur_node_cfg.get("approach_dir")   or "").lower()
+            _cur_arrival   = str(_cur_node_cfg.get("arrival_action") or "").lower()
+            _lifecycle_chg = (getattr(_lstate, 'task_lifecycle', '') or '') == "charging"
+            _at_charge_bwd = (_cur_approach == "bwd") or (_cur_arrival == "wait_charge") or _lifecycle_chg
+            if _last_tdir_bwd == "bwd" or _at_charge_bwd:
+                # AGV lùi vào (server-route hoặc thủ công) — front hướng ra ngoài → TIẾN.
+                if _lstate:
+                    _lstate.last_transit_direction = ''
+                print(f"[SPECIAL] {agv_id}: post-backward route → skip transit, dùng direction=fwd"
+                      f" (reason: last_tdir={_last_tdir_bwd!r} at_charge_bwd={_at_charge_bwd})")
+            else:
+                bwd_end  = 1
+                cur_from = _prev_tag
+                for _bi in range(1, len(path) - 1):
+                    if str(path[_bi + 1]) == str(cur_from):
+                        cur_from = path[_bi]
+                        bwd_end  = _bi + 1
+                    else:
+                        break
+                bwd_seg  = path[:bwd_end + 1]
+                bwd_plan = build_line_plan(bwd_seg, points, task_type="transit",
+                                           node_actions=node_actions, direction="bwd",
+                                           edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                                           agv_id=agv_id, initial_prev_tag=None)
+                line_agv_handler.set_route(agv_id, bwd_seg, "transit", direction="bwd")
+                send_generated_order(agv_id, bwd_plan)
+                # Dùng CMD_GO_CHARGE/CMD_GO_WAIT để giữ đúng task_type sau transit
+                _next_cmd = _CGC_S if target_type == "charge" else _CGW_S
+                _atq_s.insert_next(agv_id, _next_cmd)
+                return {
+                    "success": True,
+                    "agv_id": agv_id,
+                    "target_type": target_type,
+                    "target_node": target_node,
+                    "target_name": target_info.get("name"),
+                    "map_id": resolved_map_id,
+                    "planId": bwd_plan.get("id"),
+                    "path": path,
+                }
+
+        # Đọc last_transit_direction TRƯỚC khi clear
+        _last_tdir_pre  = getattr(_lstate, 'last_transit_direction', '') if _lstate else ''
+        _is_post_charge = (getattr(_lstate, 'task_lifecycle', '') or '') == "charging"
+
+        # initial_prev_tag chỉ dùng khi xe vừa đến start node theo chiều lùi
+        _initial_prev = _prev_tag if (_last_tdir_pre == 'bwd' and not _is_post_charge) else None
+
+        _line_dir = "fwd"
+        if _last_tdir_pre == 'bwd' and not _is_post_charge and _prev_tag and len(path) >= 2:
+            from line_agv_plan_builder import _resolve_turn as _rt_dir
+            _dir_turn, _ = _rt_dir(str(path[0]), _prev_tag, str(path[1]),
+                                   points, node_actions, "fwd")
+            if _dir_turn is None:
+                _line_dir = "bwd"
+                print(f"[SPECIAL] {agv_id}: post-backward STRAIGHT → direction=bwd "
+                      f"({_prev_tag}→{path[0]}→{path[1]})")
+
+        if _lstate:
+            _lstate.last_transit_direction = ''
+        if _line_dir == "fwd":
+            print(f"[SPECIAL] {agv_id}: direction=fwd (final_approach_bwd handled by plan_builder)")
+
+        order = build_line_plan(path, points, task_type=line_task,
+                                node_actions=node_actions, direction=_line_dir,
+                                edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                                agv_id=agv_id, initial_prev_tag=_initial_prev)
+        _rt = line_agv_handler.set_route(agv_id, path, line_task, direction=_line_dir)
         send_generated_order(agv_id, order)
+        # Full plan đã gửi → mark complete để arrived_wait_* handler xử lý đúng
+        _rt.window_end = len(path) - 1
+        _rt.is_complete = True
         return {
             "success": True,
             "agv_id": agv_id,
@@ -1349,6 +1458,154 @@ def find_named_node_with_action_via_pool(
     except Exception as e:
         print(f"[DB] find_named_node_with_action_via_pool thất bại | map_id={map_id} | candidates={candidates} | lỗi={e}")
         return None
+
+async def find_node_by_type_async(
+    pool,
+    map_id: str,
+    node_type: int,
+    line_agv: bool = False,
+) -> dict | None:
+    """
+    Tìm node theo loại trạm — ưu tiên JSONB action->>'locationType' vì đây là
+    giá trị map editor luôn lưu (VD: 'CHARGER', 'BUFFER', 'WAIT', 'PARKING', 'HOME').
+    Fallback về cột type INTEGER (2=charger, 5=buffer, 6=parking, 7=wait).
+    """
+    # Map type int → locationType string (map_editor lưu n.type.toUpperCase())
+    _LOCATION_TYPES: dict[int, list[str]] = {
+        2: ["CHARGER"],
+        5: ["BUFFER", "WAIT", "PARKING", "HOME"],
+        6: ["PARKING", "BUFFER"],
+        7: ["WAIT",   "BUFFER"],
+    }
+    location_types = _LOCATION_TYPES.get(node_type, [])
+    try:
+        async with pool.acquire() as conn:
+            row = None
+            # Ưu tiên 1: JSONB locationType (ví dụ: CHARGER, BUFFER, WAIT...)
+            if location_types:
+                row = await conn.fetchrow(
+                    """
+                    SELECT name_id, name, action
+                    FROM agv_map_points
+                    WHERE CAST(map_id AS TEXT) = $1
+                      AND action->>'locationType' = ANY($2::text[])
+                    LIMIT 1
+                    """,
+                    str(map_id),
+                    location_types,
+                )
+            # Fallback: cột type INTEGER
+            if row is None:
+                row = await conn.fetchrow(
+                    """
+                    SELECT name_id, name, action
+                    FROM agv_map_points
+                    WHERE CAST(map_id AS TEXT) = $1
+                      AND type = $2
+                    LIMIT 1
+                    """,
+                    str(map_id),
+                    node_type,
+                )
+            if row and row.get("name_id") is not None:
+                return {
+                    "node_id": str(row["name_id"]).strip(),
+                    "name": row.get("name"),
+                    "action": row.get("action"),
+                }
+        return None
+    except Exception as e:
+        print(f"[DB] find_node_by_type_async thất bại | map_id={map_id} | type={node_type} | lỗi={e}")
+        return None
+
+
+def find_node_by_type_via_pool(
+    map_id: str,
+    node_type: int,
+    line_agv: bool = False,
+) -> dict | None:
+    """Sync wrapper: tìm node theo type integer (2=charger, 5=buffer/wait)."""
+    try:
+        app = get_app()
+        loop = getattr(app.state, "loop", None)
+        pool = getattr(app.state, "db_pool", None)
+        if not loop or not loop.is_running() or pool is None:
+            return None
+        fut = asyncio.run_coroutine_threadsafe(
+            find_node_by_type_async(pool, map_id, node_type, line_agv=line_agv),
+            loop,
+        )
+        return fut.result(timeout=5)
+    except Exception as e:
+        print(f"[DB] find_node_by_type_via_pool thất bại | map_id={map_id} | type={node_type} | lỗi={e}")
+        return None
+
+
+async def find_node_by_arrival_action_async(
+    pool,
+    map_id: str,
+    arrival_action_value: str,
+    line_agv: bool = False,
+) -> dict | None:
+    """Fallback: tìm node theo action->>'arrival_action' trong JSONB khi tìm theo tên thất bại."""
+    compat_clause = (
+        """
+        AND (
+            action IS NULL
+            OR COALESCE(action->>'agvCompat', '') = ''
+            OR action->>'agvCompat' IN ('RFID', 'both')
+        )
+        """
+        if line_agv else ""
+    )
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""
+                SELECT name_id, name, action
+                FROM agv_map_points
+                WHERE CAST(map_id AS TEXT) = $1
+                  AND action IS NOT NULL
+                  AND action->>'arrival_action' = $2
+                  {compat_clause}
+                LIMIT 1
+                """,
+                str(map_id),
+                arrival_action_value,
+            )
+            if row and row.get("name_id") is not None:
+                return {
+                    "node_id": str(row["name_id"]).strip(),
+                    "name": row.get("name"),
+                    "action": row.get("action"),
+                }
+        return None
+    except Exception as e:
+        print(f"[DB] find_node_by_arrival_action_async thất bại | map_id={map_id} | arrival_action={arrival_action_value} | lỗi={e}")
+        return None
+
+
+def find_node_by_arrival_action_via_pool(
+    map_id: str,
+    arrival_action_value: str,
+    line_agv: bool = False,
+) -> dict | None:
+    """Sync wrapper: tìm node theo arrival_action JSONB khi tìm tên thất bại."""
+    try:
+        app = get_app()
+        loop = getattr(app.state, "loop", None)
+        pool = getattr(app.state, "db_pool", None)
+        if not loop or not loop.is_running() or pool is None:
+            return None
+        fut = asyncio.run_coroutine_threadsafe(
+            find_node_by_arrival_action_async(pool, map_id, arrival_action_value, line_agv=line_agv),
+            loop,
+        )
+        return fut.result(timeout=5)
+    except Exception as e:
+        print(f"[DB] find_node_by_arrival_action_via_pool thất bại | map_id={map_id} | arrival_action={arrival_action_value} | lỗi={e}")
+        return None
+
 
 def find_named_node_in_db(map_id: str, candidates: list[str]) -> str | None:
     """
@@ -1519,9 +1776,10 @@ async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: s
     from agv_registry import agv_registry as _reg
     _is_line = _reg.is_line(agv_id)
 
-    # Tính đường đi ngắn nhất
+    # Tính đường đi ngắn nhất (Line AGV: direction-aware)
     if _is_line:
-        node_path = map_manager.line_shortest_path(start_node, end_node)
+        _prev_tag = str(_line_st.prev_tag) if (_line_st and _line_st.prev_tag) else None
+        node_path = map_manager.line_directional_path(start_node, end_node, _prev_tag)
     else:
         node_path = map_manager.shortest_path(start_node, end_node)
     if not node_path:
@@ -2867,19 +3125,20 @@ def _broadcast_line_agv_state(agv_id: str) -> None:
 
         async def _send():
             await ws_func({
-                "type":          "agv_state",
-                "agv_id":        agv_id,
-                "agv_kind":      "LINE",
-                "lastNodeId":    str(state.current_tag),
-                "prev_tag":      state.prev_tag,
-                "batteryCharge": state.battery,
-                "battery_low":   state.battery_low,
+                "type":           "agv_state",
+                "agv_id":         agv_id,
+                "agv_kind":       "LINE",
+                "lastNodeId":     str(state.current_tag),
+                "prev_tag":       state.prev_tag,
+                "batteryCharge":  state.battery,
+                "battery_low":    state.battery_low,
                 "battery_blocking": state.battery_blocking,
-                "driving":       state.driving,
-                "paused":        state.paused,
-                "operatingMode": state.operating_mode,
-                "connection":    state.connection_state,
-                "timestamp":     datetime.datetime.now().isoformat(),
+                "driving":        state.driving,
+                "paused":         state.paused,
+                "operatingMode":  state.operating_mode,
+                "connection":     state.connection_state,
+                "task_lifecycle": state.task_lifecycle,
+                "timestamp":      datetime.datetime.now().isoformat(),
             })
 
         run_async_in_thread(_send())

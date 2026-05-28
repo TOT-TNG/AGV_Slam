@@ -75,7 +75,9 @@ class MapManager:
         async with pool.acquire() as conn:
             roads = await conn.fetch(
                 """
-                SELECT id_source, id_dest, distance, speed, move_direction, width
+                SELECT id_source, id_dest, distance, speed, move_direction, width,
+                       COALESCE(lidar_off, FALSE) AS lidar_off,
+                       COALESCE(lidar_off_dir, 'none') AS lidar_off_dir
                 FROM agv_map_roads
                 WHERE CAST(map_id AS TEXT) = $1
                 """,
@@ -85,7 +87,9 @@ class MapManager:
             benziers = await conn.fetch(
                 """
                 SELECT id_source, id_dest, speed, move_direction,
-                       point_start_x, point_start_y, point_end_x, point_end_y
+                       point_start_x, point_start_y, point_end_x, point_end_y,
+                       COALESCE(lidar_off, FALSE) AS lidar_off,
+                       COALESCE(lidar_off_dir, 'none') AS lidar_off_dir
                 FROM agv_map_benziers
                 WHERE CAST(map_id AS TEXT) = $1
                 """,
@@ -124,10 +128,14 @@ class MapManager:
                 g.add_edge(dst, src, **attrs)
             # mdir == 3 (blocked): thêm node nhưng không thêm edge
 
+            lidar_off     = bool(r["lidar_off"]) if r["lidar_off"] is not None else False
+            lidar_off_dir = str(r["lidar_off_dir"] or "none").strip().lower()
             roads_data.append({
                 "id_source": src, "id_dest": dst,
                 "speed": speed, "move_direction": mdir,
                 "distance": weight, "width": width,
+                "lidar_off": lidar_off,
+                "lidar_off_dir": lidar_off_dir,
             })
 
         for b in benziers:
@@ -142,6 +150,8 @@ class MapManager:
                 b_weight = (dx**2 + dy**2) ** 0.5 or 1.0
             except Exception:
                 b_weight = 1.0
+            b_lidar_off     = bool(b["lidar_off"]) if b.get("lidar_off") is not None else False
+            b_lidar_off_dir = str(b.get("lidar_off_dir") or "none").strip().lower()
             b_attrs = dict(weight=b_weight, speed=b_speed, move_direction=b_mdir)
             g.add_node(src)
             g.add_node(dst)
@@ -152,6 +162,13 @@ class MapManager:
                 g.add_edge(src, dst, **b_attrs)
             elif b_mdir == 2:
                 g.add_edge(dst, src, **b_attrs)
+            roads_data.append({
+                "id_source": src, "id_dest": dst,
+                "speed": b_speed, "move_direction": b_mdir,
+                "distance": b_weight, "width": 0.3,
+                "lidar_off": b_lidar_off,
+                "lidar_off_dir": b_lidar_off_dir,
+            })
 
         # Dữ liệu point cho planner
         point_dict = {
@@ -291,3 +308,80 @@ class MapManager:
             print(f"[MapManager] Không có đường đi từ {start} đến {end}")
             print(f"[MapManager] Edges: {list(self.graph.edges)}")
             return None
+
+    def line_directional_path(self, start: str, end: str, came_from: str | None) -> list | None:
+        """
+        Tìm đường cho Line AGV có xét đến hướng hiện tại và quyền quay tại node.
+
+        came_from: node AGV vừa đến start từ đó (prev_tag).
+        Thuật toán: Augmented A* với state (node, prev_node).
+        - Nếu cần quay tại node X mà X có turn_allowed=no: bỏ qua nhánh đó.
+        - Cho phép lùi (backward movement) với penalty nhỏ để tránh kẹt.
+        - Fallback: line_shortest_path nếu không tìm được đường thỏa mãn.
+        """
+        import math
+        from heapq import heappush, heappop
+        from line_agv_plan_builder import get_turn_direction
+
+        if not came_from:
+            return self.line_shortest_path(start, end)
+
+        g = self.line_graph
+        if g is None or g.number_of_nodes() < 2:
+            return self.shortest_path(start, end)
+
+        start, end, came_from = str(start), str(end), str(came_from)
+        if not g.has_node(start) or not g.has_node(end):
+            return self.line_shortest_path(start, end)
+
+        points       = self.line_points or self.points
+        node_actions = self.node_actions
+
+        def h(nid: str) -> float:
+            p1, p2 = points.get(nid), points.get(end)
+            return math.hypot(p1[0]-p2[0], p1[1]-p2[1]) if p1 and p2 else 0.0
+
+        BWD_PENALTY  = 2.0   # Cost thêm cho mỗi bước lùi (ưu tiên tiến)
+        TURN_PENALTY = 0.5   # Cost thêm khi phải quay (ưu tiên thẳng)
+
+        # State: (node_id, came_from_id)
+        counter  = 0
+        best_g: dict[tuple[str,str], float] = {}
+        init_state = (start, came_from)
+        init_g     = 0.0
+        best_g[init_state] = init_g
+        # heap: (f, counter, node, prev, path)
+        open_set = [(init_g + h(start), counter, start, came_from, [start])]
+
+        while open_set:
+            f, _, cur, prev, path = heappop(open_set)
+            state = (cur, prev)
+            g_cur = best_g.get(state, float('inf'))
+            # Stale check
+            if f - h(cur) > g_cur + 1e-6:
+                continue
+
+            if cur == end:
+                return path
+
+            for nbr, edata in g[cur].items():
+                edge_w = float(edata.get('weight', 1.0))
+
+                if nbr == prev:
+                    # Backward movement: lùi về node trước đó
+                    new_g = g_cur + edge_w + BWD_PENALTY
+                else:
+                    turn = get_turn_direction(prev, cur, nbr, points)
+                    ta   = str(node_actions.get(cur, {}).get('turn_allowed', 'yes')).lower()
+                    if turn is not None and ta == 'no':
+                        continue  # không được quay ở đây
+                    new_g = g_cur + edge_w + (TURN_PENALTY if turn is not None else 0.0)
+
+                new_state = (nbr, cur)
+                if new_g < best_g.get(new_state, float('inf')):
+                    best_g[new_state] = new_g
+                    counter += 1
+                    heappush(open_set, (new_g + h(nbr), counter, nbr, cur, path + [nbr]))
+
+        print(f"[MapManager] directional path không tìm được {start}→{end} (came_from={came_from}), fallback")
+        return self.line_shortest_path(start, end)

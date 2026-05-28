@@ -33,6 +33,7 @@
   /* Section label */
   .sec-label{font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0}
   @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes agvGlowPulse{0%,100%{opacity:.1}50%{opacity:.38}}
 </style>
 </head>
 <body style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
@@ -106,6 +107,7 @@
     <div id="map-wrap" style="flex:1;position:relative;overflow:hidden;background:#050d1a;min-height:0">
       <svg id="map-svg" style="position:absolute;inset:0;width:100%;height:100%">
         <g id="world-g"></g>
+        <g id="anim-g" pointer-events="none"></g>
       </svg>
       <div id="map-empty" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
         <span class="material-symbols-outlined" style="font-size:52px;color:#adc6ff;opacity:.1">warehouse</span>
@@ -124,29 +126,49 @@
         </button>
       </div>
       <div style="font-size:10px;color:#8c909f;margin-bottom:6px">
-        Server chưa nhận state từ AGV. Chọn node xuất phát <b>đúng vị trí thực tế</b> của xe, hoặc nhấn "Ping AGV" để yêu cầu xe tự báo vị trí.
-        Chọn sai → xe nhận plan sai → có thể đứng chờ hoặc đi nhầm đường.
+        Server chưa nhận state từ AGV. Chọn node đúng vị trí thực tế và nhấn <b style="color:#a5b4fc">📍 Gán vị trí</b> để cập nhật server, hoặc nhấn "Ping AGV" để yêu cầu xe tự báo.
       </div>
       <div style="display:flex;align-items:center;gap:6px">
-        <span class="sec-label" style="white-space:nowrap;color:#ffb700">Xuất phát</span>
+        <span class="sec-label" style="white-space:nowrap;color:#ffb700">Vị trí xe</span>
         <div style="position:relative;flex:1">
           <select id="start-node-select" onchange="onStartNodeSelect()">
             <option value="">-- Xe đang ở node nào? (nhấn node trên map hoặc chọn) --</option>
           </select>
           <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#8c909f">expand_more</span>
         </div>
+        <button id="btn-assign-pos" onclick="assignAgvPosition('start')"
+          style="padding:4px 11px;border-radius:7px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.5);color:#a5b4fc;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;flex-shrink:0">
+          <span class="material-symbols-outlined" style="font-size:12px">pin_drop</span>Gán vị trí
+        </button>
       </div>
     </div>
 
-    <!-- Node selector -->
-    <div style="flex-shrink:0;padding:8px 12px;border-top:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:8px">
-      <span class="material-symbols-outlined" style="color:#ddb7ff;font-size:15px">pin_drop</span>
-      <span class="sec-label" style="white-space:nowrap">Điểm đến</span>
-      <div style="position:relative;flex:1">
-        <select id="node-select" onchange="onNodeSelect()">
-          <option value="">-- Chọn node hoặc nhấn trên bản đồ --</option>
-        </select>
-        <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#8c909f">expand_more</span>
+    <!-- Gán vị trí thủ công (override — luôn hiện khi Line AGV được chọn) -->
+    <div id="override-pos-row" style="display:none;flex-shrink:0;padding:6px 12px;border-top:1px solid rgba(255,255,255,.06)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="material-symbols-outlined" style="color:#adc6ff;font-size:14px">pin_drop</span>
+        <span class="sec-label" style="white-space:nowrap">Gán vị trí thủ công</span>
+        <div style="position:relative;flex:1">
+          <select id="override-node-select">
+            <option value="">-- Chọn node --</option>
+          </select>
+          <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#8c909f">expand_more</span>
+        </div>
+        <button id="btn-override-pos" onclick="assignAgvPosition('override')"
+          style="padding:4px 11px;border-radius:7px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.5);color:#a5b4fc;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;flex-shrink:0">
+          <span class="material-symbols-outlined" style="font-size:12px">pin_drop</span>Gán
+        </button>
+      </div>
+    </div>
+
+    <!-- Step destination selectors (multi-step) -->
+    <div id="step-dest-area" style="flex-shrink:0;border-top:1px solid rgba(255,255,255,.07);overflow-y:auto;max-height:140px">
+      <div id="step-dest-inner" style="padding:7px 12px;display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="material-symbols-outlined" style="color:#ddb7ff;font-size:15px">pin_drop</span>
+          <span class="sec-label">Điểm đến</span>
+          <span style="font-size:10px;color:#424754">— chọn quy trình trước</span>
+        </div>
       </div>
     </div>
   </div>
@@ -200,6 +222,36 @@
     </div>
 
     <div id="manual-status" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#424754;margin-left:auto"></div>
+  </div>
+</div>
+
+<!-- ── Lifecycle action bar (lấy hàng / giao hàng — chỉ hiện khi AGV đang chờ xác nhận) ── -->
+<div id="lifecycle-bar" style="display:none;flex-shrink:0;padding:8px 16px;border-top:1px solid;backdrop-filter:blur(8px)">
+  <!-- picking state (WAIT_SYS → arrived_wait_sys) -->
+  <div id="lc-picking" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
+    <span class="material-symbols-outlined" style="color:#22c55e;font-size:20px">inventory_2</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:11px;font-weight:700;color:#22c55e;letter-spacing:.04em">AGV ĐÃ ĐẾN ĐIỂM LẤY HÀNG</div>
+      <div style="font-size:10px;color:#8c909f;margin-top:1px">AGV đang đứng chờ — nhấn xác nhận sau khi đã lấy hàng lên xe xong</div>
+    </div>
+    <button id="lc-picking-btn" onclick="confirmLifecycle()"
+      style="padding:8px 20px;border-radius:9px;background:rgba(34,197,94,.3);border:1px solid rgba(34,197,94,.5);color:#fff;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;transition:all .2s"
+      onmouseover="this.style.background='rgba(34,197,94,.5)'" onmouseout="this.style.background='rgba(34,197,94,.3)'">
+      <span class="material-symbols-outlined" style="font-size:14px">check_circle</span>ĐÃ LẤY HÀNG XONG
+    </button>
+  </div>
+  <!-- delivering state (WAIT_USER → arrived_wait_user) -->
+  <div id="lc-delivering" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
+    <span class="material-symbols-outlined" style="color:#adc6ff;font-size:20px">local_shipping</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.04em">AGV ĐÃ ĐẾN ĐIỂM GIAO HÀNG</div>
+      <div style="font-size:10px;color:#8c909f;margin-top:1px">AGV đang đứng chờ — nhấn xác nhận sau khi đã dỡ hàng xuống xong</div>
+    </div>
+    <button id="lc-delivering-btn" onclick="confirmLifecycle()"
+      style="padding:8px 20px;border-radius:9px;background:rgba(77,142,255,.3);border:1px solid rgba(77,142,255,.5);color:#fff;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;transition:all .2s"
+      onmouseover="this.style.background='rgba(77,142,255,.5)'" onmouseout="this.style.background='rgba(77,142,255,.3)'">
+      <span class="material-symbols-outlined" style="font-size:14px">check_circle</span>ĐÃ GIAO HÀNG XONG
+    </button>
   </div>
 </div>
 
@@ -317,7 +369,7 @@
 
 <script>
 // ── Config ─────────────────────────────────────────────────────────────────
-const API  = 'http://' + (window.location.hostname || '192.168.1.15') + ':8000';
+const API  = 'http://' + (window.location.hostname || '192.168.0.58') + ':8000';
 const DASH = '';   // same origin as iframe
 
 // AGV type → icon path (served by Dash /assets/)
@@ -333,14 +385,25 @@ function agvIcon(type){ return AGV_ICONS[(type||'').toLowerCase()] || '/assets/a
 // Node type colours
 const NODE_COLORS = {0:'#adc6ff',1:'#0ea5e9',2:'#f59e0b',3:'#ef4444',4:'#22c55e',5:'#a855f7',6:'#14b8a6'};
 
+// ── Step colors (tối đa 6 bước, lặp nếu nhiều hơn) ────────────────────────
+const STEP_C = [
+  {h:'#ddb7ff',r:'221,183,255'},{h:'#adc6ff',r:'173,198,255'},
+  {h:'#86efac',r:'134,239,172'},{h:'#ffb700',r:'255,183,0'},
+  {h:'#ff8080',r:'255,128,128'},{h:'#67e8f9',r:'103,232,249'},
+];
+function sc(i){ return STEP_C[i % STEP_C.length]; }
+
 // ── State ──────────────────────────────────────────────────────────────────
-let agvs=[], workflows=[], selAgv=null, selWf=null, selNode=null, mapNodes=[];
-let selStartNode=null;   // vị trí xuất phát thủ công (khi AGV chưa báo vị trí)
+let agvs=[], workflows=[], selAgv=null, selWf=null, mapNodes=[];
+let wfSteps=[];         // [{idx,type,cmd,needsDest,label}] — bước đã parse
+let selNodes={};        // {stepIdx: nodeObj} — điểm đến từng bước
+let activeStepIdx=0;    // bước đang nhận click từ map
+let selStartNode=null;  // vị trí xuất phát thủ công (khi AGV chưa báo vị trí)
 let vp={zoom:1,panX:0,panY:0};
 let mapData=null, mapImgUrl='';
 let originX=0, originY=0, resolution=0.05, imgNatW=1, imgNatH=1;
 let isSchematic=false;
-let currentMapId=null, agvPositions=[];
+let currentMapId=null, agvPositions=[], agvRoutes={};
 let panning=false, px0=0,py0=0,ppx=0,ppy=0;
 let pickingStartNode=false;   // chế độ click map để chọn vị trí xuất phát
 
@@ -374,6 +437,7 @@ async function loadAgvs(){
     if(selAgv&&selAgv.current_node) selStartNode=null;
     updateStartNodeRow();
     updateManualBar();
+    updateLifecycleBar();
     renderAgvs(); updateStartBtn();
   }catch(e){
     console.error('[AGV]',e);
@@ -439,16 +503,32 @@ function selectAgv(id){
   if(!manualEnabled) { /* giữ trạng thái manual nếu đang bật */ }
   updateStartNodeRow();
   updateManualBar();
+  updateLifecycleBar();
   renderAgvs(); updateSummary(); updateStartBtn();
 }
 
 // ── Start node (vị trí xuất phát) ─────────────────────────────────────────
+function _populateNodeSel(selEl, savedId){
+  selEl.innerHTML='<option value="">-- Chọn node --</option>';
+  mapNodes.forEach(n=>{
+    const o=document.createElement('option');
+    o.value=String(n.name_id);
+    o.textContent=n.name?`${n.name} (${n.name_id})`:`Node ${n.name_id}`;
+    if(savedId&&String(n.name_id)===String(savedId)) o.selected=true;
+    selEl.appendChild(o);
+  });
+}
+
 function updateStartNodeRow(){
   const row=document.getElementById('start-node-row');
-  const needStart = selAgv && selAgv.agv_type==='LINE' && !selAgv.current_node;
+  const overRow=document.getElementById('override-pos-row');
+  const isLine = selAgv && selAgv.agv_type==='LINE';
+  const needStart = isLine && !selAgv.current_node;
+
   row.style.display = needStart ? 'flex' : 'none';
   if(!needStart){ selStartNode=null; }
-  // populate dropdown giống node-select
+
+  // Dropdown start-node-select
   const sel=document.getElementById('start-node-select');
   sel.innerHTML='<option value="">-- AGV đang ở node nào? (bắt buộc) --</option>';
   mapNodes.forEach(n=>{
@@ -458,6 +538,47 @@ function updateStartNodeRow(){
     if(selStartNode&&String(selStartNode.name_id)===String(n.name_id)) o.selected=true;
     sel.appendChild(o);
   });
+
+  // Row override: hiện khi Line AGV đã có vị trí (để gán đè)
+  if(overRow){
+    overRow.style.display = (isLine && selAgv.current_node) ? 'flex' : 'none';
+    const overSel=document.getElementById('override-node-select');
+    if(overSel) _populateNodeSel(overSel, selAgv?.current_node);
+  }
+}
+
+async function assignAgvPosition(mode){
+  if(!selAgv){ toast('Chưa chọn AGV','warn'); return; }
+  const selId = mode==='override'
+    ? document.getElementById('override-node-select')?.value
+    : document.getElementById('start-node-select')?.value;
+  if(!selId){ toast('Hãy chọn node trên map hoặc dropdown','warn'); return; }
+
+  const btnId = mode==='override' ? 'btn-override-pos' : 'btn-assign-pos';
+  const btn = document.getElementById(btnId);
+  const oldHtml = btn?.innerHTML;
+  if(btn){ btn.disabled=true; btn.textContent='Đang gán…'; }
+  try{
+    const r=await fetch(`${API}/api/agv/set-tag`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({agv_id:selAgv.agv_id, node_id:selId})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d?.detail||`HTTP ${r.status}`);
+    const nodeName = mapNodes.find(n=>String(n.name_id)===String(selId))?.name || selId;
+    toast(`✓ Đã gán ${selAgv.agv_id} → node ${nodeName}`,'success');
+    // Cập nhật local state để UI phản ánh ngay
+    selAgv.current_node = String(selId);
+    if(mode==='start'){
+      selStartNode = mapNodes.find(n=>String(n.name_id)===String(selId))||null;
+    }
+    updateStartNodeRow(); renderMap(); updateSummary(); updateStartBtn();
+  }catch(e){
+    toast(`✗ Gán vị trí thất bại: ${e.message}`,'error');
+  }finally{
+    if(btn){ btn.disabled=false; if(oldHtml) btn.innerHTML=oldHtml; }
+  }
 }
 
 function onStartNodeSelect(){
@@ -507,21 +628,118 @@ function onWorkflowChange(){
     el.style.display='block';
     el.innerHTML=selWf.steps.map((s,i)=>`<div><span style="color:#424754">${i+1}.</span> ${s.label||s.type||s.action||JSON.stringify(s)}</div>`).join('');
   } else { el.style.display='none'; }
-  updateSummary(); updateStartBtn();
+  wfSteps = parseWfSteps(selWf);
+  selNodes = {};
+  activeStepIdx = wfSteps.findIndex(s=>s.needsDest);
+  if(activeStepIdx < 0) activeStepIdx = 0;
+  renderStepSelectors();
+  renderMap(); updateSummary(); updateStartBtn();
+}
+
+// ── Parse workflow thành danh sách bước có cấu trúc ───────────────────────
+function parseWfSteps(wf){
+  if(!wf) return [];
+  const raw = wf.steps || [];
+  if(!raw.length){
+    // Workflow không có bước → suy diễn 1 bước đơn từ tên
+    const n=(wf.name||'').toLowerCase();
+    let cmd='go_to', label=wf.name||'Đi đến điểm';
+    if(n.includes('sạc')||n.includes('charge')){ cmd='go_charge'; label='Đi sạc'; }
+    else if(n.includes('khu chờ')||n.includes('park')){ cmd='go_wait'; label='Về khu chờ'; }
+    else if(n.includes('dừng')||n.includes('stop')){ cmd='stop'; label='Dừng khẩn cấp'; }
+    return [{idx:0,type:'move',cmd,needsDest:cmd==='go_to',label}];
+  }
+  const result=[];
+  let ri=0;
+  for(let i=0;i<raw.length;i++){
+    const s=raw[i];
+    const t=(s.type||'move').toLowerCase();
+    let cmd,needsDest=false;
+    if(t==='move'||t==='go_to'){cmd='go_to';needsDest=true;}
+    else if(t==='charge'){cmd='go_charge';}
+    else if(t==='wait-zone'||t==='park'){cmd='go_wait';}
+    else if(t==='wait'){cmd=null;} // timer-wait → skip
+    else if(t==='stop'){cmd='stop';}
+    else if(t==='resume'){cmd='resume';}
+    else{cmd='go_to';needsDest=true;}
+    if(cmd===null) continue;  // bỏ qua timer-wait
+    result.push({idx:ri++, rawIdx:i, type:t, cmd, needsDest,
+      label:s.label||s.notes||(cmd==='go_to'?'Đi đến điểm':
+            cmd==='go_charge'?'Đi sạc pin':
+            cmd==='go_wait'?'Về khu chờ':'Bước '+(ri))});
+  }
+  return result;
+}
+
+// ── Render danh sách bước với selector điểm đến ───────────────────────────
+function renderStepSelectors(){
+  const inner=document.getElementById('step-dest-inner');
+  if(!inner) return;
+  if(!selWf||!wfSteps.length){
+    inner.innerHTML=`<div style="display:flex;align-items:center;gap:8px">
+      <span class="material-symbols-outlined" style="color:#ddb7ff;font-size:15px">pin_drop</span>
+      <span class="sec-label">Điểm đến</span>
+      <span style="font-size:10px;color:#424754">— chọn quy trình trước</span></div>`;
+    return;
+  }
+  const needCount=wfSteps.filter(s=>s.needsDest).length;
+  inner.innerHTML = wfSteps.map(s=>{
+    const c=sc(s.idx);
+    const isActive=s.idx===activeStepIdx;
+    const selN=selNodes[s.idx];
+    if(!s.needsDest){
+      const badge={go_charge:'⚡ Đi sạc (tự động)',go_wait:'⏸ Về khu chờ (tự động)',stop:'🛑 Dừng',resume:'▶ Tiếp tục'};
+      return `<div style="display:flex;align-items:center;gap:6px;padding:4px 7px;border-radius:7px;background:rgba(66,71,84,.2);border:1px solid rgba(66,71,84,.3)">
+        <span style="width:15px;height:15px;border-radius:50%;background:rgba(${c.r},.15);border:1px solid rgba(${c.r},.4);font-size:9px;display:flex;align-items:center;justify-content:center;color:${c.h};font-weight:700;flex-shrink:0">${s.idx+1}</span>
+        <span style="font-size:10px;color:#555;flex:1">${badge[s.cmd]||s.label}</span>
+      </div>`;
+    }
+    const opts=mapNodes.map(n=>{
+      const nid=String(n.name_id);
+      const lbl=n.name?`${n.name} (${nid})`:`Node ${nid}`;
+      return `<option value="${nid}"${selN&&String(selN.name_id)===nid?' selected':''}>${lbl}</option>`;
+    }).join('');
+    const done=!!selN;
+    return `<div onclick="setActiveStep(${s.idx})" style="display:flex;align-items:center;gap:6px;padding:4px 7px;border-radius:7px;cursor:pointer;transition:all .15s;
+      background:${isActive?`rgba(${c.r},.09)`:'rgba(255,255,255,.02)'};
+      border:1px solid ${isActive?`rgba(${c.r},.5)`:'rgba(66,71,84,.3)'}">
+      <span style="width:15px;height:15px;border-radius:50%;background:rgba(${c.r},${done?.3:.1});border:1px solid rgba(${c.r},${done?.8:.3});font-size:9px;display:flex;align-items:center;justify-content:center;color:${c.h};font-weight:700;flex-shrink:0">${s.idx+1}</span>
+      <div style="position:relative;flex:1">
+        <select onchange="onStepSelect(${s.idx},this.value)" onclick="event.stopPropagation()"
+          style="background:rgba(34,42,61,.8);border:1px solid ${isActive?`rgba(${c.r},.5)`:'rgba(66,71,84,.4)'};border-radius:6px;color:${done?'#dae2fd':'#8c909f'};padding:4px 22px 4px 7px;font-size:11px;appearance:none;cursor:pointer;outline:none;width:100%">
+          <option value="">— bấm map hoặc chọn —</option>
+          ${opts}
+        </select>
+        <span class="material-symbols-outlined" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:12px;color:#8c909f">expand_more</span>
+      </div>
+      ${isActive?`<span class="material-symbols-outlined" style="font-size:12px;color:${c.h};flex-shrink:0" title="Đang chọn — bấm map để gán">near_me</span>`
+               :(done?`<span class="material-symbols-outlined" style="font-size:12px;color:#22c55e;flex-shrink:0">check_circle</span>`:'')
+      }
+    </div>`;
+  }).join('');
+}
+
+function setActiveStep(idx){
+  activeStepIdx=idx;
+  renderStepSelectors();
+  renderMap();
+}
+
+function onStepSelect(idx,nid){
+  const n=mapNodes.find(n=>String(n.name_id)===nid)||null;
+  selNodes[idx]=n||undefined;
+  if(!n) delete selNodes[idx];
+  // Tự động chuyển active sang bước tiếp theo chưa có destination
+  const next=wfSteps.find(s=>s.needsDest&&!selNodes[s.idx]&&s.idx!==idx);
+  if(next) activeStepIdx=next.idx;
+  renderStepSelectors(); renderMap(); updateSummary(); updateStartBtn();
 }
 
 function inferCmd(wf){
+  // Kept for compat — only used for non-multi-step legacy paths
   if(!wf) return 'go_to';
-  const n=(wf.name||'').toLowerCase();
-  if(n.includes('sạc')||n.includes('charge')) return 'go_charge';
-  if(n.includes('khu chờ')||n.includes('wait')||n.includes('park')) return 'go_wait';
-  if(n.includes('dừng')||n.includes('stop')) return 'stop';
-  if(n.includes('tiếp tục')||n.includes('resume')) return 'resume';
-  for(const s of (wf.steps||[])){
-    const t=(s.type||s.action||'').toLowerCase();
-    if(t.includes('charge')||t.includes('sạc')) return 'go_charge';
-    if(t.includes('wait')||t.includes('chờ')) return 'go_wait';
-  }
+  const steps=parseWfSteps(wf);
+  if(steps.length===1) return steps[0].cmd;
   return 'go_to';
 }
 
@@ -535,6 +753,17 @@ async function loadAgvPositions(){
     agvPositions=d.positions||[];
     renderMap();
   }catch(e){ console.warn('[AGV-POS]',e); }
+}
+
+async function loadAgvRoutes(){
+  if(!currentMapId) return;
+  try{
+    const r=await fetch(`${API}/api/execute/agv-routes?map_id=${encodeURIComponent(currentMapId)}`);
+    if(!r.ok) return;
+    const d=await r.json();
+    agvRoutes=d.routes||{};
+    renderMap();
+  }catch(e){ console.warn('[AGV-ROUTES]',e); }
 }
 
 // ── Map list ───────────────────────────────────────────────────────────────
@@ -566,8 +795,7 @@ async function onMapChange(){
     detectCoordSystem();
     populateNodeDropdown();
     updateStartNodeRow();
-    selNode=null; selStartNode=null;
-    document.getElementById('node-select').value='';
+    selNodes={}; selStartNode=null;
     updateSummary(); updateStartBtn();
 
     originX   = mapData.origin_x   || 0;
@@ -575,9 +803,9 @@ async function onMapChange(){
     resolution= mapData.resolution || 0.05;
     mapImgUrl = mapData.image_path ? `${API}${mapData.image_path}` : '';
 
-    // Nền trắng khi không có ảnh (map AGV Line thuần), tối khi có ảnh SLAM
+    // Nền tối cho cả 2 loại map — đường/node đều được thiết kế cho nền tối
     document.getElementById('map-wrap').style.background =
-      mapData.image_path ? '#050d1a' : '#f8fafc';
+      mapData.image_path ? '#050d1a' : '#0d1b2e';
 
     // Load ảnh để lấy kích thước thực (cần cho worldToPixel)
     if(mapImgUrl){
@@ -590,29 +818,17 @@ async function onMapChange(){
     } else { imgNatW=1000; imgNatH=1000; }
 
     autoFit(); renderMap();
-    loadAgvPositions();
+    loadAgvPositions(); loadAgvRoutes();
   }catch(e){ console.error('[MAPLOAD]',e); toast('Không tải được bản đồ','error'); }
 }
 
 function populateNodeDropdown(){
-  const sel=document.getElementById('node-select');
-  sel.innerHTML='<option value="">-- Chọn node hoặc nhấn trên bản đồ --</option>';
-  mapNodes.forEach(n=>{
-    const o=document.createElement('option');
-    o.value=String(n.name_id);
-    o.textContent=n.name?`${n.name} (${n.name_id})`:`Node ${n.name_id}`;
-    sel.appendChild(o);
-  });
-}
-
-function onNodeSelect(){
-  const nid=document.getElementById('node-select').value;
-  const n=mapNodes.find(n=>String(n.name_id)===nid);
-  if(n){ selNode=n; renderMap(); updateSummary(); updateStartBtn(); }
+  // Nodes đã thay đổi — re-render step selectors để update các option
+  renderStepSelectors();
 }
 
 function pickNode(n){
-  // Nếu đang ở chế độ chọn vị trí xuất phát, click sẽ đặt start node
+  // Ưu tiên 1: chọn vị trí xuất phát (Line AGV chưa biết vị trí)
   const needStart = selAgv && selAgv.agv_type==='LINE' && !selAgv.current_node;
   if(needStart && !selStartNode){
     selStartNode=n;
@@ -621,9 +837,19 @@ function pickNode(n){
     renderMap(); updateSummary(); updateStartBtn();
     return;
   }
-  selNode=n;
-  document.getElementById('node-select').value=String(n.name_id);
-  renderMap(); updateSummary(); updateStartBtn();
+  // Ưu tiên 2: gán cho bước đang active trong workflow
+  if(wfSteps.length){
+    const step=wfSteps.find(s=>s.idx===activeStepIdx);
+    if(step && step.needsDest){
+      selNodes[activeStepIdx]=n;
+      // Tự động chuyển sang bước tiếp theo chưa có destination
+      const next=wfSteps.find(s=>s.needsDest&&!selNodes[s.idx]&&s.idx!==activeStepIdx);
+      if(next) activeStepIdx=next.idx;
+      toast(`Bước ${step.idx+1}: ${n.name||n.name_id}`,'success');
+      renderStepSelectors(); renderMap(); updateSummary(); updateStartBtn();
+      return;
+    }
+  }
 }
 
 // ── SVG Map Renderer ─────────────────────────────────────────────────────────
@@ -646,7 +872,9 @@ function worldToPixel(wx,wy){
 }
 
 function applyViewport(){
-  document.getElementById('world-g').setAttribute('transform',`translate(${vp.panX},${vp.panY}) scale(${vp.zoom})`);
+  const t=`translate(${vp.panX},${vp.panY}) scale(${vp.zoom})`;
+  document.getElementById('world-g').setAttribute('transform',t);
+  document.getElementById('anim-g').setAttribute('transform',t);
 }
 
 function autoFit(){
@@ -666,13 +894,46 @@ function autoFit(){
   }
 }
 
+// Màu sắc riêng cho từng AGV — palette sáng, rõ trên nền tối
+const AGV_ROUTE_COLORS=['#00e5ff','#5b9dff','#4ade80','#ff79c6','#ffd700','#c084fc'];
+const _agvColorMap={};
+let _agvColorIdx=0;
+function agvRouteColor(agv_id){
+  if(!_agvColorMap[agv_id]) _agvColorMap[agv_id]=AGV_ROUTE_COLORS[(_agvColorIdx++)%AGV_ROUTE_COLORS.length];
+  return _agvColorMap[agv_id];
+}
+
+function _computeHeading(rt,nm){
+  if(!rt) return 0;
+  let fromNid=null, toNid=null;
+  // Ưu tiên: dùng path array (current_idx → current_idx+1) — chính xác nhất
+  if(rt.path&&rt.path.length>=2){
+    const ci=rt.current_idx||0;
+    if(ci<rt.path.length-1){ fromNid=rt.path[ci]; toNid=rt.path[ci+1]; }
+    else if(ci>0){           fromNid=rt.path[ci-1]; toNid=rt.path[ci]; }
+  }
+  // Fallback: dùng prev → current từ state MQTT
+  if(!fromNid||!toNid){
+    fromNid=rt.prev_node||null;
+    toNid  =rt.next_node||rt.current_node||null;
+  }
+  if(!fromNid||!toNid||fromNid===toNid) return 0;
+  const fn=nm[String(fromNid)], tn=nm[String(toNid)];
+  if(!fn||!tn) return 0;
+  const fp=worldToPixel(+fn.x,+fn.y), tp=worldToPixel(+tn.x,+tn.y);
+  const dx=tp.x-fp.x, dy=tp.y-fp.y;
+  if(Math.abs(dx)<0.01&&Math.abs(dy)<0.01) return 0;
+  // Góc theo chiều kim đồng hồ từ trục "lên" (−Y trong SVG)
+  return Math.atan2(dx,-dy)*180/Math.PI;
+}
+
 function renderMap(){
   const g=document.getElementById('world-g');
   g.innerHTML='';
   applyViewport();
   if(!mapData) return;
 
-  // Ảnh nền tại (0,0) kích thước pixel thực
+  // ── Ảnh nền ─────────────────────────────────────────────────────────────
   if(mapImgUrl&&imgNatW>1){
     const imgEl=document.createElementNS(NS,'image');
     imgEl.setAttribute('href',mapImgUrl);
@@ -684,27 +945,32 @@ function renderMap(){
   }
 
   const roads=mapData.roads||[], beziers=mapData.benziers||[];
-  // Lookup node coords khi DB lưu thiếu point_start/end (schema cũ)
   const _nm={};
   mapNodes.forEach(n=>_nm[String(n.name_id)]=n);
-  function _rc(r,field,nodeId){
-    const v=r[field];
-    if(v!=null) return v;
-    const n=_nm[String(nodeId)];
-    return n?+n[field.includes('_x')?'x':'y']:0;
-  }
 
+  // ── Roads (với lớp glow phía sau) ────────────────────────────────────────
   roads.forEach(r=>{
     let sx=r.point_start_x,sy=r.point_start_y,ex=r.point_end_x,ey=r.point_end_y;
     if(sx==null||sy==null){const n=_nm[String(r.id_source)];if(n){sx=+n.x;sy=+n.y;}}
     if(ex==null||ey==null){const n=_nm[String(r.id_dest)];if(n){ex=+n.x;ey=+n.y;}}
-    const s=worldToPixel(sx||0,sy||0);
-    const e=worldToPixel(ex||0,ey||0);
+    const s=worldToPixel(sx||0,sy||0), e=worldToPixel(ex||0,ey||0);
+    // Glow layer
+    const glow=document.createElementNS(NS,'line');
+    glow.setAttribute('x1',s.x); glow.setAttribute('y1',s.y);
+    glow.setAttribute('x2',e.x); glow.setAttribute('y2',e.y);
+    glow.setAttribute('stroke','rgba(120,185,255,.22)');
+    glow.setAttribute('stroke-width',String(7/vp.zoom));
+    glow.setAttribute('stroke-linecap','round');
+    glow.setAttribute('pointer-events','none');
+    g.appendChild(glow);
+    // Main line
     const el=document.createElementNS(NS,'line');
     el.setAttribute('x1',s.x); el.setAttribute('y1',s.y);
     el.setAttribute('x2',e.x); el.setAttribute('y2',e.y);
-    el.setAttribute('stroke','rgba(0,120,255,.6)');
-    el.setAttribute('stroke-width','1.5');
+    el.setAttribute('stroke','#7cb9ff');
+    el.setAttribute('stroke-opacity','0.85');
+    el.setAttribute('stroke-width',String(2/vp.zoom));
+    el.setAttribute('stroke-linecap','round');
     el.setAttribute('pointer-events','none');
     g.appendChild(el);
   });
@@ -718,92 +984,202 @@ function renderMap(){
     const c2=worldToPixel(b.curve_point_end_x||0,b.curve_point_end_y||0);
     const p1=worldToPixel(bex||0,bey||0);
     const d=`M ${p0.x} ${p0.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${p1.x} ${p1.y}`;
+    // Glow
+    const glowP=document.createElementNS(NS,'path');
+    glowP.setAttribute('d',d); glowP.setAttribute('stroke','rgba(120,185,255,.18)');
+    glowP.setAttribute('stroke-width',String(6/vp.zoom)); glowP.setAttribute('fill','none');
+    glowP.setAttribute('pointer-events','none'); g.appendChild(glowP);
+    // Main
     const el=document.createElementNS(NS,'path');
-    el.setAttribute('d',d);
-    el.setAttribute('stroke','rgba(0,120,255,.4)');
-    el.setAttribute('stroke-width','1');
-    el.setAttribute('fill','none');
-    el.setAttribute('stroke-dasharray','4 3');
-    el.setAttribute('pointer-events','none');
+    el.setAttribute('d',d); el.setAttribute('stroke','#7cb9ff');
+    el.setAttribute('stroke-opacity','0.7');
+    el.setAttribute('stroke-width',String(1.5/vp.zoom)); el.setAttribute('fill','none');
+    el.setAttribute('stroke-dasharray',`${6/vp.zoom} ${3/vp.zoom}`);
+    el.setAttribute('stroke-linecap','round'); el.setAttribute('pointer-events','none');
     g.appendChild(el);
   });
 
+  // ── AGV Routes (animated dashed path + arrow markers) ─────────────────────
+  Object.entries(agvRoutes).forEach(([agv_id,rt])=>{
+    if(!rt.driving||!rt.path||rt.path.length<2) return;
+    const remaining=rt.path.slice(Math.max(0,rt.current_idx));
+    if(remaining.length<2) return;
+    const pts=remaining.map(nid=>_nm[String(nid)]).filter(n=>n).map(n=>worldToPixel(+n.x,+n.y));
+    if(pts.length<2) return;
+    const col=agvRouteColor(agv_id);
+    const ptStr=pts.map(p=>`${p.x},${p.y}`).join(' ');
+    // Glow dưới đường đi
+    const glowL=document.createElementNS(NS,'polyline');
+    glowL.setAttribute('points',ptStr); glowL.setAttribute('stroke',col);
+    glowL.setAttribute('stroke-width',String(14/vp.zoom)); glowL.setAttribute('stroke-opacity','0.13');
+    glowL.setAttribute('fill','none'); glowL.setAttribute('pointer-events','none');
+    glowL.setAttribute('stroke-linecap','round'); glowL.setAttribute('stroke-linejoin','round');
+    g.appendChild(glowL);
+    // Solid highlight line
+    const hl=document.createElementNS(NS,'polyline');
+    hl.setAttribute('points',ptStr); hl.setAttribute('stroke',col);
+    hl.setAttribute('stroke-width',String(3.5/vp.zoom)); hl.setAttribute('stroke-opacity','0.65');
+    hl.setAttribute('fill','none'); hl.setAttribute('pointer-events','none');
+    hl.setAttribute('stroke-linecap','round'); hl.setAttribute('stroke-linejoin','round');
+    g.appendChild(hl);
+  });
+
+  // ── Nodes ─────────────────────────────────────────────────────────────────
   const R=Math.max(2,Math.min(8,5/vp.zoom));
+  const nodeStepMap={};
+  for(const [si,nd] of Object.entries(selNodes)){
+    if(nd) nodeStepMap[String(nd.name_id)]=parseInt(si);
+  }
+
   mapNodes.forEach(n=>{
     const {x,y}=worldToPixel(+n.x,+n.y);
-    const isSel=selNode&&String(selNode.name_id)===String(n.name_id);
+    const stepIdx=nodeStepMap[String(n.name_id)];
+    const isSel=stepIdx!==undefined;
+    const isActive=isSel&&stepIdx===activeStepIdx;
     const isStart=selStartNode&&String(selStartNode.name_id)===String(n.name_id);
-    const col=isStart?'#ffb700':(NODE_COLORS[n.type]||NODE_COLORS[0]);
+    const stepCol=isSel?sc(stepIdx).h:null;
+    const col=isStart?'#ffb700':(stepCol||(NODE_COLORS[n.type]||NODE_COLORS[0]));
 
+    // Outer glow ring (selected / active)
+    if(isSel||isStart){
+      const outerGlow=document.createElementNS(NS,'circle');
+      outerGlow.setAttribute('cx',x); outerGlow.setAttribute('cy',y);
+      outerGlow.setAttribute('r',R*(isActive?3.2:2.4));
+      outerGlow.setAttribute('fill',col); outerGlow.setAttribute('opacity',isActive?'0.18':'0.1');
+      outerGlow.setAttribute('pointer-events','none');
+      g.appendChild(outerGlow);
+    }
+    // Pulse ring cho bước đang active
+    if(isActive){
+      const ring=document.createElementNS(NS,'circle');
+      ring.setAttribute('cx',x); ring.setAttribute('cy',y);
+      ring.setAttribute('r',R*2.5);
+      ring.setAttribute('fill','none');
+      ring.setAttribute('stroke',col); ring.setAttribute('stroke-width',String(1.5/vp.zoom));
+      ring.setAttribute('opacity','0.5');
+      ring.style.animation='agvGlowPulse 1.2s ease-in-out infinite';
+      g.appendChild(ring);
+    }
     const circle=document.createElementNS(NS,'circle');
     circle.setAttribute('cx',x); circle.setAttribute('cy',y);
-    circle.setAttribute('r',isSel?R*1.8:isStart?R*1.6:R);
-    circle.setAttribute('fill',isSel?col+'cc':isStart?col+'88':col+'55');
-    circle.setAttribute('stroke',isSel||isStart?'#fff':col);
-    circle.setAttribute('stroke-width',(isSel||isStart)?2/vp.zoom:1/vp.zoom);
+    circle.setAttribute('r',isSel?R*1.9:isStart?R*1.6:R);
+    circle.setAttribute('fill',isSel?col+'cc':isStart?col+'88':col+'44');
+    circle.setAttribute('stroke',isSel||isStart?'#ffffffcc':col+'99');
+    circle.setAttribute('stroke-width',String((isSel||isStart)?1.8/vp.zoom:0.8/vp.zoom));
 
     const hit=document.createElementNS(NS,'circle');
     hit.setAttribute('cx',x); hit.setAttribute('cy',y);
     hit.setAttribute('r',Math.max(8,10/vp.zoom));
     hit.setAttribute('fill','transparent'); hit.style.cursor='pointer';
     hit.addEventListener('click',e=>{e.stopPropagation();pickNode(n);});
-    hit.addEventListener('mouseenter',()=>{circle.setAttribute('fill',col+'99');circle.setAttribute('r',R*1.4);});
-    hit.addEventListener('mouseleave',()=>{if(!isSel){circle.setAttribute('fill',col+'55');circle.setAttribute('r',R);}});
+    hit.addEventListener('mouseenter',()=>{circle.setAttribute('fill',col+'99');circle.setAttribute('r',String(R*1.5));});
+    hit.addEventListener('mouseleave',()=>{if(!isSel&&!isStart){circle.setAttribute('fill',col+'44');circle.setAttribute('r',String(R));}});
 
     const label=document.createElementNS(NS,'text');
-    label.setAttribute('x',x); label.setAttribute('y',y-R*2.5);
+    label.setAttribute('x',x); label.setAttribute('y',String(y-R*2.4));
     label.setAttribute('text-anchor','middle');
-    label.setAttribute('font-size',Math.max(8,10/vp.zoom));
-    label.setAttribute('fill',isSel?'#fff':'rgba(255,255,255,.75)');
+    label.setAttribute('font-size',String(Math.max(8,10/vp.zoom)));
+    label.setAttribute('fill',isSel?'#fff':'rgba(200,215,255,.8)');
     label.setAttribute('pointer-events','none');
-    label.setAttribute('font-family','monospace');
+    label.setAttribute('font-family','JetBrains Mono,monospace');
+    label.setAttribute('font-weight',isSel?'700':'400');
     label.textContent=n.name||n.name_id;
 
     g.appendChild(circle); g.appendChild(hit); g.appendChild(label);
+
+    // Badge số bước trên node được chọn
+    if(isSel){
+      const badgeR=Math.max(5,7/vp.zoom);
+      const bg=document.createElementNS(NS,'circle');
+      bg.setAttribute('cx',String(x+R*1.2)); bg.setAttribute('cy',String(y-R*1.2));
+      bg.setAttribute('r',String(badgeR)); bg.setAttribute('fill',col);
+      bg.setAttribute('pointer-events','none');
+      g.appendChild(bg);
+      const num=document.createElementNS(NS,'text');
+      num.setAttribute('x',String(x+R*1.2)); num.setAttribute('y',String(y-R*1.2+badgeR*0.4));
+      num.setAttribute('text-anchor','middle');
+      num.setAttribute('font-size',String(Math.max(6,8/vp.zoom)));
+      num.setAttribute('fill','#000'); num.setAttribute('font-weight','700');
+      num.setAttribute('pointer-events','none'); num.setAttribute('font-family','monospace');
+      num.textContent=String(stepIdx+1);
+      g.appendChild(num);
+    }
   });
 
-  // ── AGV markers ────────────────────────────────────────────────────────────
+  // ── AGV Icons (top-view với hướng di chuyển) ─────────────────────────────
   agvPositions.forEach(agv=>{
     if(!agv.has_position) return;
     const {x,y}=worldToPixel(+agv.x,+agv.y);
     const online=agv.connection==='ONLINE';
-    const col=online?'#22c55e':'#4b5563';
-    const S=Math.max(4,8/vp.zoom);
+    const driving=agv.driving&&online;
+    const rt=agvRoutes[agv.agv_id]||null;
+    const col=online?agvRouteColor(agv.agv_id):'#4b5563';
+    const S=Math.max(6,10/vp.zoom);
+    const heading=_computeHeading(rt,_nm);
 
-    // Pulsing ring khi đang chạy
-    if(online&&agv.driving){
-      const ring=document.createElementNS(NS,'circle');
-      ring.setAttribute('cx',x); ring.setAttribute('cy',y);
-      ring.setAttribute('r',S*2.4);
-      ring.setAttribute('fill','none');
-      ring.setAttribute('stroke',col);
-      ring.setAttribute('stroke-width',1.5/vp.zoom);
-      ring.setAttribute('opacity','0.35');
-      g.appendChild(ring);
+    // Outer glow pulse when driving
+    if(driving){
+      const glowC=document.createElementNS(NS,'circle');
+      glowC.setAttribute('cx',String(x)); glowC.setAttribute('cy',String(y));
+      glowC.setAttribute('r',String(S*2.6)); glowC.setAttribute('fill',col);
+      glowC.setAttribute('opacity','0.12'); glowC.setAttribute('pointer-events','none');
+      glowC.style.animation='agvGlowPulse 1s ease-in-out infinite';
+      g.appendChild(glowC);
     }
 
-    // Diamond body (phân biệt với node circles)
-    const dpts=`${x},${y-S} ${x+S*0.75},${y} ${x},${y+S} ${x-S*0.75},${y}`;
-    const diamond=document.createElementNS(NS,'polygon');
-    diamond.setAttribute('points',dpts);
-    diamond.setAttribute('fill',online?col+'33':col+'22');
-    diamond.setAttribute('stroke',col);
-    diamond.setAttribute('stroke-width',2/vp.zoom);
-    g.appendChild(diamond);
+    // Rotating group (body + arrow)
+    const grp=document.createElementNS(NS,'g');
+    grp.setAttribute('transform',`translate(${x},${y}) rotate(${heading})`);
 
-    // Center dot
+    const bw=S*1.5, bh=S*2.1;
+    // Body
+    const body=document.createElementNS(NS,'rect');
+    body.setAttribute('x',String(-bw/2)); body.setAttribute('y',String(-bh/2));
+    body.setAttribute('width',String(bw)); body.setAttribute('height',String(bh));
+    body.setAttribute('rx',String(bw*0.28));
+    body.setAttribute('fill',online?col+'55':'rgba(75,85,99,.35)');
+    body.setAttribute('stroke',col); body.setAttribute('stroke-width',String(2.2/vp.zoom));
+    grp.appendChild(body);
+
+    // Direction arrow (pointing "up" = front of AGV)
+    const arrowH=S*0.8, arrowW=S*1.0;
+    const arr=document.createElementNS(NS,'polygon');
+    arr.setAttribute('points',`0,${-bh/2-arrowH} ${arrowW/2},${-bh/2} ${-arrowW/2},${-bh/2}`);
+    arr.setAttribute('fill',online?col:'#4b5563');
+    arr.setAttribute('opacity',driving?'1':'0.55');
+    grp.appendChild(arr);
+
+    // Center indicator dot
     const dot=document.createElementNS(NS,'circle');
-    dot.setAttribute('cx',x); dot.setAttribute('cy',y);
-    dot.setAttribute('r',S*0.32);
+    dot.setAttribute('r',String(S*0.2));
     dot.setAttribute('fill',col);
-    dot.setAttribute('pointer-events','none');
-    g.appendChild(dot);
+    grp.appendChild(dot);
 
-    // Label (tên AGV)
+    // Battery bar inside body (bottom area, stays in rotated group)
+    const bat=agv.battery??null;
+    if(bat!==null){
+      const batW=bw*0.68, batH=Math.max(1.8,2.8/vp.zoom);
+      const batY=bh/2-batH-S*0.18;
+      const batBg=document.createElementNS(NS,'rect');
+      batBg.setAttribute('x',String(-batW/2)); batBg.setAttribute('y',String(batY));
+      batBg.setAttribute('width',String(batW)); batBg.setAttribute('height',String(batH));
+      batBg.setAttribute('rx',String(batH/2)); batBg.setAttribute('fill','rgba(0,0,0,.4)');
+      grp.appendChild(batBg);
+      const batFill=document.createElementNS(NS,'rect');
+      batFill.setAttribute('x',String(-batW/2)); batFill.setAttribute('y',String(batY));
+      batFill.setAttribute('width',String(batW*bat/100)); batFill.setAttribute('height',String(batH));
+      batFill.setAttribute('rx',String(batH/2));
+      batFill.setAttribute('fill',bat>50?'#adc6ff':bat>20?'#eab308':'#ef4444');
+      grp.appendChild(batFill);
+    }
+
+    g.appendChild(grp);
+
+    // Label (outside rotation — stays upright)
     const lbl=document.createElementNS(NS,'text');
-    lbl.setAttribute('x',x); lbl.setAttribute('y',y-S-3/vp.zoom);
+    lbl.setAttribute('x',String(x)); lbl.setAttribute('y',String(y+S*1.9+5/vp.zoom));
     lbl.setAttribute('text-anchor','middle');
-    lbl.setAttribute('font-size',Math.max(7,9/vp.zoom));
+    lbl.setAttribute('font-size',String(Math.max(7,9/vp.zoom)));
     lbl.setAttribute('fill',col);
     lbl.setAttribute('pointer-events','none');
     lbl.setAttribute('font-family','JetBrains Mono,monospace');
@@ -841,21 +1217,24 @@ function fitMap(){  autoFit(); renderMap(); }
 
 // ── Summary & Start ────────────────────────────────────────────────────────
 function updateSummary(){
-  // AGV
   const ae=document.getElementById('sum-agv'), te=document.getElementById('sum-agv-type');
   if(selAgv){
     ae.textContent=selAgv.agv_id; te.textContent=selAgv.agv_type; te.style.display='inline';
     te.style.cssText+=(selAgv.agv_type==='LINE'?';background:rgba(0,212,255,.12);border:1px solid rgba(0,212,255,.3);color:#00d4ff':';background:rgba(179,102,255,.12);border:1px solid rgba(179,102,255,.3);color:#c77dff');
   } else { ae.textContent='Chưa chọn'; te.style.display='none'; }
-  // Workflow
   document.getElementById('sum-wf').textContent=selWf?selWf.name:'Chưa chọn';
-  // Node
-  const cmd=inferCmd(selWf); const ne=document.getElementById('sum-node');
-  if(cmd==='go_to') ne.textContent=selNode?(selNode.name||`Node ${selNode.name_id}`):'—';
-  else if(cmd==='go_charge') ne.textContent='Trạm sạc (tự động)';
-  else if(cmd==='go_wait')   ne.textContent='Khu chờ (tự động)';
-  else ne.textContent='—';
-  // Queue
+  // Điểm đến — tóm tắt multi-step
+  const ne=document.getElementById('sum-node');
+  const needSteps=wfSteps.filter(s=>s.needsDest);
+  if(!needSteps.length){
+    ne.textContent='—';
+  } else {
+    const done=needSteps.filter(s=>selNodes[s.idx]);
+    ne.textContent=done.length===needSteps.length
+      ? needSteps.map(s=>selNodes[s.idx]?.name||selNodes[s.idx]?.name_id).join(' → ')
+      : `${done.length}/${needSteps.length} điểm`;
+  }
+  // Queue badge
   const qd=document.getElementById('sum-queue');
   if(selAgv?.is_busy){ qd.style.display='flex'; document.getElementById('sum-qtxt').textContent=`Bận — hàng #${selAgv.queue_size+1}`; }
   else { qd.style.display='none'; }
@@ -863,63 +1242,94 @@ function updateSummary(){
 
 function updateStartBtn(){
   const btn=document.getElementById('start-btn');
-  const cmd=inferCmd(selWf);
   const needStart = selAgv && selAgv.agv_type==='LINE' && !selAgv.current_node;
   const startOk   = !needStart || selStartNode;
-  const ready=selAgv&&selWf&&(cmd!=='go_to'||selNode)&&startOk;
-  // Hiện nút HÀNG CHỜ khi AGV đang bận hoặc có queue
-  const qBtn = document.getElementById('queue-mgr-btn');
-  if(selAgv && (selAgv.is_busy || selAgv.queue_size > 0)){
-    qBtn.style.display = 'flex';
-    const total = (selAgv.is_busy?1:0) + (selAgv.queue_size||0);
-    document.getElementById('queue-mgr-count').textContent = total > 1 ? `${total} ` : '';
-  } else {
-    qBtn.style.display = 'none';
-  }
+  const allDestsOk = wfSteps.filter(s=>s.needsDest).every(s=>selNodes[s.idx]);
+  const ready = selAgv && selWf && wfSteps.length > 0 && allDestsOk && startOk;
+  // Nút HÀNG CHỜ
+  const qBtn=document.getElementById('queue-mgr-btn');
+  if(selAgv && (selAgv.is_busy||selAgv.queue_size>0)){
+    qBtn.style.display='flex';
+    const total=(selAgv.is_busy?1:0)+(selAgv.queue_size||0);
+    document.getElementById('queue-mgr-count').textContent=total>1?`${total} `:'';
+  } else { qBtn.style.display='none'; }
   if(ready){
     btn.disabled=false;
     btn.style.cssText='padding:8px 20px;border-radius:9px;background:rgba(34,197,94,.3);border:1px solid rgba(34,197,94,.5);color:#fff;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;letter-spacing:.04em;transition:all .2s;box-shadow:0 0 16px rgba(34,197,94,.25)';
+    const n=wfSteps.length;
+    btn.innerHTML=`BẮT ĐẦU${n>1?' ('+n+' bước)':''} <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span>`;
   } else {
     btn.disabled=true;
     btn.style.cssText='padding:8px 20px;border-radius:9px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.15);color:rgba(255,255,255,.25);font-weight:700;font-size:12px;cursor:not-allowed;display:flex;align-items:center;gap:6px;letter-spacing:.04em;transition:all .2s';
+    btn.innerHTML='BẮT ĐẦU NHIỆM VỤ <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span>';
   }
 }
 
 // ── Execute ────────────────────────────────────────────────────────────────
 function startMission(){
-  if(!selAgv||!selWf) return;
-  const cmd=inferCmd(selWf);
-  if(cmd==='go_to'&&!selNode) return;
-  const destLabel=cmd==='go_to'?(selNode.name||`Node ${selNode.name_id}`):cmd==='go_charge'?'Trạm sạc':cmd==='go_wait'?'Khu chờ':'—';
-  document.getElementById('confirm-sub').textContent=`${selAgv.agv_id} (${selAgv.agv_type}) — ${selWf.name}`;
+  if(!selAgv||!selWf||!wfSteps.length) return;
+  if(wfSteps.filter(s=>s.needsDest).some(s=>!selNodes[s.idx])) return;
   const needStart = selAgv.agv_type==='LINE' && !selAgv.current_node && selStartNode;
+  document.getElementById('confirm-sub').textContent=`${selAgv.agv_id} (${selAgv.agv_type}) — ${selWf.name}`;
+  const stepsHtml = wfSteps.map(s=>{
+    const c=sc(s.idx);
+    const dest=s.needsDest?(selNodes[s.idx]?.name||`Node ${selNodes[s.idx]?.name_id}`):'tự động';
+    return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
+      <span style="width:14px;height:14px;border-radius:50%;background:${c.h}33;border:1px solid ${c.h};font-size:8px;display:flex;align-items:center;justify-content:center;color:${c.h};font-weight:700;flex-shrink:0">${s.idx+1}</span>
+      <span style="color:#8c909f;font-size:11px">${s.label}:</span>
+      <b style="font-size:11px">${dest}</b>
+    </div>`;
+  }).join('');
   document.getElementById('confirm-body').innerHTML=`<div style="line-height:1.8">
-    <div><span style="color:#8c909f">Lệnh:</span> <b>${cmd}</b></div>
-    ${needStart?`<div><span style="color:#8c909f">Vị trí xuất phát:</span> <b style="color:#ffb700">${selStartNode.name||selStartNode.name_id}</b></div>`:''}
-    ${cmd==='go_to'?`<div><span style="color:#8c909f">Điểm đến:</span> <b>${destLabel}</b></div>`:''}
-    ${selAgv.is_busy?`<div style="margin-top:5px;font-size:10px;padding:4px 8px;border-radius:6px;background:rgba(255,183,0,.08);color:#ffb700">⚠ AGV đang bận — lệnh sẽ xếp hàng chờ</div>`:''}</div>`;
+    ${needStart?`<div style="margin-bottom:6px"><span style="color:#8c909f">Xuất phát:</span> <b style="color:#ffb700">${selStartNode.name||selStartNode.name_id}</b></div>`:''}
+    ${stepsHtml}
+    ${selAgv.is_busy?`<div style="margin-top:7px;font-size:10px;padding:4px 8px;border-radius:6px;background:rgba(255,183,0,.08);color:#ffb700">⚠ AGV đang bận — các lệnh sẽ xếp hàng chờ</div>`:''}</div>`;
   document.getElementById('confirm-modal').classList.add('open');
 }
 
 async function doDispatch(){
   closeModal('confirm-modal');
-  const cmd=inferCmd(selWf);
-  const payload={
-    agv_id:     selAgv.agv_id,
-    command:    cmd,
-    dest_node:  cmd==='go_to' ? String(selNode.name_id) : null,
-    start_node: selStartNode ? String(selStartNode.name_id) : null,
-  };
-  try{
-    const r=await fetch(`${API}/api/execute/dispatch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    const d=await r.json();
-    if(!r.ok){toast('✗ '+(d.detail||'Lỗi'),'error');return;}
-    if(d.status==='queued'){
-      document.getElementById('queue-body').innerHTML=`<b>${d.agv_id}</b>: ${selWf.name}${payload.dest_node?' → '+payload.dest_node:''}<br/><span style="opacity:.6">Hàng chờ: <b>#${d.queue_size}</b></span>`;
-      document.getElementById('queue-modal').classList.add('open');
-    } else { toast(`✓ Đã gửi lệnh đến ${d.agv_id}`,'success'); }
-    setTimeout(loadAgvs,600);
-  }catch(e){toast('✗ Không kết nối server','error');}
+  let firstQueued=null, sentCount=0, failCount=0;
+  const hasMoveStep=wfSteps.some(s=>s.cmd==='go_to');
+  const lastStepIsCharge=wfSteps.length>0&&wfSteps[wfSteps.length-1].cmd==='go_charge';
+  for(let i=0;i<wfSteps.length;i++){
+    const s=wfSteps[i];
+    const destNode=s.needsDest?String(selNodes[s.idx].name_id):null;
+    // start_node chỉ có ý nghĩa cho bước đầu tiên
+    const startNode=(i===0&&selStartNode)?String(selStartNode.name_id):null;
+    const payload={agv_id:selAgv.agv_id, command:s.cmd, dest_node:destNode, start_node:startNode};
+    try{
+      const r=await fetch(`${API}/api/execute/dispatch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d=await r.json();
+      if(!r.ok){ toast(`✗ Bước ${i+1}: ${d.detail||'Lỗi'}`,'error'); failCount++; continue; }
+      sentCount++;
+      if(d.status==='queued'&&!firstQueued) firstQueued=d;
+    }catch(e){ toast(`✗ Bước ${i+1}: mất kết nối server`,'error'); failCount++; }
+  }
+  // Tự động về trạm sạc sau khi hoàn thành tất cả điểm đích
+  if(sentCount>0 && hasMoveStep && !lastStepIsCharge){
+    try{
+      const r=await fetch(`${API}/api/execute/dispatch`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({agv_id:selAgv.agv_id,command:'go_charge'})});
+      if(r.ok){ sentCount++; const d=await r.json(); if(d.status==='queued'&&!firstQueued) firstQueued=d; }
+    }catch(e){ console.warn('[AUTO_CHARGE]',e); }
+  }
+  if(firstQueued){
+    document.getElementById('queue-body').innerHTML=`<b>${firstQueued.agv_id}</b>: ${selWf?selWf.name:'Lệnh thủ công'}<br/>
+      <span style="opacity:.6">${sentCount} lệnh — hàng chờ: <b>#${firstQueued.queue_size}</b></span>`;
+    document.getElementById('queue-modal').classList.add('open');
+  } else if(sentCount>0 && failCount===0){
+    toast(`✓ Đã gửi ${sentCount} lệnh đến ${selAgv.agv_id}`,'success');
+  }
+  // Xóa highlight điểm đến sau khi gửi lệnh thành công (ít nhất 1 lệnh đi qua)
+  if(sentCount>0){
+    selNodes={}; selStartNode=null;
+    selWf=null; wfSteps=[]; activeStepIdx=0;
+    document.getElementById('wf-select').value='';
+    document.getElementById('wf-steps').style.display='none';
+    renderStepSelectors(); renderMap(); updateSummary(); updateStartBtn();
+  }
+  setTimeout(loadAgvs,600);
 }
 
 async function emergencyStop(){
@@ -1114,9 +1524,140 @@ window.addEventListener('keydown', e=>{
   }
 });
 
+// ── Lifecycle ─────────────────────────────────────────────────────────────
+function updateLifecycleBar(){
+  const bar      = document.getElementById('lifecycle-bar');
+  const picking  = document.getElementById('lc-picking');
+  const deliver  = document.getElementById('lc-delivering');
+  const lc = selAgv?.task_lifecycle;
+
+  if(lc === 'picking'){
+    bar.style.display      = 'flex';
+    bar.style.borderColor  = 'rgba(34,197,94,.35)';
+    bar.style.background   = 'rgba(11,28,11,.9)';
+    picking.style.display  = 'flex';
+    deliver.style.display  = 'none';
+  } else if(lc === 'delivering'){
+    bar.style.display      = 'flex';
+    bar.style.borderColor  = 'rgba(77,142,255,.35)';
+    bar.style.background   = 'rgba(10,16,38,.9)';
+    picking.style.display  = 'none';
+    deliver.style.display  = 'flex';
+  } else {
+    bar.style.display      = 'none';
+    picking.style.display  = 'none';
+    deliver.style.display  = 'none';
+  }
+}
+
+async function confirmLifecycle(){
+  if(!selAgv) return;
+  const lc  = selAgv.task_lifecycle;
+  const btn = lc === 'picking'
+    ? document.getElementById('lc-picking-btn')
+    : document.getElementById('lc-delivering-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Đang xác nhận…'; }
+  try{
+    const r = await fetch(`${API}/api/execute/lifecycle-ack/${encodeURIComponent(selAgv.agv_id)}`,{method:'POST'});
+    const d = await r.json();
+    if(!r.ok){ toast('✗ '+(d.detail||'Lỗi xác nhận'),'error'); }
+    else {
+      const msg = lc === 'picking' ? '✓ Xác nhận lấy hàng — AGV tiếp tục' : '✓ Xác nhận giao hàng — AGV tiếp tục';
+      toast(msg, 'success');
+    }
+  }catch(e){ toast('✗ Mất kết nối server','error'); }
+  finally{
+    if(btn){ btn.disabled = false; }
+    await loadAgvs();
+    updateLifecycleBar();
+  }
+}
+
+// ── Route bullet animation (requestAnimationFrame) ────────────────────────
+// Mỗi AGV có 1 bullet arrow di chuyển dọc từng cạnh của path
+const _rtAnim={};          // {agv_id: {ei, t, pathKey}}
+let   _animRaf=null;
+let   _lastTs=null;
+const EDGE_SPEED=1.6;      // giây để đi hết 1 cạnh
+
+function _animTick(ts){
+  _animRaf=requestAnimationFrame(_animTick);
+  if(!_lastTs){ _lastTs=ts; return; }
+  const dt=Math.min((ts-_lastTs)/1000,.12);   // tối đa 120ms/frame
+  _lastTs=ts;
+
+  const ag=document.getElementById('anim-g');
+  if(!ag) return;
+  ag.innerHTML='';
+
+  if(!mapData||!mapNodes.length) return;
+
+  // node lookup (world-space)
+  const nm={};
+  mapNodes.forEach(n=>nm[String(n.name_id)]=n);
+
+  Object.entries(agvRoutes).forEach(([agv_id,rt])=>{
+    if(!rt.driving||!rt.path||rt.path.length<2) return;
+    const remaining=rt.path.slice(Math.max(0,rt.current_idx));
+    if(remaining.length<2) return;
+    const col=agvRouteColor(agv_id);
+    const pathKey=remaining.join(',');
+
+    // Reset anim state nếu path thay đổi
+    if(!_rtAnim[agv_id]||_rtAnim[agv_id].pathKey!==pathKey){
+      _rtAnim[agv_id]={ei:0,t:0,pathKey};
+    }
+    const a=_rtAnim[agv_id];
+    a.t+=dt;
+    if(a.t>=EDGE_SPEED){
+      a.t-=EDGE_SPEED;
+      a.ei=(a.ei+1)%(remaining.length-1);
+    }
+    const prog=a.t/EDGE_SPEED;
+
+    const fn=nm[String(remaining[a.ei])];
+    const tn=nm[String(remaining[a.ei+1])];
+    if(!fn||!tn) return;
+
+    const fp=worldToPixel(+fn.x,+fn.y);
+    const tp=worldToPixel(+tn.x,+tn.y);
+
+    // Vị trí bullet (lerp theo easing ease-in-out)
+    const e=prog<.5?2*prog*prog:1-Math.pow(-2*prog+2,2)/2;
+    const bx=fp.x+(tp.x-fp.x)*e;
+    const by=fp.y+(tp.y-fp.y)*e;
+    const angle=Math.atan2(tp.x-fp.x,-(tp.y-fp.y))*180/Math.PI;
+
+    const sz=Math.max(5,8/vp.zoom);
+
+    // Trail glow
+    const trail=document.createElementNS(NS,'circle');
+    trail.setAttribute('cx',String(bx)); trail.setAttribute('cy',String(by));
+    trail.setAttribute('r',String(sz*1.6));
+    trail.setAttribute('fill',col); trail.setAttribute('opacity','0.18');
+    ag.appendChild(trail);
+
+    // Bullet body (hình tam giác mũi tên)
+    const bull=document.createElementNS(NS,'polygon');
+    bull.setAttribute('points',`0,${-sz*1.3} ${sz*.75},${sz*.7} 0,${sz*.25} ${-sz*.75},${sz*.7}`);
+    bull.setAttribute('fill',col);
+    bull.setAttribute('opacity','1');
+    bull.setAttribute('transform',`translate(${bx},${by}) rotate(${angle})`);
+    bull.style.filter=`drop-shadow(0 0 ${3/vp.zoom}px ${col})`;
+    ag.appendChild(bull);
+  });
+}
+
+function startAnimation(){
+  if(_animRaf) cancelAnimationFrame(_animRaf);
+  _lastTs=null;
+  _animRaf=requestAnimationFrame(_animTick);
+}
+
 // ── Auto-refresh ───────────────────────────────────────────────────────────
-setInterval(()=>{ loadAgvs(); if(currentMapId) loadAgvPositions(); },4000);
+setInterval(()=>{ loadAgvs(); if(currentMapId){ loadAgvPositions(); loadAgvRoutes(); } },2000);
 window.addEventListener('resize',()=>{ if(mapData&&mapNodes.length){autoFit();renderMap();} });
+startAnimation();
 loadAll();
 </script>
 </body>

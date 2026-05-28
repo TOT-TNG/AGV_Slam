@@ -231,4 +231,4 @@ def toggle_lang_menu(n_toggle, n_vi, n_en, is_open):
 
 
 if __name__ == "__main__":
-    app.run(host="192.168.1.15", port=8050, debug=True, dev_tools_ui=False)
+    app.run(host="192.168.0.58", port=8050, debug=True, dev_tools_ui=False)

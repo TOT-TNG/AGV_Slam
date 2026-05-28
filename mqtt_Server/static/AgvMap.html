@@ -489,6 +489,18 @@
         Hiện tại mới làm giao diện frontend. Các nút điều khiển sẽ nối backend ở bước sau.
       </div>
     </div>
+
+    <div class="agv-card">
+      <div class="agv-card-title">Gán vị trí thủ công</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <select id="sel-manual-tag" style="flex:1;min-width:0;padding:5px 8px;border-radius:6px;border:1px solid #cbd5e1;font-size:13px;background:#fff;">
+          <option value="">-- Chọn node --</option>
+        </select>
+        <button class="agv-action-btn" id="btn-set-tag" type="button"
+          style="background:#6366f1;color:#fff;white-space:nowrap;flex-shrink:0;">📍 Gán</button>
+      </div>
+      <div class="agv-hint" id="set-tag-hint">Chọn node RFID rồi nhấn Gán để cập nhật vị trí xe.</div>
+    </div>
   </div>
 </div>
 
@@ -817,6 +829,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('agv-panel-title').textContent = `AGV ${agvId}`;
     agvSidePanel.classList.add('open');
 
+    rebuildManualTagSelect();
+    // Reset hint mỗi lần mở panel mới
+    const hint = document.getElementById('set-tag-hint');
+    if (hint) { hint.textContent = 'Chọn node RFID rồi nhấn Gán để cập nhật vị trí xe.'; hint.style.color = ''; }
+
     refreshAgvPanel();
     await loadAgvTargets(agvId);
     refreshAgvPanel();
@@ -828,6 +845,64 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   agvPanelCloseBtn.onclick = closeAgvPanel;
+
+  // ==================== MANUAL TAG ASSIGN ====================
+  function rebuildManualTagSelect() {
+    const sel = document.getElementById('sel-manual-tag');
+    if (!sel) return;
+    const saved = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+
+    const pts = (mapData && (mapData.robot_points || mapData.points || mapData.poses)) || [];
+    // Ưu tiên: RFID / both trước, rồi các loại khác
+    const sorted = [...pts].sort((a, b) => {
+      const aRfid = (a.action === 'rfid' || a.action === 'both') ? 0 : 1;
+      const bRfid = (b.action === 'rfid' || b.action === 'both') ? 0 : 1;
+      return aRfid - bRfid || String(a.name_id).localeCompare(String(b.name_id), undefined, {numeric: true});
+    });
+
+    sorted.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = String(p.name_id);
+      const label = p.name ? `${p.name_id} — ${p.name}` : String(p.name_id);
+      const badge = (p.action === 'rfid' || p.action === 'both') ? '' : ' (no RFID)';
+      opt.textContent = label + badge;
+      sel.appendChild(opt);
+    });
+
+    if (saved) sel.value = saved;
+  }
+
+  document.getElementById('btn-set-tag').onclick = async () => {
+    const btn = document.getElementById('btn-set-tag');
+    const sel = document.getElementById('sel-manual-tag');
+    const hint = document.getElementById('set-tag-hint');
+    const nodeId = sel.value;
+    if (!selectedAgvId) { alert('Chưa chọn AGV.'); return; }
+    if (!nodeId) { alert('Hãy chọn một node trên danh sách.'); return; }
+
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Đang gán...';
+    try {
+      const res = await fetch('/api/agv/set-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agv_id: selectedAgvId, node_id: nodeId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+      hint.textContent = `Đã gán ${selectedAgvId} → node ${data.node_id}`;
+      hint.style.color = '#16a34a';
+    } catch (err) {
+      console.error('[SET_TAG]', err);
+      hint.textContent = `Lỗi: ${err.message}`;
+      hint.style.color = '#dc2626';
+    } finally {
+      btn.textContent = oldText;
+      btn.disabled = false;
+    }
+  };
 
   // ==================== DRAW ICON ====================
   function drawAgvIcon(ctx, x, y, theta, color = '#0A57A4') {
@@ -1339,6 +1414,7 @@ if (agvLayer) {
 
       rebuildAllOverlay();
       autoFit();
+      rebuildManualTagSelect();
 
       statusEl.textContent = `${rm.name || data.name || mapId} – ${imgNatW}×${imgNatH}px – res=${resolution.toFixed(4)}`;
       applyTransform();

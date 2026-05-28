@@ -232,12 +232,87 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
             <option value="left">↶ Rẽ TRÁI</option>
           </select>
         </div>
-        <div class="field" style="margin-bottom:0">
+        <div class="field" style="margin-bottom:5px">
           <label style="font-size:11px">Rẽ chiều LÙI</label>
           <select id="pn-bwd-turn" style="font-size:11px">
             <option value="none">— Đi thẳng</option>
             <option value="right">↷ Rẽ PHẢI</option>
             <option value="left">↶ Rẽ TRÁI</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:5px">
+          <label style="font-size:11px">Cho phép quay</label>
+          <select id="pn-turn-allowed" style="font-size:11px">
+            <option value="yes">✓ Cho phép quay tại node này</option>
+            <option value="no">✗ Không cho phép quay</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label style="font-size:11px">LIDAR vật cản</label>
+          <select id="pn-lidar-off" style="font-size:11px">
+            <option value="no">🟢 Bật — Bình thường</option>
+            <option value="yes">🔴 Tắt — Vô hiệu hóa khi qua node này</option>
+          </select>
+        </div>
+        <div style="border-top:1px solid rgba(249,115,22,.25);margin-top:8px;padding-top:8px">
+          <div style="font-size:10px;font-weight:700;color:#f97316;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">⬛ Hành động khi đến nơi</div>
+          <div class="field" style="margin-bottom:6px">
+            <label style="font-size:11px">Arrival action</label>
+            <select id="pn-arrival-action" style="font-size:11px">
+              <option value="none">— Mặc định (theo loại task)</option>
+              <option value="wait_sys">⚙ WAIT_SYS — Chờ hệ thống (lấy hàng)</option>
+              <option value="wait_user">👤 WAIT_USER — Chờ người xác nhận (giao hàng)</option>
+              <option value="wait_charge">🔋 WAIT_CHARGE — Trạm sạc pin</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label style="font-size:11px">Hướng tiếp cận (approach)</label>
+            <select id="pn-approach-dir" style="font-size:11px">
+              <option value="none">— Tiến thẳng (mặc định)</option>
+              <option value="bwd">↩ Lùi vào (dùng cho trạm sạc)</option>
+            </select>
+          </div>
+        </div>
+        <!-- turn_map junction editor -->
+        <div style="border-top:1px solid rgba(249,115,22,.25);margin-top:8px;padding-top:8px">
+          <div style="font-size:10px;font-weight:700;color:#f97316;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">⤵ Junction Turn Map</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:5px">Từ đâu → <b style="color:#f97316">node này</b> → đến đâu, chiều xe nào → rẽ gì.</div>
+          <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 6px;margin-bottom:4px;align-items:center">
+            <span style="font-size:10px;color:var(--muted)">Đến từ:</span>
+            <select id="pn-tm-from" style="font-size:11px;background:var(--surface3);border:1px solid var(--border);color:var(--text);padding:3px 5px;border-radius:6px;outline:none;width:100%">
+              <option value="">— node trước</option>
+            </select>
+            <span style="font-size:10px;color:var(--muted)">Đi tiếp:</span>
+            <select id="pn-tm-to" style="font-size:11px;background:var(--surface3);border:1px solid var(--border);color:var(--text);padding:3px 5px;border-radius:6px;outline:none;width:100%">
+              <option value="">— node sau</option>
+            </select>
+            <span style="font-size:10px;color:var(--muted)">Chiều xe:</span>
+            <select id="pn-tm-travel" style="font-size:11px;background:var(--surface3);border:1px solid var(--border);color:var(--text);padding:3px 5px;border-radius:6px;outline:none;width:100%">
+              <option value="fwd">→ Tiến</option>
+              <option value="bwd">← Lùi</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:5px;align-items:center">
+            <select id="pn-tm-dir" style="flex:1;min-width:0;font-size:11px;background:var(--surface3);border:1px solid var(--border);color:var(--text);padding:3px 5px;border-radius:6px;outline:none">
+              <option value="left">↶ Rẽ trái</option>
+              <option value="right">↷ Rẽ phải</option>
+              <option value="straight">↑ Đi thẳng</option>
+            </select>
+            <button onclick="addEditorTurnMapEntry()" style="padding:4px 10px;border-radius:6px;background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.4);color:#93c5fd;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0">+ Thêm</button>
+          </div>
+          <div id="pn-tm-list" style="display:flex;flex-direction:column;gap:3px;min-height:20px"></div>
+        </div>
+      </div>
+      <!-- ② VDA5050 — Góc quay tối đa (hiện khi slam_qr / both) -->
+      <div id="pn-vda-section" style="display:none;background:rgba(99,102,241,.07);border:1px solid rgba(99,102,241,.3);border-radius:7px;padding:8px 10px;margin-bottom:6px">
+        <div style="font-size:10px;font-weight:700;color:#6366f1;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">⟳ VDA5050 — Góc quay cho phép</div>
+        <div class="field" style="margin-bottom:0">
+          <label style="font-size:11px">Góc quay tối đa</label>
+          <select id="pn-vda-turn-angle" style="font-size:11px">
+            <option value="360">360° — Quay tự do</option>
+            <option value="180">180° — Quay đầu</option>
+            <option value="90">90° — Chỉ rẽ 90°</option>
+            <option value="none">✗ Không cho phép quay</option>
           </select>
         </div>
       </div>
@@ -291,6 +366,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
       </div>
       <div class="field"><label>Tốc độ (m/s)</label><input id="pe-speed" type="number" min="0" max="3" step="0.1" value="0.5"/></div>
       <div class="field"><label>Chiều rộng đường (m)</label><input id="pe-width" type="number" min="0.3" max="3" step="0.05" value="0.95"/></div>
+      <div class="field" style="margin-bottom:0">
+        <label>LIDAR vật cản</label>
+        <select id="pe-lidar-off" style="font-size:11px">
+          <option value="none">🟢 Bật — Bình thường</option>
+          <option value="fwd">🔴 Tắt chiều tiến (→)</option>
+          <option value="bwd">🔴 Tắt chiều lùi (←)</option>
+          <option value="both">🔴 Tắt cả 2 chiều</option>
+        </select>
+      </div>
     </div>
     <!-- Map legend -->
     <div id="props-legend" style="margin-top:16px">
@@ -397,6 +481,7 @@ let boxSel = null; // {sx,sy,ex,ey}
 let ctxTarget = null;
 let mapChanged = false;
 let snapGrid = false;
+let currentNodeTurnMap = {};
 
 // ═══════════════════════════════════════════════════
 // DOM REFS
@@ -1061,12 +1146,20 @@ function updateProps(){
     document.getElementById('pn-x').value=Math.round(n.x);
     document.getElementById('pn-y').value=Math.round(n.y);
     // Load turn config
-    document.getElementById('pn-fwd-turn').value = n.fwdTurn || 'none';
-    document.getElementById('pn-bwd-turn').value = n.bwdTurn || 'none';
-    // Hiện turn section nếu RFID/both
+    document.getElementById('pn-fwd-turn').value      = n.fwdTurn      || 'none';
+    document.getElementById('pn-bwd-turn').value      = n.bwdTurn      || 'none';
+    document.getElementById('pn-turn-allowed').value  = n.turnAllowed  || 'yes';
+    document.getElementById('pn-lidar-off').value     = n.lidarOff     || 'no';
+    document.getElementById('pn-vda-turn-angle').value= n.vdaTurnAngle || '360';
+    document.getElementById('pn-arrival-action').value = n.arrivalAction || 'none';
+    document.getElementById('pn-approach-dir').value   = n.approachDir   || 'none';
+    currentNodeTurnMap = Object.assign({}, n.turnMap || {});
+    _populateEditorTurnDropdowns();
+    renderEditorTurnMap();
     const turnSec = document.getElementById('pn-turn-section');
     if(turnSec) turnSec.style.display = (compat==='RFID'||compat==='both') ? 'block' : 'none';
-    // RFID → pn-id editable
+    const vdaSec = document.getElementById('pn-vda-section');
+    if(vdaSec) vdaSec.style.display = (compat==='slam_qr'||compat==='both') ? 'block' : 'none';
     _setIdEditable(compat==='RFID');
     pEmpty.style.display='none'; pNode.style.display='block'; pEdge.style.display='none';
     btnApply.style.display=''; btnDel.style.display='';
@@ -1076,9 +1169,10 @@ function updateProps(){
     document.getElementById('props-title').textContent='Cạnh';
     document.getElementById('props-sub').textContent=`${e.src} → ${e.dst}`;
     document.getElementById('pe-id').value=`${e.src} → ${e.dst}`;
-    document.getElementById('pe-dir').value=e.direction||'both';
-    document.getElementById('pe-speed').value=e.speed||0.5;
-    document.getElementById('pe-width').value=e.width||0.95;
+    document.getElementById('pe-dir').value      = e.direction||'both';
+    document.getElementById('pe-speed').value    = e.speed||0.5;
+    document.getElementById('pe-width').value    = e.width||0.95;
+    document.getElementById('pe-lidar-off').value= e.lidarOff||'none';
     pEmpty.style.display='none'; pNode.style.display='none'; pEdge.style.display='block';
     btnApply.style.display=''; btnDel.style.display='';
   } else {
@@ -1115,8 +1209,14 @@ document.getElementById('btn-apply').onclick = ()=>{
     n.action = document.getElementById('pn-action').value;
     n.speed  = parseFloat(document.getElementById('pn-speed').value)||0.5;
     // Lưu cấu hình rẽ (chỉ có ý nghĩa với RFID/both)
-    n.fwdTurn = document.getElementById('pn-fwd-turn').value || 'none';
-    n.bwdTurn = document.getElementById('pn-bwd-turn').value || 'none';
+    n.fwdTurn     = document.getElementById('pn-fwd-turn').value      || 'none';
+    n.bwdTurn     = document.getElementById('pn-bwd-turn').value      || 'none';
+    n.turnAllowed = document.getElementById('pn-turn-allowed').value  || 'yes';
+    n.lidarOff    = document.getElementById('pn-lidar-off').value     || 'no';
+    n.vdaTurnAngle= document.getElementById('pn-vda-turn-angle').value|| '360';
+    n.arrivalAction = document.getElementById('pn-arrival-action').value || 'none';
+    n.approachDir   = document.getElementById('pn-approach-dir').value   || 'none';
+    n.turnMap       = Object.assign({}, currentNodeTurnMap);
     const nx = parseFloat(document.getElementById('pn-x').value);
     const ny = parseFloat(document.getElementById('pn-y').value);
     if(!isNaN(nx)) n.x=nx; if(!isNaN(ny)) n.y=ny;
@@ -1127,6 +1227,7 @@ document.getElementById('btn-apply').onclick = ()=>{
     e.direction = document.getElementById('pe-dir').value;
     e.speed     = parseFloat(document.getElementById('pe-speed').value)||0.5;
     e.width     = parseFloat(document.getElementById('pe-width').value)||0.95;
+    e.lidarOff  = document.getElementById('pe-lidar-off').value||'none';
     renderAll(); toast('Đã cập nhật cạnh','success');
   }
 };
@@ -1149,10 +1250,89 @@ function _setIdEditable(editable){
 function onAgvCompatChange(){
   const v = document.getElementById('pn-agvcompat').value;
   _setIdEditable(v==='RFID');
-  // Hiện/ẩn section cấu hình rẽ
   const turnSec = document.getElementById('pn-turn-section');
   if(turnSec) turnSec.style.display = (v==='RFID'||v==='both') ? 'block' : 'none';
+  const vdaSec = document.getElementById('pn-vda-section');
+  if(vdaSec) vdaSec.style.display = (v==='slam_qr'||v==='both') ? 'block' : 'none';
 }
+
+// ── Turn Map junction editor ─────────────────────────────────────
+function _populateEditorTurnDropdowns() {
+  const fromSel = document.getElementById('pn-tm-from');
+  const toSel   = document.getElementById('pn-tm-to');
+  if (!fromSel || !toSel) return;
+  const currentId = selNodes.size === 1 ? [...selNodes][0] : null;
+  const opts = Object.values(state.nodes)
+    .filter(n => n.id !== currentId)
+    .map(n => {
+      const lbl = n.name ? `${n.name} (${n.id})` : `Node ${n.id}`;
+      return `<option value="${n.id}">${lbl}</option>`;
+    }).join('');
+  fromSel.innerHTML = '<option value="">— node trước</option>' + opts;
+  toSel.innerHTML   = '<option value="">— node sau</option>'  + opts;
+}
+
+function _parseTurnMapKey(key) {
+  // key format: "{from}_{to}_fwd" | "{from}_{to}_bwd" | "{from}_{to}" (legacy)
+  const parts = key.split('_');
+  const last  = parts[parts.length - 1];
+  if (last === 'fwd' || last === 'bwd') {
+    const travel = last;
+    const to     = parts[parts.length - 2];
+    const from   = parts.slice(0, parts.length - 2).join('_');
+    return { from, to, travel };
+  }
+  const to   = parts[parts.length - 1];
+  const from = parts.slice(0, parts.length - 1).join('_');
+  return { from, to, travel: null };
+}
+
+function renderEditorTurnMap() {
+  const list = document.getElementById('pn-tm-list');
+  if (!list) return;
+  const entries = Object.entries(currentNodeTurnMap);
+  if (!entries.length) {
+    list.innerHTML = '<div style="font-size:10px;color:var(--muted);padding:2px 0">Chưa có cấu hình</div>';
+    return;
+  }
+  const dirLabel    = { left:'↶ Trái', right:'↷ Phải', straight:'↑ Thẳng' };
+  const dirColor    = { left:'#86efac', right:'#fca5a5', straight:'#94a3b8' };
+  const travelLabel = { fwd:'Tiến', bwd:'Lùi' };
+  const travelColor = { fwd:'#7dd3fc', bwd:'#fdba74' };
+  list.innerHTML = entries.map(([key, val]) => {
+    const { from, to, travel } = _parseTurnMapKey(key);
+    const fLbl = state.nodes[from]?.name || from;
+    const tLbl = state.nodes[to]?.name   || to;
+    const col  = dirColor[val]    || '#94a3b8';
+    const tCol = travelColor[travel] || '#94a3b8';
+    const tLab = travel ? `<span style="color:${tCol};font-weight:600;flex-shrink:0;margin-right:2px">[${travelLabel[travel]}]</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:3px;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);font-size:10px">
+      ${tLab}
+      <span style="color:#dae2fd;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${fLbl}→<b style="color:#f97316">đây</b>→${tLbl}</span>
+      <span style="color:${col};font-weight:600;flex-shrink:0">${dirLabel[val]||val}</span>
+      <button onclick="removeEditorTurnMapEntry('${key}')" style="padding:1px 5px;border-radius:4px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#fca5a5;font-size:10px;cursor:pointer;flex-shrink:0">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function addEditorTurnMapEntry() {
+  const from   = document.getElementById('pn-tm-from')?.value;
+  const to     = document.getElementById('pn-tm-to')?.value;
+  const travel = document.getElementById('pn-tm-travel')?.value || 'fwd';
+  const dir    = document.getElementById('pn-tm-dir')?.value;
+  if (!from) { toast('Chọn node trước (đến từ)', 'error'); return; }
+  if (!to)   { toast('Chọn node sau (đi tiếp)',  'error'); return; }
+  if (from === to) { toast('Node trước và sau phải khác nhau', 'error'); return; }
+  currentNodeTurnMap[`${from}_${to}_${travel}`] = dir;
+  renderEditorTurnMap();
+}
+
+function removeEditorTurnMapEntry(key) {
+  delete currentNodeTurnMap[key];
+  renderEditorTurnMap();
+}
+window.addEditorTurnMapEntry    = addEditorTurnMapEntry;
+window.removeEditorTurnMapEntry = removeEditorTurnMapEntry;
 
 // ═══════════════════════════════════════════════════
 // ALIGNMENT
@@ -1492,8 +1672,14 @@ async function loadMap(mapId){
         type: nodeType, action: act.defaultAction||'',
         speed: parseFloat(p.speed)||0.5,
         agvCompat,
-        fwdTurn: act.fwd_turn || 'none',
-        bwdTurn: act.bwd_turn || 'none',
+        fwdTurn:     act.fwd_turn     || 'none',
+        bwdTurn:     act.bwd_turn     || 'none',
+        turnAllowed: act.turn_allowed || 'yes',
+        lidarOff:    act.lidar_off    || 'no',
+        vdaTurnAngle:act.vda_turn_angle || '360',
+        arrivalAction: (['wait_sys','wait_user','wait_charge'].includes(act.arrival_action) ? act.arrival_action : 'none'),
+        approachDir:   act.approach_dir   || 'none',
+        turnMap: (act.turn_map && typeof act.turn_map === 'object') ? {...act.turn_map} : {},
       };
     }
 
@@ -1506,7 +1692,8 @@ async function loadMap(mapId){
       const eid=`e_${r2.id_source}_${r2.id_dest}`;
       if(edgeSet.has(eid)) continue; edgeSet.add(eid);
       state.edges.push({ id:eid, src:String(r2.id_source), dst:String(r2.id_dest),
-        direction:_dirFromCode(r2.move_direction), speed:parseFloat(r2.speed)||0.5, width:parseFloat(r2.width)||0.95 });
+        direction:_dirFromCode(r2.move_direction), speed:parseFloat(r2.speed)||0.5, width:parseFloat(r2.width)||0.95,
+        lidarOff: (r2.lidar_off_dir && r2.lidar_off_dir !== 'none') ? r2.lidar_off_dir : (r2.lidar_off ? 'both' : 'none') });
     }
     for(const b of (data.benziers||[])){
       const eid=`e_${b.id_source}_${b.id_dest}`;
@@ -1521,7 +1708,8 @@ async function loadMap(mapId){
       state.edges.push({ id:eid, src:String(b.id_source), dst:String(b.id_dest),
         direction:'both', speed:parseFloat(b.speed)||0.5, width:parseFloat(b.width)||0.95,
         cp1: {x:Math.round(cp1.x), y:Math.round(cp1.y)},
-        cp2: {x:Math.round(cp2.x), y:Math.round(cp2.y)} });
+        cp2: {x:Math.round(cp2.x), y:Math.round(cp2.y)},
+        lidarOff: (b.lidar_off_dir && b.lidar_off_dir !== 'none') ? b.lidar_off_dir : (b.lidar_off ? 'both' : 'none') });
     }
 
     // ── Hiển thị ảnh SLAM (server-side flip = giống AgvMap CSS scale(-1,1)) ─
@@ -1620,8 +1808,14 @@ async function _doSaveMap(name){
         locationType:(n.type||'normal').toUpperCase(),
         defaultAction:n.action||'',
         agvCompat:n.agvCompat||'slam_qr',
-        ...(n.fwdTurn && n.fwdTurn!=='none' ? {fwd_turn:n.fwdTurn} : {}),
-        ...(n.bwdTurn && n.bwdTurn!=='none' ? {bwd_turn:n.bwdTurn} : {}),
+        ...(n.fwdTurn     && n.fwdTurn!=='none'       ? {fwd_turn:n.fwdTurn}         : {}),
+        ...(n.bwdTurn     && n.bwdTurn!=='none'       ? {bwd_turn:n.bwdTurn}         : {}),
+        ...(n.turnAllowed && n.turnAllowed!=='yes'    ? {turn_allowed:n.turnAllowed}         : {}),
+        ...(n.lidarOff    && n.lidarOff!=='no'        ? {lidar_off:n.lidarOff}               : {}),
+        ...(n.vdaTurnAngle && n.vdaTurnAngle!=='360'  ? {vda_turn_angle:n.vdaTurnAngle}       : {}),
+        ...(n.arrivalAction && n.arrivalAction!=='none' ? {arrival_action:n.arrivalAction} : {}),
+        ...(n.approachDir   && n.approachDir!=='none'   ? {approach_dir:n.approachDir}     : {}),
+        ...(n.turnMap && Object.keys(n.turnMap).length  ? {turn_map:n.turnMap}             : {}),
       },
       speed: n.speed||0.5,
       carrier:0, available:false, accuracy:0,
@@ -1644,6 +1838,8 @@ async function _doSaveMap(name){
         curve_point_start:[_r3(wc1.x),_r3(wc1.y)], curve_point_end:[_r3(wc2.x),_r3(wc2.y)],
         speed:e.speed||0.5, width:e.width||0.95,
         move_direction:_dirToCode(e.direction),
+        lidar_off: e.lidarOff !== 'none',
+        lidar_off_dir: e.lidarOff || 'none',
       });
     } else {
       robotRoads.push({
@@ -1651,6 +1847,8 @@ async function _doSaveMap(name){
         point_start:[_r3(ws.x),_r3(ws.y)], point_end:[_r3(we.x),_r3(we.y)],
         width:e.width||0.95, speed:e.speed||0.5,
         move_direction:_dirToCode(e.direction), distance:dist,
+        lidar_off: e.lidarOff !== 'none',
+        lidar_off_dir: e.lidarOff || 'none',
       });
     }
   }

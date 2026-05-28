@@ -2,7 +2,7 @@
 import json
 import time
 
-BROKER = "192.168.0.26"
+BROKER = "192.168.1.15"
 PORT = 1883
 
 client = mqtt.Client()

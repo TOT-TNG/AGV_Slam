@@ -504,6 +504,25 @@ select option:checked {
             </select>
             <small>Chiều lùi thường ngược với chiều tiến ở cùng giao lộ.</small>
           </div>
+          <div class="field" style="margin-top:8px;border-top:1px solid rgba(249,115,22,.2);padding-top:8px">
+            <label for="cfgArrivalAction">Hành động khi AGV đến tag này</label>
+            <select id="cfgArrivalAction">
+              <option value="none">— Mặc định (theo loại task)</option>
+              <option value="wait_sys">⚙ WAIT_SYS — Chờ hệ thống xác nhận (lấy hàng)</option>
+              <option value="wait_user">👤 WAIT_USER — Chờ người bấm nút (giao hàng)</option>
+              <option value="wait_charge">🔋 WAIT_CHARGE — Trạm sạc pin</option>
+            </select>
+            <small>Override hành động tại node đích, bất kể loại task. Dùng để thiết lập điểm lấy/giao hàng cố định.</small>
+          </div>
+          <div class="field" style="margin-top:8px;border-top:1px solid rgba(249,115,22,.2);padding-top:8px">
+            <label for="cfgApproachDir">Hướng tiếp cận node đích</label>
+            <select id="cfgApproachDir">
+              <option value="none">— Mặc định (tiến vào)</option>
+              <option value="bwd">🔄 BWD — Lùi vào (trạm sạc)</option>
+            </select>
+            <small>Chọn "Lùi vào" cho trạm sạc để AGV tự lùi vào đúng hướng.</small>
+          </div>
+
         </div>
 
         <div class="actions-row">
@@ -518,7 +537,7 @@ select option:checked {
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const API_BASE = 'http://' + (window.location.hostname || '192.168.1.15') + ':8000';
+      const API_BASE = 'http://' + (window.location.hostname || '192.168.0.58') + ':8000';
 
       const RES_DEFAULT = 0.05;
 
@@ -539,6 +558,7 @@ select option:checked {
       let currentMapId = null;
       let selectedNode = null;
       let isSchematic = false;
+      let currentTurnMap = {};   // {"from_to": "left"|"right"|"straight"} — loaded to preserve on save
 
       // ── DOM elements ────────────────────────────────────────
       const topBarWrapper    = document.getElementById('top-bar-wrapper');
@@ -760,6 +780,9 @@ select option:checked {
   cfgAgvCompat.value     = action.agvCompat     || 'slam_qr';
   document.getElementById('cfgFwdTurn').value = action.fwd_turn || 'none';
   document.getElementById('cfgBwdTurn').value = action.bwd_turn || 'none';
+  document.getElementById('cfgArrivalAction').value = action.arrival_action || 'none';
+  document.getElementById('cfgApproachDir').value   = action.approach_dir   || 'none';
+  currentTurnMap = (action.turn_map && typeof action.turn_map === 'object') ? Object.assign({}, action.turn_map) : {};
   updateTurnFieldsVisibility();
 
   console.log('[FILL NODE]', point);
@@ -1048,8 +1071,11 @@ select option:checked {
           return;
         }
 
-        const fwdTurn = document.getElementById('cfgFwdTurn').value;
-        const bwdTurn = document.getElementById('cfgBwdTurn').value;
+        const fwdTurn     = document.getElementById('cfgFwdTurn').value;
+        const bwdTurn     = document.getElementById('cfgBwdTurn').value;
+        const arrivalAct  = document.getElementById('cfgArrivalAction').value;
+        const approachDir = document.getElementById('cfgApproachDir').value;
+        const turnMapVal  = Object.keys(currentTurnMap).length > 0 ? currentTurnMap : null;
         const payload = {
           mapId: currentMapId,
           nodeId: selectedNode.name_id,
@@ -1060,6 +1086,9 @@ select option:checked {
             agvCompat: cfgAgvCompat.value || 'slam_qr',
             fwd_turn: fwdTurn !== 'none' ? fwdTurn : null,
             bwd_turn: bwdTurn !== 'none' ? bwdTurn : null,
+            arrival_action: arrivalAct  !== 'none' ? arrivalAct  : null,
+            approach_dir:   approachDir !== 'none' ? approachDir : null,
+            turn_map:       turnMapVal,
           }
         };
 

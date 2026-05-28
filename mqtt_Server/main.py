@@ -301,7 +301,7 @@ def _line_agv_dispatch_to_charge(agv_id: str) -> None:
             resolve_special_target_node,
             get_agv_runtime_info,
         )
-        from line_agv_plan_builder import build_line_plan
+        from line_agv_plan_builder import build_line_plan, build_edge_speeds, build_edge_lidar
         from line_agv_handler import line_agv_handler
 
         info = get_agv_runtime_info(agv_id)
@@ -323,8 +323,20 @@ def _line_agv_dispatch_to_charge(agv_id: str) -> None:
             print(f"[LINE_CHARGE] {agv_id}: không tìm được đường về trạm sạc")
             return
 
-        points = getattr(map_manager, "points", {}) or {}
-        plan   = build_line_plan(path, points, task_type="return_charge")
+        points       = getattr(map_manager, "points",       {}) or {}
+        node_actions = getattr(map_manager, "node_actions", {}) or {}
+        roads        = getattr(map_manager, "roads",        []) or []
+        edge_spd     = build_edge_speeds(roads)
+        edge_lidar   = build_edge_lidar(roads)
+        _lstate_chg      = line_agv_handler.state_store.get(agv_id)
+        _prev_chg        = str(_lstate_chg.prev_tag) if (_lstate_chg and _lstate_chg.prev_tag) else None
+        _last_tdir_chg   = getattr(_lstate_chg, 'last_transit_direction', '') if _lstate_chg else ''
+        _is_post_chg_c   = (getattr(_lstate_chg, 'task_lifecycle', '') or '') == "charging"
+        _initial_prev_chg = _prev_chg if (_last_tdir_chg == 'bwd' and not _is_post_chg_c) else None
+        plan         = build_line_plan(path, points, task_type="return_charge",
+                                       node_actions=node_actions,
+                                       edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                                       agv_id=agv_id, initial_prev_tag=_initial_prev_chg)
 
         line_agv_handler.set_route(agv_id, path, "return_charge")
         send_order(agv_id, plan)
@@ -358,6 +370,13 @@ def build_order_for_traffic_route(
         # Lưu route để handler quản lý rolling plan
         line_agv_handler.set_route(agv_id, str_path, task_type)
 
+        # Lấy prev_tag để tính turn tại node đầu tiên nếu cần
+        _lstate_trt      = line_agv_handler.state_store.get(agv_id)
+        _prev_trt        = str(_lstate_trt.prev_tag) if (_lstate_trt and _lstate_trt.prev_tag) else None
+        _last_tdir_trt   = getattr(_lstate_trt, 'last_transit_direction', '') if _lstate_trt else ''
+        _is_post_chg_trt = (getattr(_lstate_trt, 'task_lifecycle', '') or '') == "charging"
+        _initial_prev_trt = _prev_trt if (_last_tdir_trt == 'bwd' and not _is_post_chg_trt) else None
+
         # Chỉ gửi cửa sổ đầu tiên
         w_end    = first_window_end(str_path)
         is_final = (w_end == len(str_path) - 1)
@@ -369,6 +388,8 @@ def build_order_for_traffic_route(
             is_final=is_final,
             task_type=task_type,
             cmd_id=cmd_id,
+            agv_id=agv_id,
+            initial_prev_tag=_initial_prev_trt,
         )
         return plan, str_path
 
@@ -578,6 +599,10 @@ class ReleaseRequest(BaseModel):
     agv_id: str
 class AgvActionRequest(BaseModel):
     agv_id: str
+
+class SetTagRequest(BaseModel):
+    agv_id: str
+    node_id: str
 # ==========================
 # OFFLINE MONITOR
 # ==========================
@@ -710,7 +735,7 @@ async def lifespan(app: FastAPI):
     if not app.state.mqtt_connected:
         print("[WARNING] MQTT broker is unavailable; server continues without broker state stream")
 
-    # ── Tạo bảng agv_task_executions nếu chưa có ────────────────────────────────
+    # ── Tạo bảng + migration cột nếu chưa có ────────────────────────────────────
     if app.state.db_pool:
         try:
             async with app.state.db_pool.acquire() as _conn:
@@ -728,20 +753,33 @@ async def lifespan(app: FastAPI):
                         notes         TEXT
                     )
                 """)
-            print("[DB] Table agv_task_executions ready")
-            # Thêm cột map_id vào agv_devices nếu chưa có
-            await _conn.execute(
-                "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS map_id TEXT"
-            )
-            await _conn.execute(
-                "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS factory TEXT"
-            )
-            print("[DB] Columns agv_devices.map_id / factory ensured")
-            # Lưu vị trí RFID cuối của Line AGV
-            await _conn.execute(
-                "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS last_tag TEXT"
-            )
-            print("[DB] Column agv_devices.last_tag ensured")
+                print("[DB] Table agv_task_executions ready")
+                # Cột agv_devices
+                await _conn.execute(
+                    "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS map_id TEXT"
+                )
+                await _conn.execute(
+                    "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS factory TEXT"
+                )
+                print("[DB] Columns agv_devices.map_id / factory ensured")
+                await _conn.execute(
+                    "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS last_tag TEXT"
+                )
+                print("[DB] Column agv_devices.last_tag ensured")
+                # Cột LIDAR cho map roads / benziers
+                await _conn.execute(
+                    "ALTER TABLE agv_map_roads ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE"
+                )
+                await _conn.execute(
+                    "ALTER TABLE agv_map_roads ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'"
+                )
+                await _conn.execute(
+                    "ALTER TABLE agv_map_benziers ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE"
+                )
+                await _conn.execute(
+                    "ALTER TABLE agv_map_benziers ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'"
+                )
+                print("[DB] Columns agv_map_roads/benziers.lidar_off / lidar_off_dir ensured")
         except Exception as _te:
             print(f"[DB] Create table error (non-fatal): {_te}")
 
@@ -991,7 +1029,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.1.15:8050/home")
+    return RedirectResponse(url="http://192.168.0.58:8050/home")
 
 # ==========================
 # DEBUG ROUTES
@@ -1708,8 +1746,18 @@ async def _do_upload_map(payload: dict):
                 width          FLOAT DEFAULT 0.95,
                 speed          FLOAT DEFAULT 0.3,
                 move_direction INT DEFAULT 0,
-                distance       FLOAT DEFAULT 0
+                distance       FLOAT DEFAULT 0,
+                lidar_off      BOOLEAN DEFAULT FALSE,
+                lidar_off_dir  TEXT DEFAULT 'none'
             )
+        """)
+        await conn.execute("""
+            ALTER TABLE agv_map_roads
+            ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE
+        """)
+        await conn.execute("""
+            ALTER TABLE agv_map_roads
+            ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS agv_map_benziers (
@@ -1723,8 +1771,18 @@ async def _do_upload_map(payload: dict):
                 curve_point_end_x     FLOAT, curve_point_end_y FLOAT,
                 width                 FLOAT DEFAULT 0.3,
                 speed                 FLOAT DEFAULT 0.3,
-                move_direction        INT DEFAULT 0
+                move_direction        INT DEFAULT 0,
+                lidar_off             BOOLEAN DEFAULT FALSE,
+                lidar_off_dir         TEXT DEFAULT 'none'
             )
+        """)
+        await conn.execute("""
+            ALTER TABLE agv_map_benziers
+            ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE
+        """)
+        await conn.execute("""
+            ALTER TABLE agv_map_benziers
+            ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS agv_map_codes (
@@ -1842,14 +1900,16 @@ async def _do_upload_map(payload: dict):
                     INSERT INTO agv_map_roads
                     (map_id, name, id_source, id_dest,
                      point_start_x, point_start_y, point_end_x, point_end_y,
-                     width, speed, move_direction, distance)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                     width, speed, move_direction, distance, lidar_off, lidar_off_dir)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
                 """, map_id, r.get("name", ""),
                     str(r["id_source"]), str(r["id_dest"]),
                     point_start[0], point_start[1],
                     point_end[0], point_end[1],
                     r.get("width", 0.95), r.get("speed", 0.3),
-                    r.get("move_direction", 0), r.get("distance", 0))
+                    r.get("move_direction", 0), r.get("distance", 0),
+                    bool(r.get("lidar_off", False)),
+                    str(r.get("lidar_off_dir") or "none"))
 
             # Lưu codes (có thể rỗng)
             codes = payload.get("robot_code", [])
@@ -1878,9 +1938,9 @@ async def _do_upload_map(payload: dict):
                             map_id, name, id_source, id_dest,
                             point_start_x, point_start_y, point_end_x, point_end_y,
                             curve_point_start_x, curve_point_start_y, curve_point_end_x, curve_point_end_y,
-                            width, speed, move_direction
+                            width, speed, move_direction, lidar_off, lidar_off_dir
                         )
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
                     """, map_id, b.get("name", ""),
                         str(b["id_source"]), str(b["id_dest"]),
                         point_start[0], point_start[1],
@@ -1888,7 +1948,8 @@ async def _do_upload_map(payload: dict):
                         curve_point_start[0], curve_point_start[1],
                         curve_point_end[0], curve_point_end[1],
                         b.get("width", 0.3), b.get("speed", 0.3),
-                        b.get("move_direction", 0)
+                        b.get("move_direction", 0), bool(b.get("lidar_off", False)),
+                        str(b.get("lidar_off_dir") or "none")
                     )
             # =========================================================================
 
@@ -2015,6 +2076,37 @@ async def api_cancel_order(req: AgvActionRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/agv/set-tag")
+async def api_set_tag(req: SetTagRequest):
+    """Gán thủ công vị trí AGV (node RFID) khi khởi động hoặc cần căn chỉnh."""
+    try:
+        node_id_str = str(req.node_id).strip()
+        if not node_id_str.lstrip("-").isdigit():
+            raise HTTPException(400, f"node_id không hợp lệ: {req.node_id!r}")
+
+        tag_int = int(node_id_str)
+
+        from line_agv_handler import line_agv_handler as _lah
+        _lah.override_position(req.agv_id, tag_int)
+
+        # Lưu vào DB để restore sau khi server restart
+        if pool:
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE agv_devices SET last_tag=$1 WHERE name=$2",
+                    node_id_str, req.agv_id,
+                )
+
+        print(f"[SET_TAG] {req.agv_id}: gán thủ công vị trí → node {tag_int}")
+        return {"success": True, "agv_id": req.agv_id, "node_id": tag_int}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("[ERROR] /api/agv/set-tag:", e)
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 # ==========================
 # TASK MANAGER API
@@ -2303,18 +2395,133 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
     if str(current_node) == str(dest_node):
         raise ValueError(f"{agv_id}: đã ở tại {dest_node}")
 
+    # Xóa map cache để đảm bảo node_actions (arrival_action) luôn được đọc mới từ DB
+    map_manager.current_map_id = None
     route_nodes, route_edges = plan_path_for_order(agv_id, current_node, dest_node)
 
     if agv_registry.is_line(agv_id):
-        from line_agv_plan_builder import build_line_plan
+        from line_agv_plan_builder import build_line_plan, build_edge_speeds, build_edge_lidar
         from line_agv_handler import line_agv_handler
         path         = [str(n.get("nodeId") or n) for n in route_nodes]
-        points       = getattr(map_manager, "points", {}) or {}
+        points       = getattr(map_manager, "points",       {}) or {}
         node_actions = getattr(map_manager, "node_actions", {}) or {}
-        plan         = build_line_plan(path, points, task_type="delivery",
-                                       node_actions=node_actions, direction="fwd")
-        line_agv_handler.set_route(agv_id, path, "delivery")
-        send_order(agv_id, plan)
+        roads        = getattr(map_manager, "roads",        []) or []
+        edge_spd     = build_edge_speeds(roads)
+        edge_lidar   = build_edge_lidar(roads)
+
+        # Đọc prev_tag để xác định hướng xe đang nhìn
+        _lstate      = line_agv_handler.state_store.get(agv_id)
+        _prev_tag    = str(_lstate.prev_tag) if (_lstate and _lstate.prev_tag) else None
+        print(f"[DISPATCH] {agv_id}: path={path} prev_tag={_prev_tag} "
+              f"node_actions_count={len(node_actions)} edge_speeds_count={len(edge_spd)}")
+
+        # ── Phát hiện đoạn lùi đầu đường ──────────────────────────────────────
+        # Khi directional planner quyết định xe phải lùi trước (path[1] == prev_tag),
+        # tách đoạn lùi và gửi trước; phần còn lại queue tiếp theo.
+        if _prev_tag and len(path) >= 2 and str(path[1]) == _prev_tag:
+            _last_tdir_bwd = getattr(_lstate, 'last_transit_direction', '') if _lstate else ''
+            # Kiểm tra xe có đang ở trạm sạc không (approach_dir=bwd HOẶC arrival_action=wait_charge).
+            # Nếu có: xe đã lùi vào trạm (kể cả thủ công), front đang hướng ra ngoài → phải TIẾN.
+            _cur_node_cfg    = node_actions.get(str(path[0])) or {}
+            _cur_approach    = str(_cur_node_cfg.get("approach_dir")    or "").lower()
+            _cur_arrival     = str(_cur_node_cfg.get("arrival_action")  or "").lower()
+            _lifecycle_chg   = (getattr(_lstate, 'task_lifecycle', '') or '') == "charging"
+            _at_charge_bwd   = (_cur_approach == "bwd") or (_cur_arrival == "wait_charge") or _lifecycle_chg
+            if _last_tdir_bwd == "bwd" or _at_charge_bwd:
+                # AGV vừa lùi vào (server-route hoặc thủ công) — front đang hướng ra đường chính.
+                # path[1]==prev_tag chỉ nghĩa là route đi qua node đó theo chiều TIẾN.
+                # Không cần transit lùi, chuyển sang tiến (direction="fwd").
+                if _lstate:
+                    _lstate.last_transit_direction = ''
+                print(f"[DISPATCH] {agv_id}: post-backward route → skip transit, dùng direction=fwd"
+                      f" (reason: last_tdir={_last_tdir_bwd!r} at_charge_bwd={_at_charge_bwd})")
+                # _line_dir = "fwd" mặc định ở dưới, direction-inference sẽ không chạy (đã clear)
+            else:
+                # Cần lùi thật: tìm điểm cuối đoạn lùi và gửi transit
+                bwd_end  = 1
+                cur_from = _prev_tag
+                for _bi in range(1, len(path) - 1):
+                    if str(path[_bi + 1]) == str(cur_from):
+                        cur_from = path[_bi]
+                        bwd_end  = _bi + 1
+                    else:
+                        break
+
+                bwd_seg = path[:bwd_end + 1]
+                print(f"[DISPATCH] {agv_id}: backward start → bwd_seg={bwd_seg}, tiếp→{dest_node}")
+                bwd_plan = build_line_plan(bwd_seg, points, task_type="transit",
+                                           node_actions=node_actions, direction="bwd",
+                                           edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                                           agv_id=agv_id, initial_prev_tag=None)
+                line_agv_handler.set_route(agv_id, bwd_seg, "transit", direction="bwd")
+                send_order(agv_id, bwd_plan)
+                from task_queue import agv_task_queue as _atq, CMD_GO_TO as _CGT
+                _atq.insert_next(agv_id, _CGT, dest_node=str(dest_node))
+                return True
+
+        # ── Tìm intermediate node đầu tiên có arrival_action → split route ────
+        split_idx = None
+        for _si in range(1, len(path) - 1):
+            _node_cfg = node_actions.get(str(path[_si])) or {}
+            _acfg = str(_node_cfg.get("arrival_action") or "").lower()
+            print(f"[DISPATCH] check intermediate node={path[_si]} "
+                  f"arrival_action={_acfg!r} cfg={_node_cfg}")
+            if _acfg in ("wait_user", "wait_sys", "wait_charge"):
+                split_idx = _si
+                break
+
+        # Đọc last_transit_direction TRƯỚC khi clear (để detect post-backward-transit)
+        _last_tdir_pre  = getattr(_lstate, 'last_transit_direction', '') if _lstate else ''
+        # Phân biệt: 'bwd' từ transit thường vs từ trạm sạc (return_charge)
+        _is_post_charge = (getattr(_lstate, 'task_lifecycle', '') or '') == "charging"
+
+        # initial_prev_tag chỉ hợp lệ khi xe vừa đến start node theo chiều lùi
+        # (mũi xe ngược chiều đi tiếp). Nếu đến theo chiều tiến thì mũi đã đúng hướng.
+        _initial_prev = _prev_tag if (_last_tdir_pre == 'bwd' and not _is_post_charge) else None
+
+        # Mặc định tiến; nhưng nếu vừa xong backward transit (không phải trạm sạc)
+        # và path tiếp thẳng hàng → mũi xe ngược chiều path[1] → tiếp tục direction='bwd'
+        _line_dir = "fwd"
+        if _last_tdir_pre == 'bwd' and not _is_post_charge and _prev_tag and len(path) >= 2:
+            from line_agv_plan_builder import _resolve_turn as _rt_dir
+            _dir_turn, _ = _rt_dir(str(path[0]), _prev_tag, str(path[1]),
+                                   points, node_actions, "fwd")
+            if _dir_turn is None:  # STRAIGHT → đuôi đang hướng về path[1] → tiếp tục lùi
+                _line_dir = "bwd"
+                print(f"[DISPATCH] {agv_id}: post-backward STRAIGHT → direction=bwd "
+                      f"({_prev_tag}→{path[0]}→{path[1]})")
+
+        if _lstate:
+            _lstate.last_transit_direction = ''
+        if _line_dir == "fwd":
+            print(f"[DISPATCH] {agv_id}: direction=fwd (final_approach_bwd handled by plan_builder)")
+
+        if split_idx is not None:
+            first_seg = path[:split_idx + 1]
+            plan = build_line_plan(first_seg, points, task_type="delivery",
+                                   node_actions=node_actions, direction=_line_dir,
+                                   edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                                   agv_id=agv_id, initial_prev_tag=_initial_prev)
+            _rt = line_agv_handler.set_route(agv_id, first_seg, "delivery", direction=_line_dir)
+            send_order(agv_id, plan)
+            # Full plan đã gửi → mark complete để event handler xử lý đúng
+            _rt.window_end = len(first_seg) - 1
+            _rt.is_complete = True
+            from task_queue import agv_task_queue as _atq, CMD_GO_TO as _CGT
+            _atq.insert_next(agv_id, _CGT, dest_node=str(dest_node))
+            print(f"[DISPATCH] {agv_id}: route split tại node {path[split_idx]}, "
+                  f"first_seg={first_seg}, tiếp→{dest_node}")
+        else:
+            plan = build_line_plan(path, points, task_type="delivery",
+                                   node_actions=node_actions, direction=_line_dir,
+                                   edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                                   agv_id=agv_id, initial_prev_tag=_initial_prev)
+            _rt = line_agv_handler.set_route(agv_id, path, "delivery", direction=_line_dir)
+            send_order(agv_id, plan)
+            # Full plan đã gửi → mark complete
+            _rt.window_end = len(path) - 1
+            _rt.is_complete = True
+        print(f"[DISPATCH] {agv_id}: node_actions keys={list(node_actions.keys())[:10]}")
     else:
         from mqtt_client import build_order_with_path, send_generated_order
         order = build_order_with_path(agv_id, route_nodes, route_edges, end_action_type=None)
@@ -2391,6 +2598,7 @@ async def execute_agv_list():
                 "paused":           st.paused if st else False,
                 "connection":       line_conn,
                 "operating_mode":   st.operating_mode if st else "MANUAL",
+                "task_lifecycle":   st.task_lifecycle if st else None,
                 "is_busy":          agv_task_queue.is_busy(agv_id),
                 "queue_size":       agv_task_queue.queue_size(agv_id),
                 "running_cmd":      agv_task_queue.get_running(agv_id),
@@ -2489,19 +2697,21 @@ async def execute_agv_positions(map_id: str):
         if is_line:
             from line_agv_handler import OFFLINE_TIMEOUT_SEC as _LINE_OFF_SEC
             st           = line_agv_handler.state_store.get(agv_id)
-            current_node = str(st.current_tag) if (st and st.current_tag) else None
+            current_node = str(st.current_tag) if (st and st.current_tag is not None and st.current_tag != 0) else None
             if st and st.last_update > 0 and st.connection_state == "ONLINE":
                 connection = "ONLINE"
             elif st and st.last_update > 0 and (time.time() - st.last_update) < _LINE_OFF_SEC:
                 connection = "ONLINE"
             else:
                 connection = "OFFLINE"
-            driving      = st.driving if st else False
+            driving  = st.driving if st else False
+            battery  = st.battery if st else None
         else:
             st           = agv_manager.get_agv(agv_id) or {}
             current_node = str(st.get("lastNodeId") or "") or None
             connection   = "ONLINE" if st else "OFFLINE"
             driving      = bool(st.get("driving"))
+            battery      = st.get("batteryState", {}).get("batteryCharge") if st else None
 
         pt = pts.get(current_node) if current_node else None
         result.append({
@@ -2512,10 +2722,94 @@ async def execute_agv_positions(map_id: str):
             "current_node": current_node,
             "connection":   connection,
             "driving":      driving,
+            "battery":      battery,
             "has_position": pt is not None,
         })
 
     return {"positions": result, "map_id": map_id}
+
+
+@app.get("/api/execute/agv-routes")
+async def execute_agv_routes(map_id: str):
+    """Trả về route đang di chuyển của các AGV trên bản đồ map_id."""
+    from line_agv_handler import line_agv_handler
+    from task_queue import agv_task_queue
+
+    def _fetch_devices(mid: str):
+        import psycopg2, os
+        cfg = {
+            "host":     os.environ.get("PGHOST",     "localhost"),
+            "port":     os.environ.get("PGPORT",     "5432"),
+            "user":     os.environ.get("PGUSER",     "postgres"),
+            "password": os.environ.get("PGPASSWORD", "ducmanh1801"),
+            "dbname":   os.environ.get("PGDATABASE", "TOT_AGV"),
+        }
+        conn = psycopg2.connect(**cfg)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT name, agv_type FROM agv_devices WHERE map_id = %s", (mid,))
+                return cur.fetchall()
+        finally:
+            conn.close()
+
+    try:
+        devices = await asyncio.to_thread(_fetch_devices, map_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    routes = {}
+    for (name, agv_type_raw) in devices:
+        agv_id       = str(name)
+        is_line      = not str(agv_type_raw or "").lower().startswith("slam")
+
+        if is_line:
+            st    = line_agv_handler.state_store.get(agv_id)
+            route = line_agv_handler.get_route(agv_id)
+
+            current_node = str(st.current_tag) if (st and st.current_tag is not None) else None
+            prev_node    = str(st.prev_tag)    if (st and st.prev_tag)                else None
+            next_node    = str(st.next_tag)    if (st and st.next_tag)                else None
+            driving      = st.driving if st else False
+
+            path        = []
+            current_idx = 0
+            if route and route.full_path:
+                path = route.full_path
+                if current_node and current_node in path:
+                    current_idx = path.index(current_node)
+
+            running_cmd = agv_task_queue.get_running(agv_id)
+            dest_node   = str(running_cmd["dest_node"]) if (running_cmd and running_cmd.get("dest_node")) else None
+
+            routes[agv_id] = {
+                "current_node": current_node,
+                "prev_node":    prev_node,
+                "next_node":    next_node,
+                "dest_node":    dest_node,
+                "path":         path,
+                "current_idx":  current_idx,
+                "driving":      driving,
+                "agv_type":     "LINE",
+            }
+        else:
+            st           = agv_manager.get_agv(agv_id) or {}
+            current_node = str(st.get("lastNodeId") or "") or None
+            driving      = bool(st.get("driving"))
+            running_cmd  = agv_task_queue.get_running(agv_id)
+            dest_node    = str(running_cmd["dest_node"]) if (running_cmd and running_cmd.get("dest_node")) else None
+
+            routes[agv_id] = {
+                "current_node": current_node,
+                "prev_node":    None,
+                "next_node":    None,
+                "dest_node":    dest_node,
+                "path":         [current_node] if current_node else [],
+                "current_idx":  0,
+                "driving":      driving,
+                "agv_type":     "SLAM",
+            }
+
+    return {"routes": routes, "map_id": map_id}
 
 
 class ExecuteDispatchRequest(BaseModel):
@@ -2674,6 +2968,30 @@ async def cancel_single_cmd(cmd_id: str):
     if not ok:
         raise HTTPException(404, f"Không tìm thấy lệnh {cmd_id} trong hàng chờ")
     return {"cancelled": True, "cmd_id": cmd_id}
+
+
+@app.post("/api/execute/lifecycle-ack/{agv_id}")
+async def lifecycle_ack(agv_id: str):
+    """
+    Xác nhận lifecycle event (lấy hàng / giao hàng) cho Line AGV.
+    Gọi khi người dùng nhấn "Đã lấy hàng" hoặc "Đã giao hàng xong" trên frontend.
+    → Xóa task_lifecycle + gọi on_agv_completed để dispatch lệnh tiếp theo trong queue.
+    """
+    from line_agv_handler import line_agv_handler
+    from task_queue import agv_task_queue
+    agv_id = agv_id.strip()
+    state = line_agv_handler.state_store.get(agv_id)
+    if not state:
+        raise HTTPException(404, f"AGV '{agv_id}' không có trạng thái")
+    if not state.task_lifecycle:
+        raise HTTPException(400, "AGV không ở trạng thái lifecycle (picking/delivering)")
+    lc = state.task_lifecycle
+    state.task_lifecycle = None
+    # Xóa route để animated arrow dừng ngay
+    line_agv_handler.clear_route(agv_id)
+    agv_task_queue.on_agv_completed(agv_id, notes=f"lifecycle:{lc}:confirmed")
+    print(f"[LIFECYCLE] {agv_id}: confirmed '{lc}' via UI")
+    return {"success": True, "agv_id": agv_id, "confirmed": lc}
 
 
 @app.get("/api/execute/history")

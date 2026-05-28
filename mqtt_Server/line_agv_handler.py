@@ -70,6 +70,15 @@ class LineAGVState:
     # Edge đang chiếm: (from_tag, to_tag) — None nếu đứng yên tại node
     current_edge_pair: Optional[tuple[int, int]] = None
 
+    # Task lifecycle: "picking" (đến điểm lấy hàng, WAIT_SYS) | "delivering" (đến điểm giao, WAIT_USER) | None
+    task_lifecycle: Optional[str] = None
+
+    # Hướng di chuyển của transit vừa hoàn thành ("fwd"/"bwd"/"") — dùng để xác định hướng plan tiếp theo
+    last_transit_direction: str = ""
+
+    # Hướng vật lý của plan gần nhất đã thực thi (fwd/bwd) — dùng làm baseline khi tính hướng plan mới
+    last_plan_direction: str = "fwd"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # LineAGVRoute — rolling plan state cho 1 Line AGV
@@ -79,6 +88,7 @@ class LineAGVState:
 class LineAGVRoute:
     full_path:    list         # list[str] — toàn bộ đường đi
     task_type:    str  = "delivery"
+    direction:    str  = "fwd" # "fwd" | "bwd" — hướng vật lý của plan này
     window_start: int  = 0    # index đầu cửa sổ hiện tại trong full_path
     window_end:   int  = 0    # index cuối cửa sổ hiện tại (inclusive)
     sent_cmd_id:  str  = ""   # cmd_id của plan vừa gửi
@@ -122,6 +132,7 @@ class LineAGVStateStore:
                 "operating_mode":  s.operating_mode,
                 "connection":      s.connection_state,
                 "last_update":     s.last_update,
+                "task_lifecycle":  s.task_lifecycle,
                 "current_edge":    (f"{s.current_edge_pair[0]}→{s.current_edge_pair[1]}"
                                     if s.current_edge_pair else None),
             })
@@ -197,6 +208,7 @@ class LineAGVHandler:
         agv_id:    str,
         full_path: list,
         task_type: str = "delivery",
+        direction: str = "fwd",
     ) -> LineAGVRoute:
         """
         Lưu route mới cho AGV và tính cửa sổ đầu tiên.
@@ -207,12 +219,17 @@ class LineAGVHandler:
         route    = LineAGVRoute(
             full_path=str_path,
             task_type=task_type,
+            direction=direction,
             window_start=0,
             window_end=w_end,
             is_complete=(w_end == len(str_path) - 1),
         )
         self._routes[agv_id] = route
-        print(f"[LINE_AGV] {agv_id}: set_route len={len(str_path)} "
+        # Cập nhật hướng plan hiện tại vào state để dispatch sau này tham chiếu
+        _st = self.state_store.get(agv_id)
+        if _st:
+            _st.last_plan_direction = direction
+        print(f"[LINE_AGV] {agv_id}: set_route len={len(str_path)} dir={direction} "
               f"window=[0→{w_end}] final={route.is_complete}")
         return route
 
@@ -258,6 +275,11 @@ class LineAGVHandler:
                 print(f"[LINE_AGV] {agv_id}: parse tag failed raw={last_node_raw!r}")
         else:
             new_tag = old_tag   # không có tag trong payload — giữ nguyên vị trí
+
+        # Tag=0 nghĩa là AGV không đứng tại RFID nào — giữ nguyên vị trí đã biết
+        # (tránh ghi đè vị trí gán thủ công hoặc RFID quét được trước đó)
+        if new_tag == 0:
+            new_tag = old_tag
 
         # ── Parse prev_tag ────────────────────────────────────────────────────
         fw_prev = int(data.get("prev_tag", 0) or 0)
@@ -379,18 +401,21 @@ class LineAGVHandler:
         is_final:  bool,
     ) -> None:
         """Build và gửi 1 cửa sổ plan."""
-        if self.send_window_fn is None:
-            print(f"[LINE_AGV] {agv_id}: send_window_fn chưa được inject!")
-            return
-
         try:
-            from map_manager import MapManager
-            # Lấy points từ map_manager singleton (lazy import tránh circular)
+            # Lấy points, node_actions, edge_speeds, edge_lidar từ map_manager singleton
             try:
                 from mqtt_client import map_manager as _mm
-                points = getattr(_mm, "points", {}) or {}
+                from line_agv_plan_builder import build_edge_speeds, build_edge_lidar
+                points       = getattr(_mm, "points",       {}) or {}
+                node_actions = getattr(_mm, "node_actions", {}) or {}
+                roads        = getattr(_mm, "roads",        []) or []
+                edge_speeds  = build_edge_speeds(roads)
+                edge_lidar   = build_edge_lidar(roads)
             except Exception:
-                points = {}
+                points       = {}
+                node_actions = {}
+                edge_speeds  = {}
+                edge_lidar   = {}
 
             plan = build_plan_window(
                 full_path=route.full_path,
@@ -399,6 +424,11 @@ class LineAGVHandler:
                 points=points,
                 is_final=is_final,
                 task_type=route.task_type,
+                node_actions=node_actions,
+                direction=route.direction,
+                edge_speeds=edge_speeds,
+                edge_lidar=edge_lidar,
+                agv_id=agv_id,
             )
 
             route.window_start = w_start
@@ -408,7 +438,15 @@ class LineAGVHandler:
             route.acked        = False
             route.is_complete  = is_final
 
-            self.send_window_fn(agv_id, plan)
+            if self.send_window_fn is not None:
+                self.send_window_fn(agv_id, plan)
+            else:
+                # Fallback: gửi trực tiếp qua mqtt_client khi callback chưa inject
+                from mqtt_client import send_order as _so_fb
+                _so_fb(agv_id, plan)
+                print(f"[LINE_AGV] {agv_id}: sent window (fallback) [{w_start}→{w_end}] "
+                      f"id={plan['id']} final={is_final}")
+                return
             print(f"[LINE_AGV] {agv_id}: sent window [{w_start}→{w_end}] "
                   f"id={plan['id']} final={is_final} steps={len(plan['d'])}")
 
@@ -473,12 +511,147 @@ class LineAGVHandler:
                 except Exception as e:
                     print(f"[LINE_AGV] on_battery_event callback error: {e}")
 
-        # Bước 3: thông báo task_queue hoàn thành
+        # Bước 3: xử lý lifecycle events (đến điểm LẤY/GIAO hàng — chờ người xác nhận)
+        if event_name == "arrived_wait_sys":
+            # Phân biệt rolling-window stop (cửa sổ trung gian, is_complete=False)
+            # vs transit completion (đoạn lùi tạm → trigger queue ngay)
+            # vs genuine delivery/pickup wait (cửa sổ cuối, is_complete=True)
+            route = self._routes.get(agv_id)
+            if route and not route.is_complete and state.current_tag is not None:
+                # Rolling-window stop: gửi cửa sổ tiếp theo ngay lập tức
+                tag_str = str(state.current_tag)
+                try:
+                    current_idx = route.full_path.index(tag_str)
+                except ValueError:
+                    current_idx = route.window_end
+                new_start = current_idx
+                new_end   = min(current_idx + LOOKAHEAD, len(route.full_path) - 1)
+                is_final  = (new_end == len(route.full_path) - 1)
+                print(f"[LINE_AGV] {agv_id}: rolling stop tại {tag_str} "
+                      f"→ gửi cửa sổ tiếp [{new_start}→{new_end}] final={is_final}")
+                self._send_window(agv_id, route, new_start, new_end, is_final)
+                return
+            # Transit completion: đoạn lùi tạm kết thúc → trigger queue ngay
+            if route and route.is_complete and route.task_type == "transit":
+                transit_dir = route.direction  # lưu hướng để plan tiếp theo dùng
+                state.last_transit_direction = transit_dir
+                self._routes.pop(agv_id, None)
+                print(f"[LINE_AGV] {agv_id}: transit segment done dir={transit_dir} → dispatch next from queue")
+                try:
+                    from task_queue import agv_task_queue as _atq
+                    _atq.on_agv_completed(agv_id)
+                except Exception as _qe:
+                    print(f"[LINE_AGV] {agv_id}: queue trigger error: {_qe}")
+                return
+            # Charge arrival: route return_charge → server tự xác nhận, không cần người bấm
+            if route and route.is_complete and route.task_type == "return_charge":
+                # Trạm sạc luôn dùng approach_dir=bwd → AGV luôn lùi vào trạm
+                # Buộc last_transit_direction="bwd" để dispatch tiếp theo dùng direction="fwd"
+                state.last_transit_direction = "bwd"
+                state.task_lifecycle = "charging"
+                print(f"[LINE_AGV] {agv_id}: lifecycle → charging (auto-confirm, force last_dir=bwd)")
+                self._routes.pop(agv_id, None)
+                if self.on_state_changed:
+                    try:
+                        self.on_state_changed(state)
+                    except Exception as e:
+                        print(f"[LINE_AGV] on_state_changed error: {e}")
+                try:
+                    from task_queue import agv_task_queue as _atq
+                    _atq.on_agv_completed(agv_id, notes="charge_arrived")
+                except Exception as _qe:
+                    print(f"[LINE_AGV] {agv_id}: queue error: {_qe}")
+                return
+            # Genuine wait: đến điểm dừng thực sự → chờ xác nhận.
+            # Có 2 cách xác nhận:
+            #   (1) HMI: người bấm nút → AGV gửi event 'confirm'
+            #   (2) System API: POST /api/execute/lifecycle-ack/{agv_id}
+            # Nếu plan lùi (direction='bwd'), lưu lại để dispatch tiếp theo biết mũi xe ngược
+            if route and route.direction == 'bwd':
+                state.last_transit_direction = 'bwd'
+            state.task_lifecycle = "picking"
+            print(f"[LINE_AGV] {agv_id}: lifecycle → picking "
+                  f"(node={state.current_tag} — chờ xác nhận HMI hoặc system API)")
+            if self.on_state_changed:
+                try:
+                    self.on_state_changed(state)
+                except Exception as e:
+                    print(f"[LINE_AGV] on_state_changed error: {e}")
+            return
+        if event_name == "arrived_wait_charge":
+            # Firmware gửi event riêng khi đến WAIT_CHARGE → server tự xác nhận
+            # Trạm sạc luôn approach_dir=bwd → buộc last_transit_direction="bwd"
+            state.last_transit_direction = "bwd"
+            state.task_lifecycle = "charging"
+            print(f"[LINE_AGV] {agv_id}: lifecycle → charging (auto-confirm, force last_dir=bwd)")
+            self._routes.pop(agv_id, None)
+            if self.on_state_changed:
+                try:
+                    self.on_state_changed(state)
+                except Exception as e:
+                    print(f"[LINE_AGV] on_state_changed error: {e}")
+            try:
+                from task_queue import agv_task_queue as _atq
+                _atq.on_agv_completed(agv_id, notes="charge_arrived")
+            except Exception as _qe:
+                print(f"[LINE_AGV] {agv_id}: queue error: {_qe}")
+            return
+        if event_name == "arrived_wait_user":
+            _route_wu = self._routes.get(agv_id)
+            if _route_wu and _route_wu.direction == 'bwd':
+                state.last_transit_direction = 'bwd'
+            state.task_lifecycle = "delivering"
+            print(f"[LINE_AGV] {agv_id}: lifecycle → delivering (chờ xác nhận giao hàng)")
+            if self.on_state_changed:
+                try:
+                    self.on_state_changed(state)
+                except Exception as e:
+                    print(f"[LINE_AGV] on_state_changed error: {e}")
+            return
+
+        # Bước 3b: off_route — xe đến sai node, cần re-plan
+        if event_name == "off_route":
+            route = self._routes.pop(agv_id, None)
+            _release_all_line_edges(agv_id)
+            state.current_edge_pair = None
+            dest_node  = route.full_path[-1] if (route and route.full_path) else None
+            task_type  = route.task_type     if route else "delivery"
+            cur_tag    = state.current_tag
+            print(f"[LINE_AGV] {agv_id}: off_route tại tag={cur_tag} "
+                  f"dest={dest_node} task={task_type}")
+            if dest_node and cur_tag is not None:
+                try:
+                    from task_queue import agv_task_queue as _atq
+                    from task_queue import CMD_GO_TO as _CGT, CMD_GO_CHARGE as _CGC
+                    cmd = _CGC if task_type in ("return_charge",) else _CGT
+                    _atq.insert_next(agv_id, cmd, dest_node=str(dest_node))
+                    print(f"[LINE_AGV] {agv_id}: off_route → re-dispatch cmd={cmd} dest={dest_node}")
+                except Exception as e:
+                    print(f"[LINE_AGV] {agv_id}: off_route re-dispatch error: {e}")
+            return
+
+        # Bước 4: thông báo task_queue hoàn thành
         # "continue" = AGV đến đích, chờ hệ thống (tương đương "confirm")
         # "confirm"  = người dùng bấm nút HMI xác nhận
         # "return"   = xe đã về vị trí ban đầu
         _COMPLETE_EVENTS = ("confirm", "continue", "return", "battery_need_charge")
         if event_name in _COMPLETE_EVENTS:
+            _completed_route = self._routes.get(agv_id)   # lấy trước khi pop
+            # Nếu đang chờ lifecycle (arrived_wait_sys/user), HMI xác nhận → tự sync
+            if state.task_lifecycle:
+                print(f"[LINE_AGV] {agv_id}: lifecycle '{state.task_lifecycle}' "
+                      f"auto-cleared by HMI event='{event_name}'")
+                state.task_lifecycle = None
+                if self.on_state_changed:
+                    try:
+                        self.on_state_changed(state)
+                    except Exception as e:
+                        print(f"[LINE_AGV] on_state_changed error: {e}")
+            # Xóa route để dừng animated arrow
+            self._routes.pop(agv_id, None)
+            # Lưu hướng vừa hoàn thành để dispatch tiếp theo dùng
+            if _completed_route and _completed_route.direction == 'bwd':
+                state.last_transit_direction = 'bwd'
             try:
                 from task_queue import agv_task_queue
                 agv_task_queue.on_agv_completed(agv_id, notes=f"event:{event_name}")
