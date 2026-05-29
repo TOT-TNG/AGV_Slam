@@ -20,8 +20,9 @@
   .agv-card.selected{border-color:#adc6ff;background:rgba(77,142,255,.12);box-shadow:0 0 0 1px rgba(173,198,255,.3)}
   .agv-card.offline{opacity:.45;cursor:not-allowed}
   /* Select */
-  select{background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);border-radius:8px;color:#dae2fd;padding:7px 10px;font-size:12px;appearance:none;cursor:pointer;outline:none;width:100%}
-  select:focus{border-color:#adc6ff;box-shadow:0 0 0 2px rgba(173,198,255,.15)}
+  select{background:#ffffff;border:1px solid #c0c8d8;border-radius:8px;color:#111111;padding:7px 10px;font-size:12px;appearance:none;cursor:pointer;outline:none;width:100%}
+  select:focus{border-color:#4d8eff;box-shadow:0 0 0 2px rgba(77,142,255,.15)}
+  select option{background:#ffffff;color:#111111}
   /* Map */
   #map-svg{display:block;cursor:grab;user-select:none}
   #map-svg.panning{cursor:grabbing}
@@ -110,6 +111,21 @@
         <g id="world-g"></g>
         <g id="anim-g" pointer-events="none"></g>
       </svg>
+      <!-- Fullscreen AGV status overlay -->
+      <div id="fs-agv-panel" style="display:none;position:absolute;bottom:16px;left:16px;z-index:20;min-width:210px;max-width:290px;pointer-events:none">
+        <div style="background:rgba(5,13,26,.88);border:1px solid rgba(255,255,255,.1);border-radius:6px;overflow:hidden;backdrop-filter:blur(8px)">
+          <div style="padding:6px 10px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:6px">
+            <span class="material-symbols-outlined" style="font-size:13px;color:#8c909f">conveyor_belt</span>
+            <span style="font-size:10px;font-weight:600;letter-spacing:.06em;color:#8c909f;text-transform:uppercase">Fleet</span>
+            <span id="fs-online-badge" style="margin-left:auto;font-size:9px;font-family:'JetBrains Mono',monospace;color:#22c55e"></span>
+          </div>
+          <div id="fs-agv-list"></div>
+        </div>
+      </div>
+
+      <button id="map-fs-btn" title="Toàn màn hình" onclick="toggleMapFullscreen()" style="position:absolute;top:8px;right:8px;z-index:10;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:rgba(5,13,26,.75);border:1px solid rgba(255,255,255,.12);border-radius:4px;cursor:pointer;color:#b0b8c8;transition:background .15s,color .15s" onmouseenter="this.style.background='rgba(40,60,100,.9)';this.style.color='#e1e2e7'" onmouseleave="this.style.background='rgba(5,13,26,.75)';this.style.color='#b0b8c8'">
+        <span class="material-symbols-outlined" id="map-fs-icon" style="font-size:18px;pointer-events:none">fullscreen</span>
+      </button>
       <div id="map-empty" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
         <span class="material-symbols-outlined" style="font-size:52px;color:#adc6ff;opacity:.1">warehouse</span>
         <p style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;margin-top:6px;letter-spacing:.08em;text-transform:uppercase;opacity:.35">Chọn bản đồ để xem</p>
@@ -373,7 +389,7 @@
 
 <script>
 // ── Config ─────────────────────────────────────────────────────────────────
-const API  = 'http://' + (window.location.hostname || '192.168.0.58') + ':8000';
+const API  = 'http://' + (window.location.hostname || '192.168.0.56') + ':8000';
 const DASH = '';   // same origin as iframe
 
 // AGV type → icon path (served by Dash /assets/)
@@ -443,7 +459,7 @@ async function loadAgvs(){
     updateManualBar();
     updateLifecycleBar();
     updateNotifRow();
-    renderAgvs(); updateStartBtn();
+    renderAgvs(); updateStartBtn(); updateFsAgvPanel();
   }catch(e){
     console.error('[AGV]',e);
     document.getElementById('agv-list').innerHTML=
@@ -770,7 +786,7 @@ function renderStepSelectors(){
       <span style="width:15px;height:15px;border-radius:50%;background:rgba(${c.r},${done?.3:.1});border:1px solid rgba(${c.r},${done?.8:.3});font-size:9px;display:flex;align-items:center;justify-content:center;color:${c.h};font-weight:700;flex-shrink:0">${s.idx+1}</span>
       <div style="position:relative;flex:1">
         <select onchange="onStepSelect(${s.idx},this.value)" onclick="event.stopPropagation()"
-          style="background:rgba(34,42,61,.8);border:1px solid ${isActive?`rgba(${c.r},.5)`:'rgba(66,71,84,.4)'};border-radius:6px;color:${done?'#dae2fd':'#8c909f'};padding:4px 22px 4px 7px;font-size:11px;appearance:none;cursor:pointer;outline:none;width:100%">
+          style="background:#ffffff;border:1px solid #c0c8d8;border-radius:6px;color:#111111;padding:4px 22px 4px 7px;font-size:11px;appearance:none;cursor:pointer;outline:none;width:100%">
           <option value="">— bấm map hoặc chọn —</option>
           ${opts}
         </select>
@@ -826,7 +842,7 @@ async function loadAgvRoutes(){
     if(!r.ok) return;
     const d=await r.json();
     agvRoutes=d.routes||{};
-    renderMap();
+    renderMap(); updateFsAgvPanel();
   }catch(e){ console.warn('[AGV-ROUTES]',e); }
 }
 
@@ -991,6 +1007,32 @@ function _computeHeading(rt,nm){
   return Math.atan2(dx,-dy)*180/Math.PI;
 }
 
+// ── Edge helpers: thick gray + filled triangle direction arrows ───────────
+function _bzPt(p0,c1,c2,p1,t){
+  const mt=1-t;
+  return {x:mt*mt*mt*p0.x+3*mt*mt*t*c1.x+3*mt*t*t*c2.x+t*t*t*p1.x,
+          y:mt*mt*mt*p0.y+3*mt*mt*t*c1.y+3*mt*t*t*c2.y+t*t*t*p1.y};
+}
+function _drawArrow(g,cx,cy,dx,dy){
+  const len=Math.sqrt(dx*dx+dy*dy);
+  if(len<0.001) return;
+  const ux=dx/len,uy=dy/len,px=-uy,py=ux;
+  const al=3/vp.zoom,aw=4/vp.zoom;
+  const arr=document.createElementNS(NS,'polygon');
+  arr.setAttribute('points',`${cx+ux*al},${cy+uy*al} ${cx-ux*al+px*aw},${cy-uy*al+py*aw} ${cx-ux*al-px*aw},${cy-uy*al-py*aw}`);
+  arr.setAttribute('fill','#e1e2e7'); arr.setAttribute('pointer-events','none');
+  g.appendChild(arr);
+}
+function _edgeArrows(g,x1,y1,x2,y2){
+  const dx=x2-x1,dy=y2-y1;
+  const len=Math.sqrt(dx*dx+dy*dy);
+  const spacing=50/vp.zoom;
+  if(len<spacing*0.6) return;
+  const ux=dx/len,uy=dy/len;
+  let d=spacing*0.5;
+  while(d<len-spacing*0.2){_drawArrow(g,x1+ux*d,y1+uy*d,ux,uy);d+=spacing;}
+}
+
 function renderMap(){
   const g=document.getElementById('world-g');
   g.innerHTML='';
@@ -1012,31 +1054,21 @@ function renderMap(){
   const _nm={};
   mapNodes.forEach(n=>_nm[String(n.name_id)]=n);
 
-  // ── Roads (với lớp glow phía sau) ────────────────────────────────────────
+  // ── Roads ────────────────────────────────────────────────────────────────
   roads.forEach(r=>{
     let sx=r.point_start_x,sy=r.point_start_y,ex=r.point_end_x,ey=r.point_end_y;
     if(sx==null||sy==null){const n=_nm[String(r.id_source)];if(n){sx=+n.x;sy=+n.y;}}
     if(ex==null||ey==null){const n=_nm[String(r.id_dest)];if(n){ex=+n.x;ey=+n.y;}}
     const s=worldToPixel(sx||0,sy||0), e=worldToPixel(ex||0,ey||0);
-    // Glow layer
-    const glow=document.createElementNS(NS,'line');
-    glow.setAttribute('x1',s.x); glow.setAttribute('y1',s.y);
-    glow.setAttribute('x2',e.x); glow.setAttribute('y2',e.y);
-    glow.setAttribute('stroke','rgba(255,220,50,.4)');
-    glow.setAttribute('stroke-width',String(8/vp.zoom));
-    glow.setAttribute('stroke-linecap','round');
-    glow.setAttribute('pointer-events','none');
-    g.appendChild(glow);
-    // Main line
     const el=document.createElementNS(NS,'line');
     el.setAttribute('x1',s.x); el.setAttribute('y1',s.y);
     el.setAttribute('x2',e.x); el.setAttribute('y2',e.y);
-    el.setAttribute('stroke','#ffd700');
-    el.setAttribute('stroke-opacity','1');
-    el.setAttribute('stroke-width',String(2.5/vp.zoom));
-    el.setAttribute('stroke-linecap','round');
+    el.setAttribute('stroke','#e1e2e7');
+    el.setAttribute('stroke-width',String(12/vp.zoom));
+    el.setAttribute('stroke-linecap','square');
     el.setAttribute('pointer-events','none');
     g.appendChild(el);
+    _edgeArrows(g,s.x,s.y,e.x,e.y);
   });
 
   beziers.forEach(b=>{
@@ -1048,19 +1080,18 @@ function renderMap(){
     const c2=worldToPixel(b.curve_point_end_x||0,b.curve_point_end_y||0);
     const p1=worldToPixel(bex||0,bey||0);
     const d=`M ${p0.x} ${p0.y} C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${p1.x} ${p1.y}`;
-    // Glow
-    const glowP=document.createElementNS(NS,'path');
-    glowP.setAttribute('d',d); glowP.setAttribute('stroke','rgba(255,220,50,.35)');
-    glowP.setAttribute('stroke-width',String(7/vp.zoom)); glowP.setAttribute('fill','none');
-    glowP.setAttribute('pointer-events','none'); g.appendChild(glowP);
-    // Main
     const el=document.createElementNS(NS,'path');
-    el.setAttribute('d',d); el.setAttribute('stroke','#ffd700');
-    el.setAttribute('stroke-opacity','0.95');
-    el.setAttribute('stroke-width',String(2/vp.zoom)); el.setAttribute('fill','none');
-    el.setAttribute('stroke-dasharray',`${6/vp.zoom} ${3/vp.zoom}`);
-    el.setAttribute('stroke-linecap','round'); el.setAttribute('pointer-events','none');
+    el.setAttribute('d',d); el.setAttribute('stroke','#e1e2e7');
+    el.setAttribute('stroke-width',String(12/vp.zoom)); el.setAttribute('fill','none');
+    el.setAttribute('stroke-linecap','square'); el.setAttribute('pointer-events','none');
     g.appendChild(el);
+    // Arrows at t=0.3 and 0.65
+    [0.3,0.65].forEach(t=>{
+      const pa=_bzPt(p0,c1,c2,p1,Math.max(0,t-0.07));
+      const pb=_bzPt(p0,c1,c2,p1,Math.min(1,t+0.07));
+      const pc=_bzPt(p0,c1,c2,p1,t);
+      _drawArrow(g,pc.x,pc.y,pb.x-pa.x,pb.y-pa.y);
+    });
   });
 
   // ── AGV Routes (animated dashed path + arrow markers) ─────────────────────
@@ -1094,7 +1125,7 @@ function renderMap(){
   });
 
   // ── Nodes ─────────────────────────────────────────────────────────────────
-  const R=Math.max(2,Math.min(8,5/vp.zoom));
+  const R=Math.max(6,Math.min(18,14/vp.zoom));
   const nodeStepMap={};
   for(const [si,nd] of Object.entries(selNodes)){
     if(nd) nodeStepMap[String(nd.name_id)]=parseInt(si);
@@ -1107,68 +1138,66 @@ function renderMap(){
     const isActive=isSel&&stepIdx===activeStepIdx;
     const isStart=selStartNode&&String(selStartNode.name_id)===String(n.name_id);
     const stepCol=isSel?sc(stepIdx).h:null;
-    const col=isStart?'#ffb700':(stepCol||(NODE_COLORS[n.type]||NODE_COLORS[0]));
+    // Normal nodes: #e1e2e7; selected/start nodes keep their functional color
+    const col=isStart?'#ffb700':(stepCol||'#e1e2e7');
 
-    // Outer glow ring (selected / active)
-    if(isSel||isStart){
-      const outerGlow=document.createElementNS(NS,'circle');
-      outerGlow.setAttribute('cx',x); outerGlow.setAttribute('cy',y);
-      outerGlow.setAttribute('r',R*(isActive?3.2:2.4));
-      outerGlow.setAttribute('fill',col); outerGlow.setAttribute('opacity',isActive?'0.18':'0.1');
-      outerGlow.setAttribute('pointer-events','none');
-      g.appendChild(outerGlow);
-    }
-    // Pulse ring cho bước đang active
+    // Pulse ring for active step
     if(isActive){
       const ring=document.createElementNS(NS,'circle');
       ring.setAttribute('cx',x); ring.setAttribute('cy',y);
-      ring.setAttribute('r',R*2.5);
+      ring.setAttribute('r',R*1.7);
       ring.setAttribute('fill','none');
       ring.setAttribute('stroke',col); ring.setAttribute('stroke-width',String(1.5/vp.zoom));
-      ring.setAttribute('opacity','0.5');
+      ring.setAttribute('opacity','0.55');
       ring.style.animation='agvGlowPulse 1.2s ease-in-out infinite';
       g.appendChild(ring);
     }
     const circle=document.createElementNS(NS,'circle');
     circle.setAttribute('cx',x); circle.setAttribute('cy',y);
-    circle.setAttribute('r',isSel?R*1.9:isStart?R*1.6:R);
-    circle.setAttribute('fill',isSel?col+'cc':isStart?col+'88':col+'88');
-    circle.setAttribute('stroke',isSel||isStart?'#ffffffcc':col+'ee');
-    circle.setAttribute('stroke-width',String((isSel||isStart)?1.8/vp.zoom:1.4/vp.zoom));
+    circle.setAttribute('r',R);
+    circle.setAttribute('fill',col);
+    // White stroke only for selected/start nodes (matches reference "special" node style)
+    if(isSel||isStart){
+      circle.setAttribute('stroke','#ffffff');
+      circle.setAttribute('stroke-width',String(2/vp.zoom));
+    }
 
     const hit=document.createElementNS(NS,'circle');
     hit.setAttribute('cx',x); hit.setAttribute('cy',y);
     hit.setAttribute('r',Math.max(8,10/vp.zoom));
     hit.setAttribute('fill','transparent'); hit.style.cursor='pointer';
     hit.addEventListener('click',e=>{e.stopPropagation();pickNode(n);});
-    hit.addEventListener('mouseenter',()=>{circle.setAttribute('fill',col+'99');circle.setAttribute('r',String(R*1.5));});
-    hit.addEventListener('mouseleave',()=>{if(!isSel&&!isStart){circle.setAttribute('fill',col+'88');circle.setAttribute('r',String(R));}});
+    hit.addEventListener('mouseenter',()=>{circle.setAttribute('opacity','0.75');});
+    hit.addEventListener('mouseleave',()=>{circle.setAttribute('opacity','1');});
 
     const label=document.createElementNS(NS,'text');
-    label.setAttribute('x',x); label.setAttribute('y',String(y-R*2.4));
+    label.setAttribute('x',x); label.setAttribute('y',String(y));
     label.setAttribute('text-anchor','middle');
-    label.setAttribute('font-size',String(Math.max(8,10/vp.zoom)));
-    label.setAttribute('fill',isSel?'#fff':'rgba(220,235,255,1)');
+    label.setAttribute('dominant-baseline','central');
+    label.setAttribute('font-size',String(Math.max(5,9/vp.zoom)));
+    label.setAttribute('fill','#0c0e12');
     label.setAttribute('pointer-events','none');
     label.setAttribute('font-family','JetBrains Mono,monospace');
-    label.setAttribute('font-weight',isSel?'700':'400');
+    label.setAttribute('font-weight','700');
     label.textContent=n.name||n.name_id;
 
     g.appendChild(circle); g.appendChild(hit); g.appendChild(label);
 
     // Badge số bước trên node được chọn
     if(isSel){
-      const badgeR=Math.max(5,7/vp.zoom);
+      const badgeR=Math.max(5,6/vp.zoom);
       const bg=document.createElementNS(NS,'circle');
-      bg.setAttribute('cx',String(x+R*1.2)); bg.setAttribute('cy',String(y-R*1.2));
+      bg.setAttribute('cx',String(x+R*0.85)); bg.setAttribute('cy',String(y-R*0.85));
       bg.setAttribute('r',String(badgeR)); bg.setAttribute('fill',col);
+      bg.setAttribute('stroke','#000'); bg.setAttribute('stroke-width',String(0.8/vp.zoom));
       bg.setAttribute('pointer-events','none');
       g.appendChild(bg);
       const num=document.createElementNS(NS,'text');
-      num.setAttribute('x',String(x+R*1.2)); num.setAttribute('y',String(y-R*1.2+badgeR*0.4));
+      num.setAttribute('x',String(x+R*0.85)); num.setAttribute('y',String(y-R*0.85));
       num.setAttribute('text-anchor','middle');
-      num.setAttribute('font-size',String(Math.max(6,8/vp.zoom)));
-      num.setAttribute('fill','#000'); num.setAttribute('font-weight','700');
+      num.setAttribute('dominant-baseline','central');
+      num.setAttribute('font-size',String(Math.max(5,7/vp.zoom)));
+      num.setAttribute('fill','#0c0e12'); num.setAttribute('font-weight','700');
       num.setAttribute('pointer-events','none'); num.setAttribute('font-family','monospace');
       num.textContent=String(stepIdx+1);
       g.appendChild(num);
@@ -1284,6 +1313,76 @@ function zoomIn(){  vp.zoom*=1.18; applyViewport(); renderMap(); }
 function zoomOut(){ vp.zoom/=1.18; applyViewport(); renderMap(); }
 function fitMap(){  autoFit(); renderMap(); }
 
+function toggleMapFullscreen(){
+  const wrap=document.getElementById('map-wrap');
+  if(!document.fullscreenElement){
+    wrap.requestFullscreen().catch(()=>{});
+  } else {
+    document.exitFullscreen();
+  }
+}
+document.addEventListener('fullscreenchange',()=>{
+  const icon=document.getElementById('map-fs-icon');
+  const panel=document.getElementById('fs-agv-panel');
+  const isFs=!!document.fullscreenElement;
+  if(icon) icon.textContent=isFs?'fullscreen_exit':'fullscreen';
+  if(panel) panel.style.display=isFs?'block':'none';
+  setTimeout(()=>{autoFit();renderMap();},120);
+  if(isFs) updateFsAgvPanel();
+});
+
+function updateFsAgvPanel(){
+  if(!document.fullscreenElement) return;
+  const list=document.getElementById('fs-agv-list');
+  const badge=document.getElementById('fs-online-badge');
+  if(!list) return;
+
+  const onlineCount=agvs.filter(a=>a.connection==='ONLINE').length;
+  if(badge) badge.textContent=`${onlineCount}/${agvs.length} online`;
+
+  if(!agvs.length){
+    list.innerHTML='<div style="padding:10px 12px;font-size:10px;color:#555">Không có AGV</div>';
+    return;
+  }
+
+  list.innerHTML=agvs.map((a,i)=>{
+    const online=a.connection==='ONLINE';
+    const driving=online&&a.is_busy;
+    const col=agvRouteColor(a.agv_id);
+
+    // Trạng thái
+    const dotCol=!online?'#4b5563':driving?'#eab308':'#22c55e';
+    const stText=!online?'OFFLINE':driving?'ĐANG CHẠY':'SẴN SÀNG';
+    const stCol=!online?'#6b7280':driving?'#eab308':'#22c55e';
+
+    // Điểm đến tiếp theo
+    let nextLabel='';
+    const rt=agvRoutes[a.agv_id];
+    if(driving&&rt&&rt.driving){
+      const idx=(rt.current_idx||0)+1;
+      let nextId=null;
+      if(rt.path&&rt.path.length>idx) nextId=rt.path[idx];
+      else if(rt.next_node) nextId=rt.next_node;
+      if(nextId!=null){
+        const nd=mapNodes.find(n=>String(n.name_id)===String(nextId));
+        nextLabel=nd?(nd.name||nd.name_id):String(nextId);
+      }
+    } else if(driving&&a.running_cmd&&a.running_cmd.dest_node){
+      nextLabel=String(a.running_cmd.dest_node);
+    }
+
+    const border=i<agvs.length-1?'border-bottom:1px solid rgba(255,255,255,.05)':'';
+    return `<div style="padding:7px 10px;${border}">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${dotCol}"></span>
+        <span style="font-weight:700;font-size:12px;font-family:'JetBrains Mono',monospace;color:${col}">${a.agv_id}</span>
+        <span style="font-size:9px;font-family:'JetBrains Mono',monospace;color:${stCol};margin-left:2px">${stText}</span>
+      </div>
+      ${nextLabel?`<div style="margin-top:3px;padding-left:12px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#ffb700">→ ${nextLabel}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
 // ── Summary & Start ────────────────────────────────────────────────────────
 function updateSummary(){
   const ae=document.getElementById('sum-agv'), te=document.getElementById('sum-agv-type');
@@ -1361,12 +1460,19 @@ async function doDispatch(){
   let firstQueued=null, sentCount=0, failCount=0;
   const hasMoveStep=wfSteps.some(s=>s.cmd==='go_to');
   const lastStepIsCharge=wfSteps.length>0&&wfSteps[wfSteps.length-1].cmd==='go_charge';
+
+  // Sinh session_id chung cho toàn bộ lượt dispatch này
+  const sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2);
+  const sessionLabel = selWf?.name || 'Lệnh thủ công';
+
   for(let i=0;i<wfSteps.length;i++){
     const s=wfSteps[i];
     const destNode=s.needsDest?String(selNodes[s.idx].name_id):null;
-    // start_node chỉ có ý nghĩa cho bước đầu tiên
     const startNode=(i===0&&selStartNode)?String(selStartNode.name_id):null;
-    const payload={agv_id:selAgv.agv_id, command:s.cmd, dest_node:destNode, start_node:startNode};
+    const payload={
+      agv_id:selAgv.agv_id, command:s.cmd, dest_node:destNode, start_node:startNode,
+      session_id:sessionId, session_label:sessionLabel,
+    };
     try{
       const r=await fetch(`${API}/api/execute/dispatch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const d=await r.json();
@@ -1379,7 +1485,7 @@ async function doDispatch(){
   if(sentCount>0 && hasMoveStep && !lastStepIsCharge){
     try{
       const r=await fetch(`${API}/api/execute/dispatch`,{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({agv_id:selAgv.agv_id,command:'go_charge'})});
+        body:JSON.stringify({agv_id:selAgv.agv_id,command:'go_charge',session_id:sessionId,session_label:sessionLabel})});
       if(r.ok){ sentCount++; const d=await r.json(); if(d.status==='queued'&&!firstQueued) firstQueued=d; }
     }catch(e){ console.warn('[AUTO_CHARGE]',e); }
   }

@@ -1,4 +1,5 @@
 ﻿# main.py - PHIÊN BẢN HOÀN CHỈNH 2025 - REAL-TIME ĐA CLIENT + BROADCAST MỌI SỰ KIỆN
+import log_buffer   # phải import đầu tiên để hook builtins.print trước mọi module khác
 from fastapi import FastAPI, HTTPException, APIRouter, UploadFile, File, Form, Request, WebSocket
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse, RedirectResponse, JSONResponse
@@ -622,6 +623,7 @@ async def monitor_offline(stop_event: asyncio.Event):
 
                 if offline and agv_id not in alerted:
                     alerted.add(agv_id)
+                    agv_manager.set_connection(agv_id, "OFFLINE")
                     asyncio.create_task(broadcast_update({
                         "type": "assistant_alert",
                         "agv_id": agv_id,
@@ -754,6 +756,14 @@ async def lifespan(app: FastAPI):
                     )
                 """)
                 print("[DB] Table agv_task_executions ready")
+                # Cột session để nhóm các lệnh theo 1 lượt workflow
+                await _conn.execute(
+                    "ALTER TABLE agv_task_executions ADD COLUMN IF NOT EXISTS session_id VARCHAR(40)"
+                )
+                await _conn.execute(
+                    "ALTER TABLE agv_task_executions ADD COLUMN IF NOT EXISTS session_label VARCHAR(200)"
+                )
+                print("[DB] Columns agv_task_executions.session_id/session_label ensured")
                 # Cột agv_devices
                 await _conn.execute(
                     "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS map_id TEXT"
@@ -978,11 +988,18 @@ async def websocket_endpoint(websocket: WebSocket):
 # ==========================
 # PHỤC VỤ FILE TĨNH + AGV MAP UI
 # ==========================
-STATIC_DIR = BASE_DIR / "static"
-MAP_DIR = BASE_DIR.parent / "maps"
+STATIC_DIR  = BASE_DIR / "static"
+MAP_DIR     = BASE_DIR.parent / "maps"
+WEB_UI_DIR  = BASE_DIR.parent / "Web_UI" / "assets"
 MAP_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static")
-app.mount("/maps", StaticFiles(directory=MAP_DIR), name="maps")
+app.mount("/static",  StaticFiles(directory=STATIC_DIR,  html=True), name="static")
+app.mount("/maps",    StaticFiles(directory=MAP_DIR),                 name="maps")
+app.mount("/ui",      StaticFiles(directory=WEB_UI_DIR,  html=True), name="web_ui")
+
+@app.get("/journal")
+async def serve_journal():
+    """Trang Nhật ký hệ thống."""
+    return FileResponse(WEB_UI_DIR / "journal.html")
 
 @app.get("/api/map/slam-image/{map_id}")
 async def get_slam_image_flipped(map_id: str):
@@ -1029,7 +1046,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.0.58:8050/home")
+    return RedirectResponse(url="http://192.168.0.56:8050/home")
 
 # ==========================
 # DEBUG ROUTES
@@ -2366,6 +2383,31 @@ async def get_agv_registry():
 # EXECUTE TASK — AGV điều phối tức thì / hàng chờ
 # ════════════════════════════════════════════════════════════════════════════
 
+def _line_agv_occupied_nodes(exclude_agv: str) -> dict[str, str]:
+    """
+    Trả về {node_id: agv_id} — các node đang bị Line AGV khác chiếm giữ hoặc đang heading đến.
+    Dùng để tránh xung đột khi plan path và khi check destination.
+    """
+    occupied: dict[str, str] = {}
+    try:
+        from line_agv_handler import line_agv_handler as _lah
+        for _oid, _st in _lah.state_store._states.items():
+            if _oid == exclude_agv or _st is None:
+                continue
+            # node đang đứng
+            _cur = str(_st.current_tag or "").strip()
+            if _cur:
+                occupied[_cur] = _oid
+            # node đích (cuối route)
+            if _st.route and _st.route.full_path:
+                _dest = str(_st.route.full_path[-1]).strip()
+                if _dest and _dest != _cur:
+                    occupied.setdefault(_dest, _oid)
+    except Exception:
+        pass
+    return occupied
+
+
 def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) -> bool:
     """Tính đường + gửi order (LINE hoặc VDA5050) từ vị trí hiện tại đến dest_node."""
     from mqtt_client import (
@@ -2394,6 +2436,16 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
         )
     if str(current_node) == str(dest_node):
         raise ValueError(f"{agv_id}: đã ở tại {dest_node}")
+
+    # ── Kiểm tra destination node đang bị AGV khác chiếm ─────────────────────
+    if agv_registry.is_line(agv_id):
+        _occ = _line_agv_occupied_nodes(exclude_agv=agv_id)
+        _claimer = _occ.get(str(dest_node).strip())
+        if _claimer:
+            raise ValueError(
+                f"{agv_id}: node đích {dest_node} đang bị {_claimer} chiếm hoặc heading đến — "
+                f"chờ {_claimer} rời khỏi node trước"
+            )
 
     # Xóa map cache để đảm bảo node_actions (arrival_action) luôn được đọc mới từ DB
     map_manager.current_map_id = None
@@ -2515,9 +2567,45 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
             _rt.is_complete = True
         print(f"[DISPATCH] {agv_id}: node_actions keys={list(node_actions.keys())[:10]}")
     else:
-        from mqtt_client import build_order_with_path, send_generated_order
-        order = build_order_with_path(agv_id, route_nodes, route_edges, end_action_type=None)
-        send_generated_order(agv_id, order)
+        # ── VDA5050: ưu tiên traffic-engine-aware planning ─────────────────────
+        # Dùng blocked_edges để tránh đường đã bị xe khác đặt trước (proactive).
+        # Nếu thất bại → fallback về basic Dijkstra (đã tính ở trên).
+        _te_success = False
+        try:
+            info_map = get_agv_runtime_info(agv_id)
+            _raw_map = info_map.get("raw_map") or info_map.get("resolved_map_id") or ""
+            _te_map_id = ensure_traffic_topology_from_loaded_map(str(_raw_map)) if _raw_map else None
+            if _raw_map and _te_map_id and traffic_engine.has_map(_te_map_id):
+                _traffic_map_id = _te_map_id
+                if True:
+                    _blocked = traffic_engine.get_reserved_edges(
+                        _traffic_map_id, exclude_agv=agv_id
+                    )
+                    _plan_result = traffic_engine.plan_route(
+                        map_id=_traffic_map_id,
+                        agv_id=agv_id,
+                        start_node=str(current_node),
+                        goal_node=str(dest_node),
+                        blocked_edges=_blocked,
+                        reason="DISPATCH_GO_TO",
+                    )
+                    if _plan_result.success and _plan_result.route:
+                        traffic_engine.activate_route(agv_id, _traffic_map_id, _plan_result.route)
+                        agv_state_data = agv_manager.get_agv(agv_id) or {}
+                        te_order, te_path = build_order_for_traffic_route(
+                            agv_id, _plan_result.route, agv_state_data
+                        )
+                        from mqtt_client import send_generated_order
+                        send_generated_order(agv_id, te_order)
+                        print(f"[DISPATCH] {agv_id}: traffic-aware route → {te_path}")
+                        _te_success = True
+        except Exception as _te_err:
+            print(f"[DISPATCH] {agv_id}: traffic-aware planning failed ({_te_err}) — fallback Dijkstra")
+
+        if not _te_success:
+            from mqtt_client import build_order_with_path, send_generated_order
+            order = build_order_with_path(agv_id, route_nodes, route_edges, end_action_type=None)
+            send_generated_order(agv_id, order)
     return True
 
 
@@ -2612,7 +2700,7 @@ async def execute_agv_list():
                 "battery_blocking": False,
                 "driving":          bool(st.get("driving")),
                 "paused":           bool(st.get("paused")),
-                "connection":       "ONLINE" if st else "OFFLINE",
+                "connection":       st.get("connection", "ONLINE") if st else "OFFLINE",
                 "operating_mode":   st.get("operatingMode", "MANUAL"),
                 "is_busy":          agv_task_queue.is_busy(agv_id),
                 "queue_size":       agv_task_queue.queue_size(agv_id),
@@ -2805,10 +2893,12 @@ async def execute_agv_routes(map_id: str):
 
 
 class ExecuteDispatchRequest(BaseModel):
-    agv_id:     str
-    command:    str             # go_to | go_charge | go_wait | stop | resume
-    dest_node:  str | None = None   # bắt buộc khi command=go_to
-    start_node: str | None = None   # override vị trí xuất phát (khi AGV chưa tự báo vị trí)
+    agv_id:        str
+    command:       str              # go_to | go_charge | go_wait | stop | resume
+    dest_node:     str | None = None    # bắt buộc khi command=go_to
+    start_node:    str | None = None    # override vị trí xuất phát
+    session_id:    str | None = None    # nhóm các bước của cùng 1 lượt workflow
+    session_label: str | None = None    # tên workflow / nhãn hiển thị
 
 
 @app.post("/api/execute/dispatch")
@@ -2851,6 +2941,8 @@ async def execute_dispatch(req: ExecuteDispatchRequest):
         command,
         req.dest_node,
         req.start_node,
+        req.session_id,
+        req.session_label,
     )
 
     from task_queue import STATUS_FAILED, STATUS_QUEUED
@@ -2991,6 +3083,33 @@ async def execute_history(agv_id: str | None = None, limit: int = 50):
     """Lịch sử lệnh đã thực hiện từ DB."""
     from task_queue import agv_task_queue
     return {"history": agv_task_queue.get_history(agv_id, limit)}
+
+
+@app.get("/api/journal/history")
+async def journal_history(
+    agv_id: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+):
+    """Lịch sử lệnh cho trang Nhật ký — hỗ trợ filter theo AGV và trạng thái."""
+    from task_queue import agv_task_queue
+    rows = agv_task_queue.get_history(agv_id, limit)
+    if status:
+        rows = [r for r in rows if r.get("status") == status]
+    return {"history": rows, "total": len(rows)}
+
+
+@app.get("/api/journal/missions")
+async def journal_missions(agv_id: str | None = None, limit: int = 200):
+    """Lịch sử theo mission/workflow — mỗi lượt giao việc 1 dòng, gom tất cả điểm đến."""
+    from task_queue import agv_task_queue
+    return {"missions": agv_task_queue.get_mission_history(agv_id, limit)}
+
+
+@app.get("/api/journal/logs")
+async def journal_logs(limit: int = 500):
+    """Trả về log server gần nhất (in-memory buffer)."""
+    return {"logs": log_buffer.get_logs(limit)}
 
 
 @app.get("/api/execute/queue-status")

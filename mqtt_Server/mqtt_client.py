@@ -53,7 +53,7 @@ def _save_mqtt_mode(mode: str) -> None:
 def _resolve_broker_port(mode: str) -> tuple[str, int]:
     if mode == "cloud":
         return _CLOUD_BROKER, _CLOUD_PORT
-    return os.getenv("MQTT_BROKER", "192.168.0.58").strip(), int(os.getenv("MQTT_PORT", "1883"))
+    return os.getenv("MQTT_BROKER", "192.168.0.56").strip(), int(os.getenv("MQTT_PORT", "1883"))
 
 def _configure_client_for_mode(c, mode: str) -> None:
     """Cài TLS + auth cho client theo mode trước khi connect."""
@@ -1187,33 +1187,43 @@ def resolve_special_target_node(agv_id: str, target_type: str) -> dict:
     _TYPE_INT = {"charge": 2, "wait": 5}
     type_int = _TYPE_INT.get(target_type)
 
-    # Ưu tiên 1: tìm theo locationType JSONB + type integer (cấu hình trong map editor)
-    node_info = None
+    # ── Bước 1: tìm TẤT CẢ trạm phù hợp ──────────────────────────────────────
+    all_stations: list[dict] = []
     if type_int is not None:
-        node_info = find_node_by_type_via_pool(resolved_map_id, type_int, line_agv=_is_line)
-        if node_info and node_info.get("node_id"):
-            print(f"[SPECIAL] Tìm thấy node '{target_type}' qua locationType/type={type_int}: "
-                  f"node_id={node_info['node_id']} name={node_info.get('name')}")
+        all_stations = find_all_nodes_by_type_via_pool(resolved_map_id, type_int, line_agv=_is_line)
 
-    # Fallback 2: tìm theo tên (legacy)
-    if not node_info or not node_info.get("node_id"):
-        node_info = find_named_node_with_action_via_pool(resolved_map_id, candidates, line_agv=_is_line)
+    # Fallback tên nếu không có node theo type
+    if not all_stations:
+        single = find_named_node_with_action_via_pool(resolved_map_id, candidates, line_agv=_is_line)
+        if single and single.get("node_id"):
+            all_stations = [single]
 
-    # Fallback 3: tìm theo arrival_action JSONB
-    if not node_info or not node_info.get("node_id"):
+    # Fallback arrival_action JSONB
+    if not all_stations:
         fallback_action = {"charge": "wait_charge", "wait": "wait_sys"}.get(target_type)
         if fallback_action:
-            node_info = find_node_by_arrival_action_via_pool(
+            single = find_node_by_arrival_action_via_pool(
                 resolved_map_id, fallback_action, line_agv=_is_line
             )
-            if node_info and node_info.get("node_id"):
-                print(f"[SPECIAL] Tìm thấy node '{target_type}' qua arrival_action JSONB: "
-                      f"node_id={node_info['node_id']} name={node_info.get('name')}")
+            if single and single.get("node_id"):
+                all_stations = [single]
 
-    if not node_info or not node_info.get("node_id"):
+    if not all_stations:
         raise ValueError(
             f"Không tìm thấy node {target_type} trong map {resolved_map_id} | candidates={candidates}"
         )
+
+    # ── Bước 2: chọn trạm ít bị "claim" nhất ─────────────────────────────────
+    node_info = _pick_least_claimed_station(all_stations, agv_id, resolved_map_id)
+    if not node_info:
+        node_info = all_stations[0]
+
+    # ── Đặt chỗ ngay — trước khi route được set (tránh race condition) ────────
+    if len(all_stations) > 1:
+        reserve_station(node_info["node_id"], agv_id)
+
+    print(f"[SPECIAL] {agv_id}: '{target_type}' → node={node_info['node_id']} "
+          f"name={node_info.get('name')} (từ {len(all_stations)} trạm)")
 
     return {
         "node_id": str(node_info["node_id"]).strip(),
@@ -1535,6 +1545,168 @@ def find_node_by_type_via_pool(
         return None
 
 
+async def find_all_nodes_by_type_async(
+    pool,
+    map_id: str,
+    node_type: int,
+    line_agv: bool = False,
+) -> list[dict]:
+    """Trả về TẤT CẢ nodes có locationType/type khớp (dùng để chọn trạm tốt nhất)."""
+    _LOCATION_TYPES: dict[int, list[str]] = {
+        2: ["CHARGER"],
+        5: ["BUFFER", "WAIT", "PARKING", "HOME"],
+        6: ["PARKING", "BUFFER"],
+        7: ["WAIT", "BUFFER"],
+    }
+    location_types = _LOCATION_TYPES.get(node_type, [])
+    try:
+        async with pool.acquire() as conn:
+            rows = []
+            if location_types:
+                rows = await conn.fetch(
+                    """
+                    SELECT name_id, name, action
+                    FROM agv_map_points
+                    WHERE CAST(map_id AS TEXT) = $1
+                      AND action->>'locationType' = ANY($2::text[])
+                    ORDER BY name_id
+                    """,
+                    str(map_id), location_types,
+                )
+            if not rows:
+                rows = await conn.fetch(
+                    """
+                    SELECT name_id, name, action
+                    FROM agv_map_points
+                    WHERE CAST(map_id AS TEXT) = $1 AND type = $2
+                    ORDER BY name_id
+                    """,
+                    str(map_id), node_type,
+                )
+            return [
+                {"node_id": str(r["name_id"]).strip(), "name": r.get("name"), "action": r.get("action")}
+                for r in rows if r.get("name_id") is not None
+            ]
+    except Exception as e:
+        print(f"[DB] find_all_nodes_by_type_async lỗi | map_id={map_id} | type={node_type} | {e}")
+        return []
+
+
+def find_all_nodes_by_type_via_pool(
+    map_id: str,
+    node_type: int,
+    line_agv: bool = False,
+) -> list[dict]:
+    """Sync wrapper: tìm tất cả nodes theo type."""
+    try:
+        app  = get_app()
+        loop = getattr(app.state, "loop", None)
+        pool = getattr(app.state, "db_pool", None)
+        if not loop or not loop.is_running() or pool is None:
+            return []
+        fut = asyncio.run_coroutine_threadsafe(
+            find_all_nodes_by_type_async(pool, map_id, node_type, line_agv=line_agv),
+            loop,
+        )
+        return fut.result(timeout=5)
+    except Exception as e:
+        print(f"[DB] find_all_nodes_by_type_via_pool lỗi | {e}")
+        return []
+
+
+# ── Station reservation: đặt chỗ ngay khi pick, trước khi route được set ─────
+# {station_node_id: agv_id} — chỉ ghi khi AGV được phân công về trạm đó
+_station_reservations: dict[str, str] = {}
+_station_reservations_lock = __import__("threading").Lock()
+
+
+def reserve_station(station_node: str, agv_id: str) -> None:
+    """Đặt chỗ trạm ngay khi chọn xong — trước khi route được set."""
+    with _station_reservations_lock:
+        # Xóa reservation cũ của cùng AGV trước (tránh leak khi re-dispatch)
+        for k in list(_station_reservations):
+            if _station_reservations[k] == agv_id:
+                del _station_reservations[k]
+        _station_reservations[station_node] = agv_id
+    print(f"[STATION] Reserved: node={station_node} → {agv_id} | all={dict(_station_reservations)}")
+
+
+def release_station(agv_id: str, reason: str = "") -> None:
+    """Giải phóng reservation khi AGV đến trạm, rời trạm, hoặc lệnh bị hủy."""
+    with _station_reservations_lock:
+        removed = {k: v for k, v in _station_reservations.items() if v == agv_id}
+        for k in removed:
+            del _station_reservations[k]
+    if removed:
+        print(f"[STATION] Released: {agv_id} → {list(removed.keys())} ({reason})")
+
+
+def _pick_least_claimed_station(
+    station_nodes: list[dict],
+    requesting_agv_id: str,
+    map_id: str,
+) -> dict | None:
+    """
+    Trong danh sách station_nodes, chọn trạm bị "claim" ít nhất.
+    Claim = AGV đang đứng tại trạm (weight 2) hoặc đang có route đích đến đó (weight 1).
+    """
+    if not station_nodes:
+        return None
+    if len(station_nodes) == 1:
+        return station_nodes[0]
+
+    node_ids = {n["node_id"]: n for n in station_nodes}
+    claims   = {nid: 0 for nid in node_ids}
+
+    # ── Reservation (đặt chỗ tức thì — weight cao nhất) ──────────────────────
+    with _station_reservations_lock:
+        _res_snapshot = dict(_station_reservations)
+    for _res_node, _res_agv in _res_snapshot.items():
+        if _res_agv != requesting_agv_id and _res_node in claims:
+            claims[_res_node] += 10   # reservation > bất kỳ heuristic nào
+
+    # ── VDA5050: kiểm tra vị trí hiện tại ──────────────────────────────────
+    for agv_id, state in agv_manager.list_agvs().items():
+        if agv_id == requesting_agv_id:
+            continue
+        cur_node = str(state.get("lastNodeId") or "").strip()
+        if cur_node in claims:
+            claims[cur_node] += 2  # đang đứng tại trạm → ưu tiên né
+
+    # ── VDA5050: kiểm tra route đang đi (đích cuối) ─────────────────────────
+    try:
+        from main import traffic_engine as _te
+        for agv_id, route in _te._routes.items():
+            if agv_id == requesting_agv_id or not route or not route.segments:
+                continue
+            goal = str(route.segments[-1].to_node).strip()
+            if goal in claims:
+                claims[goal] += 1
+    except Exception:
+        pass
+
+    # ── Line AGV: kiểm tra vị trí + đích route ──────────────────────────────
+    try:
+        from line_agv_handler import line_agv_handler as _lah
+        for agv_id, st in _lah.state_store._states.items():
+            if agv_id == requesting_agv_id or st is None:
+                continue
+            cur_tag = str(st.current_tag or "").strip()
+            if cur_tag in claims:
+                claims[cur_tag] += 2
+            # đích của route hiện tại
+            if st.route and st.route.full_path:
+                dest_tag = str(st.route.full_path[-1]).strip()
+                if dest_tag in claims:
+                    claims[dest_tag] += 1
+    except Exception:
+        pass
+
+    best_id = min(claims, key=lambda n: claims[n])
+    print(f"[STATION] {requesting_agv_id}: chọn trạm={best_id} | claims={claims}")
+    return node_ids[best_id]
+
+
 async def find_node_by_arrival_action_async(
     pool,
     map_id: str,
@@ -1770,10 +1942,42 @@ async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: s
     from agv_registry import agv_registry as _reg
     _is_line = _reg.is_line(agv_id)
 
-    # Tính đường đi ngắn nhất (Line AGV: direction-aware)
+    # Tính đường đi ngắn nhất (Line AGV: direction-aware, tránh occupied nodes)
     if _is_line:
         _prev_tag = str(_line_st.prev_tag) if (_line_st and _line_st.prev_tag) else None
-        node_path = map_manager.line_directional_path(start_node, end_node, _prev_tag)
+
+        # Lấy danh sách nodes đang bị Line AGV khác chiếm (trừ start và end)
+        _occupied: set[str] = set()
+        try:
+            from line_agv_handler import line_agv_handler as _lah_plan
+            for _oid, _ost in _lah_plan.state_store._states.items():
+                if _oid == agv_id or _ost is None:
+                    continue
+                _ct = str(_ost.current_tag or "").strip()
+                if _ct and _ct != start_node and _ct != end_node:
+                    _occupied.add(_ct)
+                if _ost.route and _ost.route.full_path:
+                    _dt = str(_ost.route.full_path[-1]).strip()
+                    if _dt and _dt != start_node and _dt != end_node:
+                        _occupied.add(_dt)
+        except Exception:
+            pass
+
+        if _occupied:
+            # Thử tìm đường tránh occupied nodes
+            import networkx as _nx
+            _g_copy = map_manager.line_graph.copy() if map_manager.line_graph else map_manager.graph.copy()
+            _g_copy.remove_nodes_from(n for n in _occupied if n in _g_copy)
+            try:
+                _alt_path = _nx.shortest_path(_g_copy, source=start_node, target=end_node, weight="weight")
+                node_path = _alt_path
+                print(f"[PLAN] {agv_id}: tránh occupied nodes {_occupied} → {node_path}")
+            except Exception:
+                # Không có đường thay thế → dùng đường gốc (LIDAR xử lý runtime)
+                node_path = map_manager.line_directional_path(start_node, end_node, _prev_tag)
+                print(f"[PLAN] {agv_id}: không có đường tránh — dùng path gốc, cảnh báo conflict")
+        else:
+            node_path = map_manager.line_directional_path(start_node, end_node, _prev_tag)
     else:
         node_path = map_manager.shortest_path(start_node, end_node)
     if not node_path:
@@ -2199,6 +2403,87 @@ def run_async_in_thread(coro):
 
 
 # ==========================
+# FMS PRESENCE HELPERS (Phần 1 spec)
+# ==========================
+
+# Topic được latch lần đầu khi start_mqtt() gọi — bảo đảm LWT và ONLINE
+# dùng đúng cùng một topic, không bị lệch nếu _unified_config thay đổi sau đó.
+_fms_manager_topic_cache: str | None = None
+
+# headerId tăng đơn điệu theo yêu cầu VDA5050 (mỗi lần publish +1).
+_manager_conn_hid: int = 0
+
+
+def _fms_manager_topic() -> str:
+    """Topic hiện diện FMS: uagv/v2/{FACTORY}/manager/connection.
+
+    Ưu tiên LINE_AGV_FACTORY (env var) → factory từ agv_registry → fallback "VietDuc".
+    KHÔNG dùng _unified_config["factory"] vì đó là interface_name ("uagv"), không phải
+    tên nhà máy.  Cache sau lần tính đầu để will_set() và on_connect dùng cùng topic.
+    """
+    global _fms_manager_topic_cache
+    if _fms_manager_topic_cache:
+        return _fms_manager_topic_cache
+
+    try:
+        from unified_mqtt import LINE_AGV_FACTORY, LINE_AGV_VERSION
+        version = LINE_AGV_VERSION
+    except Exception:
+        LINE_AGV_FACTORY = ""
+        version = os.getenv("LINE_AGV_MQTT_VERSION", "v2")
+
+    factory = LINE_AGV_FACTORY  # ưu tiên env var LINE_AGV_FACTORY
+
+    if not factory:
+        # Lấy factory từ agv_registry (AGV đầu tiên có factory đã đăng ký)
+        try:
+            from agv_registry import agv_registry as _reg
+            for _aid in _reg.all_ids():
+                _f = _reg.get_factory(_aid)
+                if _f:
+                    factory = _f
+                    break
+        except Exception:
+            pass
+
+    if not factory:
+        factory = "VietDuc"   # fallback cuối cùng theo spec firmware
+
+    _fms_manager_topic_cache = f"{UAGV_INTERFACE_NAME}/{version}/{factory}/manager/connection"
+    print(f"[FMS] Manager topic = {_fms_manager_topic_cache}")
+    return _fms_manager_topic_cache
+
+
+def reset_fms_topic_cache() -> None:
+    """Xóa cache topic — gọi trước start_mqtt() khi factory/version thay đổi."""
+    global _fms_manager_topic_cache
+    _fms_manager_topic_cache = None
+
+
+def _fms_presence_payload(conn_state: str) -> str:
+    """Tạo payload connection message theo chuẩn VDA5050.
+
+    manufacturer lấy từ phần {FACTORY} trong topic để nhất quán.
+    headerId=0 cho LWT (broker-generated), tăng từ 1 cho ONLINE/CONNECTIONBROKEN live.
+    """
+    global _manager_conn_hid
+    _manager_conn_hid += 1
+
+    # Trích factory từ topic cache đã tính (uagv/v2/{factory}/manager/connection)
+    _topic_parts = _fms_manager_topic().split("/")
+    _mfr = _topic_parts[2] if len(_topic_parts) >= 5 else UAGV_MANUFACTURER
+
+    return json.dumps({
+        "headerId":        _manager_conn_hid,
+        "timestamp":       datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        "version":         "2.0.0",
+        "manufacturer":    _mfr,
+        "serialNumber":    "manager",
+        "connectionState": conn_state,
+    })
+
+
+# ==========================
 # MQTT Event Handlers
 # ==========================
 def on_connect(client, userdata, flags, rc):
@@ -2207,6 +2492,12 @@ def on_connect(client, userdata, flags, rc):
     print("[MQTT] Subscribed: vda5050/agv/+/state")
     client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/state", qos=QOS)
     print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/state")
+
+    # Connection / LWT topics (VDA5050)
+    client.subscribe("vda5050/agv/+/connection", qos=QOS)
+    print("[MQTT] Subscribed: vda5050/agv/+/connection")
+    client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/connection", qos=QOS)
+    print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/connection")
 
     client.subscribe("vda5050/agv/+/instantActions", qos=QOS)
     print("[MQTT] Subscribed: vda5050/agv/+/instantActions")
@@ -2238,6 +2529,23 @@ def on_connect(client, userdata, flags, rc):
         setup_subscriptions(client, _cfg)
     except Exception as _e:
         print(f"[UNIFIED_MQTT] setup_subscriptions error: {_e}")
+
+    # ── Publish FMS presence ONLINE (Phần 1 spec) ────────────────────────────
+    try:
+        _topic = _fms_manager_topic()
+        client.publish(_topic, _fms_presence_payload("ONLINE"), qos=1, retain=True)
+        print(f"[MQTT] FMS presence ONLINE → {_topic}")
+    except Exception as _e:
+        print(f"[MQTT] FMS presence publish error: {_e}")
+
+
+def on_disconnect(client, userdata, rc):
+    print(f"[MQTT] Disconnected rc={rc}")
+    if rc != 0:
+        # Mất kết nối broker đột ngột — mark toàn bộ AGV là UNKNOWN
+        for _aid in list(agv_manager.list_agvs().keys()):
+            agv_manager.set_connection(_aid, "UNKNOWN")
+        print("[MQTT] All AGV states marked UNKNOWN (broker disconnected)")
 
 
 def on_subscribe(client, userdata, mid, granted_qos):
@@ -3063,6 +3371,31 @@ def on_message(client, userdata, msg):
                 import traceback
                 traceback.print_exc()
 
+        # === XỬ LÝ CONNECTION / LWT (Phần 2 spec) ===
+        elif message_kind == "connection" and agv_id:
+            if agv_id == "manager":
+                return   # Phần 1 spec — tin hiện diện FMS, bỏ qua
+
+            raw_cs = str(payload.get("connectionState", "")).upper()
+            if raw_cs == "ONLINE":
+                conn_value = "ONLINE"
+            elif raw_cs in ("OFFLINE", "CONNECTIONBROKEN"):
+                conn_value = "OFFLINE"
+            else:
+                conn_value = "OFFLINE"
+
+            # Bỏ qua retained OFFLINE cũ nếu AGV vừa gửi state gần đây
+            if conn_value == "OFFLINE":
+                _st = agv_manager.get_agv(agv_id)
+                if _st:
+                    _ls = _st.get("last_seen_mono")
+                    if _ls and (time.monotonic() - float(_ls)) < 5.0:
+                        print(f"[CONN] {agv_id}: ignored stale OFFLINE "
+                              f"(state {time.monotonic()-float(_ls):.1f}s ago)")
+                        return
+
+            agv_manager.set_connection(agv_id, conn_value)
+
         # === XỬ LÝ INSTANT ACTIONS ===
         elif message_kind == "instantActions" and agv_id:
             action_ids = [
@@ -3099,8 +3432,9 @@ def on_message(client, userdata, msg):
 # MQTT Setup
 # ==========================
 client = mqtt.Client(client_id=f"server_{uuid.uuid4().hex[:8]}", clean_session=True)
-client.on_connect = on_connect
-client.on_message = on_message
+client.on_connect    = on_connect
+client.on_message    = on_message
+client.on_disconnect = on_disconnect
 client.socket_timeout = float(os.getenv("MQTT_SOCKET_TIMEOUT_SEC", "5"))
 _configure_client_for_mode(client, MQTT_MODE)
 
@@ -3189,18 +3523,33 @@ def setup_unified_mqtt(agv_configs: list[dict], server_config: dict | None = Non
 
 
 def start_mqtt():
-    global _mqtt_stopping
+    global _mqtt_stopping, _manager_conn_hid
     try:
         _mqtt_stopping = False
-        client.connect(BROKER, PORT, keepalive=60)
+        reset_fms_topic_cache()
+        _manager_conn_hid = 0   # reset về 0 — LWT dùng hid=0, ONLINE sẽ là hid=1
+        _topic = _fms_manager_topic()   # latch topic trước connect()
+
+        # LWT: headerId=0 (broker-generated sentinel, không tăng counter live)
+        # ESP chỉ kiểm tra connectionState, không validate headerId
+        _lwt_payload = json.dumps({
+            "headerId":        0,
+            "timestamp":       datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "version":         "2.0.0",
+            "manufacturer":    _topic.split("/")[2] if len(_topic.split("/")) >= 5 else UAGV_MANUFACTURER,
+            "serialNumber":    "manager",
+            "connectionState": "CONNECTIONBROKEN",
+        })
+        client.will_set(_topic, _lwt_payload, qos=1, retain=True)
+        print(f"[MQTT] LWT set → {_topic}")
+        # keepalive=30s → LWT bắn sau ~45s khi crash (spec khuyến nghị 15–30s)
+        client.connect(BROKER, PORT, keepalive=30)
         client.loop_start()
         return True
-        print(f"[MQTT] Đã kết nối và lắng nghe trên {BROKER}:{PORT}")
     except Exception as e:
         print(f"[MQTT] Broker connect error: {e}")
         print(f"[MQTT] Broker config: host={BROKER} port={PORT}")
         return False
-        print(f"[MQTT] LỖI KẾT NỐI BROKER: {e}")
 
 
 def stop_mqtt():
@@ -3209,6 +3558,14 @@ def stop_mqtt():
         _mqtt_stopping = True
         print("[MQTT] Stopping...")
         try:
+            # Publish CONNECTIONBROKEN trước khi disconnect clean (Phần 1 spec mục B)
+            _topic = _fms_manager_topic()
+            _info = client.publish(_topic, _fms_presence_payload("CONNECTIONBROKEN"), qos=1, retain=True)
+            try:
+                _info.wait_for_publish(timeout=2)
+            except Exception:
+                pass
+            print(f"[MQTT] FMS presence CONNECTIONBROKEN → {_topic}")
             client.disconnect()
         finally:
             client.loop_stop()
@@ -3247,6 +3604,7 @@ def switch_mqtt_mode(new_mode: str) -> dict:
     )
     new_client.on_connect    = on_connect
     new_client.on_message    = on_message
+    new_client.on_disconnect = on_disconnect
     new_client.socket_timeout = float(os.getenv("MQTT_SOCKET_TIMEOUT_SEC", "5"))
     new_client._unified_config = _old_cfg   # giữ lại config factory/manufacturer
     _configure_client_for_mode(new_client, new_mode)

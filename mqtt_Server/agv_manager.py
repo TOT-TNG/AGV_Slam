@@ -42,6 +42,9 @@ class AGVManager:
                 # ✅ timestamp cho UI/debug
                 "last_update": incoming_last_update,
                 "last_update_server": now_iso,
+
+                # ✅ nhận state message = device đang ONLINE
+                "connection": "ONLINE",
             }
 
             if ip_address:
@@ -82,6 +85,18 @@ class AGVManager:
     def get_pending_path(self, agv_id: str):
         with self.lock:
             return self.agvs.get(agv_id, {}).get("pending_path")
+
+    def set_connection(self, agv_id: str, conn_state: str) -> None:
+        """Cập nhật trạng thái kết nối tức thì (từ LWT hoặc monitor_offline)."""
+        with self.lock:
+            info = self.agvs.get(agv_id, {})
+            old = info.get("connection", "UNKNOWN")
+            info["connection"] = conn_state
+            if conn_state == "ONLINE":
+                info["last_seen_mono"] = time.monotonic()
+            self.agvs[agv_id] = info
+        if old != conn_state:
+            print(f"[AGVManager] {agv_id}: connection {old}→{conn_state}")
 
     def register_agv(self, agv_id: str, ip_address: str):
         with self.lock:

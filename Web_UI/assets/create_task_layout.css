@@ -424,9 +424,7 @@
   margin-bottom: 5px !important;
 }
 
-.right-panel .form-select,
 .right-panel .form-control,
-.right-panel select,
 .right-panel input:not([type=checkbox]) {
   background: var(--tc-s3) !important;
   border: 1px solid var(--tc-border2) !important;
@@ -436,12 +434,24 @@
   padding: 8px 10px !important;
   outline: none !important;
   transition: .15s !important;
+  width: 100%;
+}
+.right-panel .form-select,
+.right-panel select {
+  background: #ffffff !important;
+  border: 1px solid #c0c8d8 !important;
+  border-radius: var(--tc-radius-sm) !important;
+  color: #111111 !important;
+  font-size: 13px !important;
+  padding: 8px 10px !important;
+  outline: none !important;
+  transition: .15s !important;
   appearance: none !important;
   -webkit-appearance: none !important;
   width: 100%;
 }
 .right-panel .form-select option,
-.right-panel select option { background: #1e293b; }
+.right-panel select option { background: #ffffff !important; color: #111111 !important; }
 .right-panel .form-select:focus,
 .right-panel .form-control:focus,
 .right-panel select:focus {

@@ -150,7 +150,18 @@ select option:checked {
     /* ────────────────────────────────────────────────
        CSS còn lại giữ nguyên
     ──────────────────────────────────────────────── */
-    select,
+    select {
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: #ffffff;
+      color: #111111;
+      border: 1px solid #c0c8d8;
+      outline: none;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    select option { background: #ffffff; color: #111111; }
+    select:focus { border-color: #0ea5e9; }
     input[type="text"] {
       padding: 8px 10px;
       border-radius: 10px;
@@ -537,7 +548,7 @@ select option:checked {
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const API_BASE = 'http://' + (window.location.hostname || '192.168.0.58') + ':8000';
+      const API_BASE = 'http://' + (window.location.hostname || '192.168.0.56') + ':8000';
 
       const RES_DEFAULT = 0.05;
 

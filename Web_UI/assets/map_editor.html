@@ -47,8 +47,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(
 .tb-btn.success:hover{background:#059669}
 #map-name-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:7px;font-size:13px;width:180px;outline:none}
 #map-name-input:focus{border-color:var(--accent)}
-#map-select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:7px;font-size:12px;min-width:160px;outline:none;cursor:pointer}
-#map-select option{background:var(--surface2);color:var(--text)}
+#map-select{background:#ffffff;border:1px solid #c0c8d8;color:#111111;padding:5px 10px;border-radius:7px;font-size:12px;min-width:160px;outline:none;cursor:pointer}
+#map-select option{background:#ffffff;color:#111111}
+/* ── Override toàn bộ select → chữ đen nền trắng ── */
+select{background:#ffffff !important;color:#111111 !important;border-color:#c0c8d8 !important}
+select option{background:#ffffff !important;color:#111111 !important}
+select:focus{border-color:var(--accent) !important}
 /* ── TOOLBAR BUTTONS ── */
 .tool-btn{width:40px;height:40px;border-radius:10px;background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:17px;transition:.15s;flex-shrink:0}
 .tool-btn:hover{background:var(--surface2);color:var(--text);border-color:var(--border)}

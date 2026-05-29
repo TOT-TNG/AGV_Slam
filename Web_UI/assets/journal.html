@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nhật ký</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  :root{--bg:#0b1326;--border:rgba(255,255,255,.09)}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:#ffffff;font-family:Inter,system-ui,sans-serif}
+  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;font-size:18px;line-height:1;vertical-align:middle;user-select:none}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}
+
+  /* ── Tab content ── */
+  .tab-content{display:none;flex:1;flex-direction:column;min-height:0;overflow:hidden}
+  .tab-content.active{display:flex}
+
+  /* ── Table ── */
+  .hist-table{width:100%;border-collapse:collapse}
+  .hist-table thead th{
+    position:sticky;top:0;z-index:2;
+    background:rgba(18,28,50,.98);
+    padding:10px 16px;
+    font-size:12px;font-family:'JetBrains Mono',monospace;
+    color:#ffffff;letter-spacing:.05em;text-transform:uppercase;
+    text-align:left;border-bottom:1px solid rgba(255,255,255,.12);
+    white-space:nowrap;font-weight:700;
+  }
+  .hist-table tbody tr{border-bottom:1px solid rgba(255,255,255,.05);transition:background .12s}
+  .hist-table tbody tr:hover{background:rgba(77,142,255,.08)}
+  .hist-table tbody td{padding:10px 16px;font-size:13px;vertical-align:middle;color:#ffffff}
+
+  /* ── Status badge ── */
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:.04em;white-space:nowrap}
+  .badge-running  {background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3)}
+  .badge-completed{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3)}
+  .badge-failed   {background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)}
+  .badge-cancelled{background:rgba(148,163,184,.12);color:#cbd5e1;border:1px solid rgba(148,163,184,.25)}
+  .badge-queued   {background:rgba(129,140,248,.15);color:#a5b4fc;border:1px solid rgba(129,140,248,.3)}
+
+  /* ── Filter bar ── */
+  .filter-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(11,19,38,.9)}
+  select{background:#ffffff;border:1px solid #c0c8d8;border-radius:8px;color:#111111;padding:6px 10px;font-size:12px;cursor:pointer;outline:none}
+  select:focus{border-color:#4d8eff;box-shadow:0 0 0 2px rgba(77,142,255,.15)}
+  select option{background:#ffffff;color:#111111}
+  input[type=text]{background:rgba(30,42,68,.9);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#ffffff;padding:6px 10px;font-size:12px;cursor:pointer;outline:none}
+  input[type=text]:focus{border-color:#adc6ff;box-shadow:0 0 0 2px rgba(173,198,255,.15)}
+
+  /* ── Log terminal ── */
+  #log-terminal{flex:1;overflow-y:auto;background:#050d1a;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7}
+  .log-line{display:flex;gap:12px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.025)}
+  .log-line:hover{background:rgba(255,255,255,.04)}
+  .log-ts{color:#ffffff;flex-shrink:0;font-size:11px;opacity:.75}
+  .log-msg{color:#e2e8f0;word-break:break-word;white-space:pre-wrap}
+  .log-msg.warn {color:#fde047}
+  .log-msg.error{color:#f87171}
+  .log-msg.ok   {color:#4ade80}
+  .log-msg.info {color:#7dd3fc}
+
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+
+<!-- ══════════════════════════════════════════
+     TAB: LỊCH SỬ HOẠT ĐỘNG
+═══════════════════════════════════════════ -->
+<div class="tab-content active" id="tab-history">
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <span class="material-symbols-outlined" style="color:#adc6ff;font-size:16px">filter_list</span>
+    <div style="position:relative">
+      <select id="filter-agv" onchange="applyFilters()" style="padding-right:30px;min-width:130px">
+        <option value="">Tất cả AGV</option>
+      </select>
+      <span class="material-symbols-outlined" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#adc6ff">expand_more</span>
+    </div>
+    <div style="position:relative">
+      <select id="filter-status" onchange="applyFilters()" style="padding-right:30px;min-width:140px">
+        <option value="">Tất cả trạng thái</option>
+        <option value="running">Đang chạy</option>
+        <option value="completed">Hoàn thành</option>
+        <option value="failed">Thất bại</option>
+        <option value="cancelled">Đã hủy</option>
+        <option value="queued">Hàng chờ</option>
+      </select>
+      <span class="material-symbols-outlined" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#adc6ff">expand_more</span>
+    </div>
+    <div style="position:relative;flex:1;max-width:280px">
+      <span class="material-symbols-outlined" style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:14px;color:#8c909f">search</span>
+      <input type="text" id="filter-search" placeholder="Tìm task, AGV, node…" oninput="applyFilters()"
+        style="width:100%;padding-left:30px;padding-right:8px;height:32px"/>
+    </div>
+    <button onclick="loadHistory()" style="padding:5px 12px;border-radius:8px;background:rgba(173,198,255,.1);border:1px solid rgba(173,198,255,.25);color:#adc6ff;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap">
+      <span class="material-symbols-outlined" id="refresh-icon-h" style="font-size:15px">refresh</span>Làm mới
+    </button>
+    <span id="hist-result-info" style="font-size:12px;color:#ffffff;font-family:'JetBrains Mono',monospace;white-space:nowrap;margin-left:auto;opacity:.7"></span>
+  </div>
+
+  <!-- Table area -->
+  <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0;padding:10px 14px 14px">
+    <div style="flex:1;overflow:auto;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(10,17,35,.8)">
+      <table class="hist-table" id="hist-table">
+        <thead>
+          <tr>
+            <th style="width:52px;text-align:center">STT</th>
+            <th>Tên workflow</th>
+            <th>AGV thực hiện</th>
+            <th>Điểm đến</th>
+            <th>Thời gian giao</th>
+            <th>Thời gian hoàn thành</th>
+            <th>Trạng thái</th>
+          </tr>
+        </thead>
+        <tbody id="hist-tbody">
+          <tr><td colspan="8" style="text-align:center;padding:48px;color:#ffffff;opacity:.4;font-size:13px">
+            <span class="material-symbols-outlined" style="font-size:36px;display:block;margin-bottom:10px;opacity:.5">history</span>
+            Đang tải…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: LOGS
+═══════════════════════════════════════════ -->
+<div class="tab-content" id="tab-logs" style="flex-direction:column">
+
+  <!-- Log controls -->
+  <div style="display:flex;align-items:center;gap:8px;padding:8px 14px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(11,19,38,.9)">
+    <span class="material-symbols-outlined" style="color:#22c55e;font-size:14px">fiber_manual_record</span>
+    <span style="font-size:11px;color:#22c55e;font-family:'JetBrains Mono',monospace">LIVE</span>
+    <div style="width:1px;height:14px;background:rgba(255,255,255,.15);margin:0 4px"></div>
+    <button onclick="toggleAutoScroll()" id="btn-autoscroll"
+      style="padding:3px 10px;border-radius:7px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);color:#4ade80;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px">
+      <span class="material-symbols-outlined" style="font-size:12px">vertical_align_bottom</span>Auto-scroll: BẬT
+    </button>
+    <div style="position:relative">
+      <input type="text" id="log-search" placeholder="Lọc log…" oninput="filterLogs()"
+        style="padding:4px 8px 4px 26px;width:180px;background:rgba(30,42,68,.9);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;font-size:11px;outline:none"/>
+      <span class="material-symbols-outlined" style="position:absolute;left:6px;top:50%;transform:translateY(-50%);font-size:12px;color:#8c909f">search</span>
+    </div>
+    <select id="log-level-filter" onchange="filterLogs()"
+      style="padding:4px 8px;font-size:11px;outline:none">
+      <option value="">Tất cả</option>
+      <option value="error">Lỗi</option>
+      <option value="warn">Cảnh báo</option>
+      <option value="traffic">[TRAFFIC]</option>
+      <option value="queue">[QUEUE]</option>
+      <option value="mqtt">[MQTT]</option>
+      <option value="conn">[CONN]</option>
+    </select>
+    <span style="margin-left:auto;font-size:11px;color:#ffffff;font-family:'JetBrains Mono',monospace;opacity:.6" id="log-count-info">0 dòng</span>
+    <button onclick="clearLogView()"
+      style="padding:3px 8px;border-radius:7px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171;font-size:11px;cursor:pointer">
+      Xóa view
+    </button>
+  </div>
+
+  <div id="log-terminal">
+    <div style="color:#ffffff;opacity:.35;text-align:center;padding:40px;font-size:12px">
+      <span class="material-symbols-outlined" style="font-size:30px;display:block;margin-bottom:8px;opacity:.4">terminal</span>
+      Đang tải log…
+    </div>
+  </div>
+</div>
+
+<script>
+const API = 'http://' + (window.location.hostname || '192.168.0.56') + ':8000';
+
+// ══════════════════════════════════════════
+// TAB SWITCHING (không có tab buttons — URL param quyết định)
+// ══════════════════════════════════════════
+let currentTab = 'history';
+let histTimer = null;
+let logsTimer = null;
+
+function showTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+
+  if (histTimer) { clearInterval(histTimer); histTimer = null; }
+  if (logsTimer) { clearInterval(logsTimer); logsTimer = null; }
+
+  if (tab === 'history') {
+    loadHistory();
+    histTimer = setInterval(loadHistory, 10000);
+  } else if (tab === 'logs') {
+    loadLogs();
+    logsTimer = setInterval(loadLogs, 2000);
+  }
+}
+
+// ══════════════════════════════════════════
+// LỊCH SỬ HOẠT ĐỘNG (mission-level)
+// ══════════════════════════════════════════
+let allMissions = [];
+let agvSet = new Set();
+
+async function loadHistory() {
+  const icon = document.getElementById('refresh-icon-h');
+  if (icon) icon.style.animation = 'spin .6s linear infinite';
+  try {
+    const res = await fetch(`${API}/api/journal/missions?limit=300`);
+    const data = await res.json();
+    allMissions = data.missions || [];
+
+    agvSet = new Set(allMissions.map(r => r.agv_id).filter(Boolean));
+    const agvSel = document.getElementById('filter-agv');
+    const curAgv = agvSel.value;
+    agvSel.innerHTML = '<option value="">Tất cả AGV</option>' +
+      [...agvSet].sort().map(a =>
+        `<option value="${a}"${a === curAgv ? ' selected' : ''}>${a}</option>`
+      ).join('');
+
+    applyFilters();
+  } catch(e) {
+    document.getElementById('hist-tbody').innerHTML =
+      `<tr><td colspan="6" style="text-align:center;padding:40px;color:#f87171;font-size:13px">
+        <span class="material-symbols-outlined" style="font-size:30px;display:block;margin-bottom:8px">error</span>
+        Lỗi tải dữ liệu: ${esc(e.message)}
+      </td></tr>`;
+  } finally {
+    if (icon) icon.style.animation = '';
+  }
+}
+
+function applyFilters() {
+  const agvFilter    = document.getElementById('filter-agv').value;
+  const statusFilter = document.getElementById('filter-status').value;
+  const searchTxt    = (document.getElementById('filter-search').value || '').toLowerCase();
+
+  let rows = allMissions;
+  if (agvFilter)    rows = rows.filter(r => r.agv_id === agvFilter);
+  if (statusFilter) rows = rows.filter(r => r.status === statusFilter);
+  if (searchTxt)    rows = rows.filter(r =>
+    (r.session_label || '').toLowerCase().includes(searchTxt) ||
+    (r.agv_id || '').toLowerCase().includes(searchTxt) ||
+    (r.dest_nodes || []).some(n => n.toLowerCase().includes(searchTxt))
+  );
+
+  renderHistTable(rows);
+  const info = document.getElementById('hist-result-info');
+  info.textContent = rows.length < allMissions.length
+    ? `${rows.length} / ${allMissions.length} lượt`
+    : `${rows.length} lượt`;
+}
+
+function renderHistTable(rows) {
+  const tbody = document.getElementById('hist-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:48px;color:#ffffff;opacity:.35;font-size:13px">
+      <span class="material-symbols-outlined" style="font-size:32px;display:block;margin-bottom:10px;opacity:.4">inbox</span>
+      Không có dữ liệu
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map((r, i) => {
+    const qAt = r.queued_at    ? fmtTs(r.queued_at)    : '—';
+    const cAt = r.completed_at ? fmtTs(r.completed_at) : '—';
+
+    // Tính thời gian thực hiện
+    const dur = (r.queued_at && r.completed_at && r.status === 'completed')
+      ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px">${fmtDuration(r.completed_at - r.queued_at)}</div>`
+      : '';
+
+    // Danh sách điểm đến
+    const nodes = r.dest_nodes || [];
+    const destHtml = nodes.length
+      ? nodes.map(n =>
+          `<span style="display:inline-block;font-family:'JetBrains Mono',monospace;font-size:11px;color:#7dd3fc;background:rgba(125,211,252,.1);padding:1px 7px;border-radius:4px;border:1px solid rgba(125,211,252,.2);margin:2px 2px 0 0">${esc(n)}</span>`
+        ).join('')
+      : '<span style="color:#64748b;font-size:12px">—</span>';
+
+    // Số bước
+    const stepsBadge = r.step_count > 1
+      ? `<span style="font-size:10px;color:#94a3b8;margin-left:6px;font-family:'JetBrains Mono',monospace">${r.step_count} bước</span>`
+      : '';
+
+    return `<tr>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:12px;text-align:center;color:#ffffff;opacity:.5">${i + 1}</td>
+      <td>
+        <div style="font-weight:600;font-size:13px;color:#ffffff">${esc(r.session_label || '—')}${stepsBadge}</div>
+        <div style="font-size:10px;color:#555;font-family:'JetBrains Mono',monospace;margin-top:2px">${esc(r.session_id || '')}</div>
+      </td>
+      <td>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#ffffff;background:rgba(255,255,255,.07);padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.1)">${esc(r.agv_id || '—')}</span>
+      </td>
+      <td style="max-width:260px"><div style="display:flex;flex-wrap:wrap;gap:0">${destHtml}</div></td>
+      <td style="font-size:12px;color:#ffffff;white-space:nowrap;opacity:.8">${qAt}</td>
+      <td style="font-size:12px;color:#ffffff;white-space:nowrap;opacity:.8">${cAt}${dur}</td>
+      <td>${statusBadge(r.status)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function statusBadge(status) {
+  const map = {
+    running:   ['badge-running',   'play_arrow',   'Đang chạy'],
+    completed: ['badge-completed', 'check_circle', 'Hoàn thành'],
+    failed:    ['badge-failed',    'error',        'Thất bại'],
+    cancelled: ['badge-cancelled', 'cancel',       'Đã hủy'],
+    queued:    ['badge-queued',    'pending',       'Hàng chờ'],
+  };
+  const [cls, icon, label] = map[status] || ['badge-queued', 'help', status];
+  return `<span class="badge ${cls}"><span class="material-symbols-outlined" style="font-size:12px">${icon}</span>${label}</span>`;
+}
+
+// ══════════════════════════════════════════
+// LOGS
+// ══════════════════════════════════════════
+let allLogs = [];
+let autoScroll = true;
+let logViewCleared = false;
+
+async function loadLogs() {
+  try {
+    const res = await fetch(`${API}/api/journal/logs?limit=500`);
+    const data = await res.json();
+    const incoming = (data.logs || []).reverse();
+
+    if (!logViewCleared) {
+      allLogs = incoming;
+    } else {
+      const lastTs = allLogs.length ? allLogs[allLogs.length - 1].t : 0;
+      allLogs = [...allLogs, ...incoming.filter(l => l.t > lastTs)];
+    }
+
+    filterLogs();
+  } catch(e) {
+    console.error('[LOGS]', e);
+  }
+}
+
+function filterLogs() {
+  const search = (document.getElementById('log-search').value || '').toLowerCase();
+  const level  = document.getElementById('log-level-filter').value;
+
+  let lines = allLogs;
+  if (search) lines = lines.filter(l => l.m.toLowerCase().includes(search));
+  if (level) {
+    const levelMap = {
+      error:   l => /ERR|ERROR|\[.*\] LỖI/.test(l.m),
+      warn:    l => /WARN|⚠/.test(l.m),
+      traffic: l => l.m.includes('[TRAFFIC]'),
+      queue:   l => l.m.includes('[QUEUE]'),
+      mqtt:    l => l.m.includes('[MQTT]'),
+      conn:    l => l.m.includes('[CONN]'),
+    };
+    if (levelMap[level]) lines = lines.filter(levelMap[level]);
+  }
+
+  const terminal = document.getElementById('log-terminal');
+  if (!lines.length) {
+    terminal.innerHTML = `<div style="color:#ffffff;opacity:.3;text-align:center;padding:40px;font-size:12px">
+      <span class="material-symbols-outlined" style="font-size:30px;display:block;margin-bottom:8px;opacity:.4">terminal</span>
+      Không có log
+    </div>`;
+  } else {
+    terminal.innerHTML = lines.map(l => {
+      const ts = fmtTsShort(l.t);
+      const mc = /ERR|ERROR|\[.*\] LỖI/.test(l.m) ? 'error'
+               : /WARN|⚠/.test(l.m)               ? 'warn'
+               : /✓|OK|✅|hoàn thành|ONLINE|ready/i.test(l.m) ? 'ok'
+               : /\[MQTT\]|\[CONN\]|\[STATE\]|\[QUEUE\]/i.test(l.m) ? 'info'
+               : '';
+      return `<div class="log-line"><span class="log-ts">${ts}</span><span class="log-msg ${mc}">${esc(l.m)}</span></div>`;
+    }).join('');
+    if (autoScroll) terminal.scrollTop = terminal.scrollHeight;
+  }
+
+  document.getElementById('log-count-info').textContent = `${lines.length} dòng`;
+}
+
+function toggleAutoScroll() {
+  autoScroll = !autoScroll;
+  const btn = document.getElementById('btn-autoscroll');
+  if (autoScroll) {
+    btn.style.background   = 'rgba(34,197,94,.1)';
+    btn.style.borderColor  = 'rgba(34,197,94,.25)';
+    btn.style.color        = '#4ade80';
+    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:12px">vertical_align_bottom</span>Auto-scroll: BẬT';
+    document.getElementById('log-terminal').scrollTop = 999999;
+  } else {
+    btn.style.background   = 'rgba(100,116,139,.1)';
+    btn.style.borderColor  = 'rgba(100,116,139,.25)';
+    btn.style.color        = '#cbd5e1';
+    btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:12px">pause</span>Auto-scroll: TẮT';
+  }
+}
+
+function clearLogView() {
+  allLogs = [];
+  logViewCleared = true;
+  filterLogs();
+}
+
+// ══════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════
+function fmtDuration(secs) {
+  if (!secs || secs < 0) return '';
+  if (secs < 60)  return `${secs.toFixed(0)}s`;
+  const m = Math.floor(secs / 60), s = Math.floor(secs % 60);
+  if (m < 60) return `${m}m${String(s).padStart(2,'0')}s`;
+  const h = Math.floor(m / 60), rm = m % 60;
+  return `${h}h${String(rm).padStart(2,'0')}m`;
+}
+
+function fmtTs(epoch) {
+  if (!epoch) return '—';
+  const d  = new Date(epoch * 1000);
+  const dd = n => String(n).padStart(2, '0');
+  return `${dd(d.getDate())}/${dd(d.getMonth()+1)}/${d.getFullYear()} ${dd(d.getHours())}:${dd(d.getMinutes())}:${dd(d.getSeconds())}`;
+}
+
+function fmtTsShort(epoch) {
+  if (!epoch) return '—';
+  const d  = new Date(epoch * 1000);
+  const dd = n => String(n).padStart(2, '0');
+  const ms = String(Math.floor((epoch % 1) * 1000)).padStart(3, '0');
+  return `${dd(d.getHours())}:${dd(d.getMinutes())}:${dd(d.getSeconds())}.${ms}`;
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Init — đọc ?tab= từ URL ──
+const _urlTab = new URLSearchParams(window.location.search).get('tab');
+showTab(_urlTab === 'logs' ? 'logs' : 'history');
+</script>
+</body>
+</html>

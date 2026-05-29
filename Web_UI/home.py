@@ -59,20 +59,24 @@ def make_sidebar(lang: str, pathname: str = ""):
     # Submenu containers
     map_cls  = "submenu open" if p in MAP_PATHS  else "submenu"
     task_cls = "submenu open" if p in TASK_PATHS else "submenu"
+    log_cls  = "submenu open" if p in LOG_PATHS  else "submenu"
 
     # Helper: compute className for menu items and submenu items
     def mi(active):  return "menu-item active"  if active else "menu-item"
     def si(active):  return "submenu-item active" if active else "submenu-item"
 
-    is_home         = p in {"/home", "/home/"}
-    is_map          = p in MAP_PATHS
-    is_agv          = p in {"/agv-manager", "/home/agv-manager"}
-    is_task         = p in TASK_PATHS
-    is_create_map   = p in {"/create-map",    "/home/create-map"}
-    is_map_cfg      = p in {"/map-configure", "/home/map-configure"}
-    is_task_create  = p in {"/task-create",   "/home/task-create"}
-    is_task_list    = p in {"/task-manager",  "/home/task-manager", "/task-list"}
-    is_task_execute = p in {"/task-execute",  "/home/task-execute"}
+    is_home              = p in {"/home", "/home/"}
+    is_map               = p in MAP_PATHS
+    is_agv               = p in {"/agv-manager", "/home/agv-manager"}
+    is_task              = p in TASK_PATHS
+    is_log               = p in LOG_PATHS
+    is_create_map        = p in {"/create-map",        "/home/create-map"}
+    is_map_cfg           = p in {"/map-configure",     "/home/map-configure"}
+    is_task_create       = p in {"/task-create",       "/home/task-create"}
+    is_task_list         = p in {"/task-manager",      "/home/task-manager", "/task-list"}
+    is_task_execute      = p in {"/task-execute",      "/home/task-execute"}
+    is_journal_history   = p in {"/journal-history",   "/home/journal-history"}
+    is_journal_logs      = p in {"/journal-logs",      "/home/journal-logs"}
 
     return html.Div(
         [
@@ -105,7 +109,7 @@ def make_sidebar(lang: str, pathname: str = ""):
                                     ),
                                     html.A(
                                         t(lang, "menu.map.agvmap", "AGV Map"),
-                                        href="http://192.168.0.58:8000/AgvMap.html",
+                                        href="http://192.168.0.56:8000/AgvMap.html",
                                         target="_blank",
                                         className="submenu-item",
                                         style={"textDecoration": "none", "color": "inherit"},
@@ -152,9 +156,29 @@ def make_sidebar(lang: str, pathname: str = ""):
                         id="menu-agv-manager",
                     ),
                     html.Div(
-                        [html.I(className="bi bi-journal-text me-2"), html.Span(t(lang, "menu.log", "Log"))],
-                        className="menu-item",
-                        id="menu-log",
+                        [
+                            html.Div(
+                                [html.I(className="bi bi-journal-text me-2"), html.Span(t(lang, "menu.log", "Nhật ký"))],
+                                className=mi(is_log),
+                                id="menu-log",
+                            ),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        t(lang, "menu.log.history", "Lịch sử hoạt động"),
+                                        id="submenu-journal-history",
+                                        className=si(is_journal_history),
+                                    ),
+                                    html.Div(
+                                        t(lang, "menu.log.logs", "Logs"),
+                                        id="submenu-journal-logs",
+                                        className=si(is_journal_logs),
+                                    ),
+                                ],
+                                id="submenu-log",
+                                className=log_cls,
+                            ),
+                        ]
                     ),
                     html.Div(
                         [html.I(className="bi bi-bar-chart-line me-2"), html.Span(t(lang, "menu.stat", "Statistic"))],
@@ -390,6 +414,7 @@ def logout(n_clicks):
 
 MAP_PATHS  = {"/create-map", "/home/create-map", "/map-configure", "/home/map-configure", "/map-view", "/home/map-view"}
 TASK_PATHS = {"/task-create", "/home/task-create", "/task-manager", "/home/task-manager", "/task-list", "/task-execute", "/home/task-execute"}
+LOG_PATHS  = {"/journal-history", "/home/journal-history", "/journal-logs", "/home/journal-logs"}
 
 
 
@@ -403,10 +428,13 @@ TASK_PATHS = {"/task-create", "/home/task-create", "/task-manager", "/home/task-
     Input("submenu-task-create", "n_clicks"),
     Input("submenu-task-list", "n_clicks"),
     Input("submenu-task-execute", "n_clicks"),
+    Input("submenu-journal-history", "n_clicks"),
+    Input("submenu-journal-logs", "n_clicks"),
     prevent_initial_call=True,
 )
 def go_to_pages(create_click, setup_map_click, home_click, agv_mgr_click,
-                task_create_click, task_list_click, task_execute_click):
+                task_create_click, task_list_click, task_execute_click,
+                journal_history_click, journal_logs_click):
     ctx = dash.callback_context
     if not ctx.triggered:
         return no_update
@@ -427,6 +455,10 @@ def go_to_pages(create_click, setup_map_click, home_click, agv_mgr_click,
         return "/create-map"
     if trigger == "submenu-setup-map":
         return "/map-configure"
+    if trigger == "submenu-journal-history":
+        return "/journal-history"
+    if trigger == "submenu-journal-logs":
+        return "/journal-logs"
 
     return no_update
 

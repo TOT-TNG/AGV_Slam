@@ -551,6 +551,11 @@ class LineAGVHandler:
                 state.task_lifecycle = "charging"
                 print(f"[LINE_AGV] {agv_id}: lifecycle → charging (auto-confirm, force last_dir=bwd)")
                 self._routes.pop(agv_id, None)
+                try:
+                    from mqtt_client import release_station
+                    release_station(agv_id, reason="arrived_charge_via_route")
+                except Exception:
+                    pass
                 if self.on_state_changed:
                     try:
                         self.on_state_changed(state)
@@ -585,6 +590,11 @@ class LineAGVHandler:
             state.task_lifecycle = "charging"
             print(f"[LINE_AGV] {agv_id}: lifecycle → charging (auto-confirm, force last_dir=bwd)")
             self._routes.pop(agv_id, None)
+            try:
+                from mqtt_client import release_station
+                release_station(agv_id, reason="arrived_wait_charge_event")
+            except Exception:
+                pass
             if self.on_state_changed:
                 try:
                     self.on_state_changed(state)
@@ -665,6 +675,8 @@ class LineAGVHandler:
         try:
             data       = json.loads(payload_str)
             conn_state = str(data.get("connectionState", "OFFLINE")).upper()
+            if conn_state not in ("ONLINE", "OFFLINE", "CONNECTIONBROKEN"):
+                conn_state = "OFFLINE"
         except Exception:
             conn_state = "OFFLINE"
 

@@ -41,7 +41,9 @@ with open(_cfg_path, encoding="utf-8") as _f:
     _sim = json.load(_f)
 
 _mqtt_cfg     = _sim.get("mqtt", {})
-_factory      = _mqtt_cfg.get("interface_name", "uagv")
+# "factory" = tên nhà máy (VietDuc) dùng trong topic uagv/v2/{factory}/...
+# "interface_name" = MQTT prefix ("uagv") — khác với factory
+_factory      = _mqtt_cfg.get("factory") or _mqtt_cfg.get("interface_name", "uagv")
 _manufacturer = _sim.get("manufacturer", "tot")
 _all_agv_cfgs = _sim.get("agvs", [])
 

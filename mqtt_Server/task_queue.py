@@ -39,16 +39,18 @@ STATUS_CANCELLED = "cancelled"
 
 @dataclass
 class QueuedCommand:
-    cmd_id:       str
-    agv_id:       str
-    command:      str
-    dest_node:    Optional[str]
-    start_node:   Optional[str] = None   # vị trí xuất phát thủ công (Line AGV)
-    queued_at:    float = field(default_factory=time.time)
-    started_at:   Optional[float] = None
-    completed_at: Optional[float] = None
-    status:       str = STATUS_QUEUED
-    notes:        str = ""
+    cmd_id:        str
+    agv_id:        str
+    command:       str
+    dest_node:     Optional[str]
+    start_node:    Optional[str] = None   # vị trí xuất phát thủ công (Line AGV)
+    queued_at:     float = field(default_factory=time.time)
+    started_at:    Optional[float] = None
+    completed_at:  Optional[float] = None
+    status:        str = STATUS_QUEUED
+    notes:         str = ""
+    session_id:    Optional[str] = None   # nhóm các bước của cùng 1 lượt workflow
+    session_label: Optional[str] = None   # tên workflow / nhãn hiển thị
 
     def to_dict(self) -> dict:
         return {
@@ -62,6 +64,8 @@ class QueuedCommand:
             "completed_at":  self.completed_at,
             "status":        self.status,
             "notes":         self.notes,
+            "session_id":    self.session_id,
+            "session_label": self.session_label,
         }
 
 
@@ -106,10 +110,12 @@ class AGVTaskQueue:
 
     def dispatch_or_queue(
         self,
-        agv_id:     str,
-        command:    str,
-        dest_node:  Optional[str] = None,
-        start_node: Optional[str] = None,
+        agv_id:        str,
+        command:       str,
+        dest_node:     Optional[str] = None,
+        start_node:    Optional[str] = None,
+        session_id:    Optional[str] = None,
+        session_label: Optional[str] = None,
     ) -> tuple[QueuedCommand, bool]:
         """
         AGV rảnh → dispatch ngay, trả về (cmd, True)
@@ -124,6 +130,8 @@ class AGVTaskQueue:
                 start_node=start_node,
                 status=STATUS_RUNNING,
                 started_at=time.time(),
+                session_id=session_id,
+                session_label=session_label,
             )
             self._running[agv_id] = cmd
             self._db_insert(cmd)
@@ -144,6 +152,8 @@ class AGVTaskQueue:
                 dest_node=dest_node,
                 start_node=start_node,
                 status=STATUS_QUEUED,
+                session_id=session_id,
+                session_label=session_label,
             )
             self._queues.setdefault(agv_id, deque()).append(cmd)
             self._db_insert(cmd)
@@ -207,13 +217,17 @@ class AGVTaskQueue:
         """
         Chèn lệnh vào ĐẦU hàng chờ — sẽ chạy ngay sau lệnh hiện tại.
         Dùng khi split route tại intermediate arrival_action node.
+        Kế thừa session_id từ lệnh đang chạy để không bị tách nhóm.
         """
+        running = self._running.get(agv_id)
         cmd = QueuedCommand(
             cmd_id=str(uuid.uuid4())[:8],
             agv_id=agv_id,
             command=command,
             dest_node=dest_node,
             status=STATUS_QUEUED,
+            session_id=running.session_id if running else None,
+            session_label=running.session_label if running else None,
         )
         self._queues.setdefault(agv_id, deque()).appendleft(cmd)
         self._db_insert(cmd)
@@ -231,6 +245,12 @@ class AGVTaskQueue:
         self._running[agv_id] = None
         self._db_update(cmd)
         print(f"[QUEUE] {agv_id}: force-cancelled running cmd={cmd.cmd_id}")
+        if cmd.command in ("go_charge", "go_wait"):
+            try:
+                from mqtt_client import release_station
+                release_station(agv_id, reason="cancel_running")
+            except Exception:
+                pass
         return cmd.to_dict()
 
     def cancel_cmd(self, cmd_id: str) -> bool:
@@ -330,6 +350,157 @@ class AGVTaskQueue:
             print(f"[QUEUE] get_history error: {e}")
             return []
 
+    def get_mission_history(self, agv_id: Optional[str] = None, limit: int = 200) -> list[dict]:
+        """
+        Lịch sử theo mission:
+        - Có session_id  → GROUP BY session_id (chính xác, dữ liệu mới)
+        - Không session_id → gom theo thời gian (gap > 30s = session mới, dữ liệu cũ)
+        """
+        import psycopg2, os
+        DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+        conn = None
+        try:
+            conn = psycopg2.connect(DB_URL)
+            cur  = conn.cursor()
+
+            # Kiểm tra cột session_id
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='agv_task_executions' AND column_name='session_id'
+                )
+            """)
+            has_session_col = cur.fetchone()[0]
+
+            agv_cond   = "AND agv_id = %s" if agv_id else ""
+            agv_params = (agv_id,) if agv_id else ()
+            results    = []
+
+            # ── 1. Dữ liệu MỚI có session_id → GROUP BY ───────────────────────
+            if has_session_col:
+                cur.execute(f"""
+                    SELECT session_id, session_label, agv_id,
+                        EXTRACT(EPOCH FROM MIN(queued_at)),
+                        EXTRACT(EPOCH FROM MAX(completed_at)),
+                        ARRAY_REMOVE(ARRAY_AGG(dest_node ORDER BY queued_at), NULL),
+                        ARRAY_AGG(command ORDER BY queued_at),
+                        CASE
+                            WHEN SUM(CASE WHEN status IN ('running','queued') THEN 1 ELSE 0 END) > 0 THEN 'running'
+                            WHEN SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) > 0 THEN 'failed'
+                            WHEN SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END) > 0 THEN 'cancelled'
+                            WHEN SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) = COUNT(*) THEN 'completed'
+                            ELSE 'running'
+                        END,
+                        COUNT(*)
+                    FROM agv_task_executions
+                    WHERE session_id IS NOT NULL {agv_cond}
+                    GROUP BY session_id, session_label, agv_id
+                    ORDER BY MIN(queued_at) DESC
+                    LIMIT %s
+                """, agv_params + (limit,))
+                for r in cur.fetchall():
+                    results.append({
+                        "session_id":    r[0],
+                        "session_label": r[1] or "Lệnh thủ công",
+                        "agv_id":        r[2],
+                        "queued_at":     float(r[3]) if r[3] else None,
+                        "completed_at":  float(r[4]) if r[4] else None,
+                        "dest_nodes":    list(dict.fromkeys(d for d in (r[5] or []) if d)),
+                        "commands":      r[6] or [],
+                        "status":        r[7],
+                        "step_count":    r[8],
+                        "notes":         "",
+                    })
+
+            # ── 2. Dữ liệu CŨ không có session_id → gom theo thời gian ────────
+            null_filter = "AND session_id IS NULL" if has_session_col else ""
+            cur.execute(f"""
+                SELECT cmd_id, agv_id, command, dest_node, status,
+                    EXTRACT(EPOCH FROM queued_at),
+                    EXTRACT(EPOCH FROM completed_at), notes
+                FROM agv_task_executions
+                WHERE 1=1 {null_filter} {agv_cond}
+                ORDER BY agv_id, queued_at ASC
+                LIMIT %s
+            """, agv_params + (limit * 10,))   # fetch nhiều hơn để group
+            raw = cur.fetchall()
+            conn.close()
+
+            results.extend(self._group_raw_by_time(raw))
+            results.sort(key=lambda x: x["queued_at"] or 0, reverse=True)
+            return results[:limit]
+
+        except Exception as e:
+            print(f"[QUEUE] get_mission_history error: {e}")
+            if conn:
+                try: conn.close()
+                except Exception: pass
+            return []
+
+    @staticmethod
+    def _group_raw_by_time(rows, gap_sec: float = 30.0) -> list[dict]:
+        """
+        Gom các lệnh thô thành missions dựa trên khoảng cách thời gian.
+        Lệnh cùng AGV, cách nhau < gap_sec → cùng 1 mission.
+        """
+        # Nhóm theo AGV
+        by_agv: dict[str, list] = {}
+        for r in rows:
+            by_agv.setdefault(r[1], []).append(r)  # r[1] = agv_id
+
+        missions = []
+        for agv_id, cmds in by_agv.items():
+            if not cmds:
+                continue
+            # Chia thành các group theo gap thời gian
+            groups: list[list] = []
+            current = [cmds[0]]
+            for i in range(1, len(cmds)):
+                prev_t = float(cmds[i-1][5]) if cmds[i-1][5] else 0
+                curr_t = float(cmds[i][5])   if cmds[i][5]   else 0
+                if curr_t - prev_t > gap_sec:
+                    groups.append(current)
+                    current = [cmds[i]]
+                else:
+                    current.append(cmds[i])
+            groups.append(current)
+
+            for grp in groups:
+                dest_nodes = list(dict.fromkeys(r[3] for r in grp if r[3]))
+                cmd_list   = [r[2] for r in grp]
+                statuses   = [r[4] for r in grp]
+                notes      = next((r[7] for r in grp if r[7]), "") or ""
+
+                if any(s in ('running', 'queued') for s in statuses):
+                    status = 'running'
+                elif any(s == 'failed' for s in statuses):
+                    status = 'failed'
+                elif any(s == 'cancelled' for s in statuses):
+                    status = 'cancelled'
+                elif all(s == 'completed' for s in statuses):
+                    status = 'completed'
+                else:
+                    status = 'running'
+
+                # Label: tên workflow từ tập lệnh duy nhất
+                unique = list(dict.fromkeys(cmd_list))
+                parts  = [CMD_LABELS.get(c, c) for c in unique]
+                label  = " → ".join(parts) if len(parts) > 1 else (parts[0] if parts else "Lệnh")
+
+                missions.append({
+                    "session_id":    grp[0][0],    # cmd_id của lệnh đầu tiên
+                    "session_label": label,
+                    "agv_id":        agv_id,
+                    "queued_at":     float(grp[0][5])  if grp[0][5]  else None,
+                    "completed_at":  float(grp[-1][6]) if grp[-1][6] else None,
+                    "dest_nodes":    dest_nodes,
+                    "commands":      cmd_list,
+                    "status":        status,
+                    "step_count":    len(grp),
+                    "notes":         notes,
+                })
+        return missions
+
     # ── Internal ───────────────────────────────────────────────────────────────
 
     def _do_dispatch(self, cmd: QueuedCommand) -> bool:
@@ -350,10 +521,11 @@ class AGVTaskQueue:
                 async with self._pool.acquire() as conn:
                     await conn.execute(
                         "INSERT INTO agv_task_executions"
-                        "(cmd_id,agv_id,command,dest_node,status,queued_at)"
-                        " VALUES($1,$2,$3,$4,$5,to_timestamp($6))",
+                        "(cmd_id,agv_id,command,dest_node,status,queued_at,session_id,session_label)"
+                        " VALUES($1,$2,$3,$4,$5,to_timestamp($6),$7,$8)",
                         cmd.cmd_id, cmd.agv_id, cmd.command,
                         cmd.dest_node, cmd.status, cmd.queued_at,
+                        cmd.session_id, cmd.session_label,
                     )
             except Exception as e:
                 print(f"[QUEUE] DB insert error: {e}")
