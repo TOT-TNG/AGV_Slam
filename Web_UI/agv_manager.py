@@ -241,10 +241,12 @@ def agv_card(row, lang: str = "vi"):
                     [
                         dbc.Button(
                             t(lang, "agv.configure", "Configure"),
+                            id={"type": "configure-agv", "name": row["name"]},
                             color="primary",
                             size="sm",
                             outline=True,
                             className="me-1",
+                            n_clicks=0,
                         ),
                         dbc.Button(
                             t(lang, "agv.delete", "Delete"),
@@ -329,41 +331,90 @@ def layout(lang: str = "vi"):
                     "padding": "18px",
                 },
                 children=[
-                    html.H4(t(lang, "agv.modal.add_title", "Add AGV"), className="mb-3"),
-                    dbc.Input(id="add-agv-name", placeholder=t(lang, "agv.modal.name", "AGV Name"), className="mb-3"),
-                    dbc.Input(id="add-agv-factory", placeholder='Factory (VD: VietDuc)', className="mb-2"),
-                    html.Small("Tên factory trong MQTT topic: uagv/v2/{factory}/{agv_id}/...",
-                               style={"color": "#8c909f", "fontSize": "11px", "display": "block", "marginBottom": "12px"}),
-                    dbc.Input(id="add-agv-ip", placeholder=t(lang, "agv.modal.ip", "IP Address"), className="mb-3"),
-                    dbc.Input(id="add-agv-port", placeholder="Port", type="number", className="mb-3"),
-                    dbc.Label("AGV Type", className="mt-1 mb-1", style={"fontSize": "13px", "color": "#c2c6d6"}),
+                    html.H4("Thêm AGV mới", className="mb-1 text-white"),
+                    html.P(
+                        "Chọn loại và bản đồ. Các thông tin khác (tên, IP, MQTT...) sẽ được cấu hình sau qua lệnh Config Mode.",
+                        style={"fontSize": "12px", "color": "#8c909f", "marginBottom": "20px"},
+                    ),
+
+                    dbc.Label("Loại AGV", className="mb-1",
+                              style={"fontSize": "13px", "color": "#c2c6d6", "fontWeight": "600"}),
                     dcc.Dropdown(
                         id="add-agv-type",
                         options=[
-                            {"label": "AGV Slam/QR Code (VDA5050)", "value": "slam_qr"},
-                            {"label": "AGV Carry (Line)", "value": "carry"},
-                            {"label": "AGV Tow (Line)", "value": "tow"},
-                            {"label": "AGV Trailer (Line)", "value": "trailer"},
+                            {"label": "🤖 AGV Carry (kéo hàng — Line)", "value": "carry"},
+                            {"label": "🚜 AGV Tow (kéo xe — Line)",      "value": "tow"},
+                            {"label": "🛒 AGV Trailer (kéo rơ-moóc — Line)", "value": "trailer"},
+                            {"label": "📷 AGV Slam / QR Code (VDA5050)", "value": "slam_qr"},
                         ],
-                        placeholder="Chọn loại AGV",
-                        className="mb-3",
+                        placeholder="Chọn loại AGV…",
+                        className="mb-4",
+                        style={"color": "#000"},
                     ),
-                    dbc.Label("Bản đồ", className="mt-1 mb-1", style={"fontSize": "13px", "color": "#c2c6d6"}),
+
+                    dbc.Label("Bản đồ", className="mb-1",
+                              style={"fontSize": "13px", "color": "#c2c6d6", "fontWeight": "600"}),
                     dcc.Dropdown(
                         id="add-agv-map",
                         options=[{"label": m["name"], "value": m["id"]} for m in load_maps()],
-                        placeholder="Chọn bản đồ cho AGV",
-                        className="mb-3",
+                        placeholder="Chọn bản đồ…",
+                        className="mb-2",
                         clearable=True,
+                        style={"color": "#000"},
                     ),
+                    html.Small(
+                        "💡 Line AGV cần bản đồ để hiển thị vị trí theo RFID tag.",
+                        style={"color": "#8c909f", "fontSize": "11px", "display": "block", "marginBottom": "24px"},
+                    ),
+
+                    # Thông tin mặc định hiển thị để người dùng biết
                     html.Div(
-                        "💡 Line AGV cần chọn bản đồ để hiển thị vị trí theo RFID tag.",
-                        style={"fontSize": "11px", "color": "#8c909f", "marginBottom": "16px", "fontStyle": "italic"},
+                        [
+                            html.Div("Thông tin mặc định khi tạo:", style={"fontSize": "11px", "color": "#8c909f", "marginBottom": "6px", "fontWeight": "600"}),
+                            html.Div([html.Span("Tên AGV: ", style={"color": "#8c909f"}), html.Span("Tự sinh (AGVxxx)", style={"color": "#adc6ff", "fontFamily": "monospace"})], style={"fontSize": "11px", "marginBottom": "3px"}),
+                            html.Div([html.Span("Factory: ", style={"color": "#8c909f"}), html.Span("tot", style={"color": "#adc6ff", "fontFamily": "monospace"})], style={"fontSize": "11px", "marginBottom": "3px"}),
+                            html.Div([html.Span("IP / Port: ", style={"color": "#8c909f"}), html.Span("Chưa cấu hình", style={"color": "#555"})], style={"fontSize": "11px"}),
+                        ],
+                        style={"background": "rgba(255,255,255,.04)", "border": "1px solid rgba(255,255,255,.08)", "borderRadius": "8px", "padding": "10px 12px", "marginBottom": "20px"},
                     ),
-                    dbc.Button(t(lang, "agv.modal.save", "Save"), id="btn-save-agv", color="primary", className="me-2"),
-                    dbc.Button("Close", id="btn-close-agv", color="secondary", outline=True),
+
+                    # Hidden inputs giữ lại để callback cũ không lỗi
+                    dbc.Input(id="add-agv-name",    value="", style={"display": "none"}),
+                    dbc.Input(id="add-agv-factory", value="", style={"display": "none"}),
+                    dbc.Input(id="add-agv-ip",      value="", style={"display": "none"}),
+                    dbc.Input(id="add-agv-port",    value="", style={"display": "none"}),
+
+                    dbc.Button("Thêm AGV", id="btn-save-agv", color="primary", className="me-2",
+                               style={"fontWeight": "600"}),
+                    dbc.Button("Đóng", id="btn-close-agv", color="secondary", outline=True),
                 ],
             ),
+            # ── Modal điều khiển AGV (mở khi click "Cấu hình") ────────────
+            dbc.Modal(
+                [
+                    dbc.ModalBody(
+                        html.Iframe(
+                            id="ctrl-iframe",
+                            src="",
+                            style={
+                                "width": "100%",
+                                "height": "580px",
+                                "border": "none",
+                                "borderRadius": "12px",
+                            },
+                        ),
+                        style={"padding": "0", "background": "#0b1326", "borderRadius": "14px"},
+                    ),
+                ],
+                id="ctrl-modal",
+                is_open=False,
+                size="lg",
+                centered=True,
+                backdrop=True,
+                style={"maxWidth": "420px"},
+                contentClassName="border-0",
+            ),
+            dcc.Store(id="ctrl-agv-name", data=""),
         ]
     )
 
@@ -422,8 +473,18 @@ def populate_map_dropdown(_):
 def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, data, style):
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
-    upsert_agv(name or "AGV", agv_type or "trailer", ip, port,
-               map_id=map_id, factory=factory)
+    if not agv_type:
+        raise dash.exceptions.PreventUpdate
+
+    # Tự sinh tên AGV dạng "AGV01", "AGV02" … dựa trên số AGV hiện có
+    existing = load_agvs()
+    auto_idx = len(existing) + 1
+    auto_name = f"AGV{auto_idx:02d}"
+    # Factory mặc định là "TOT" — sẽ được cấu hình lại qua Config Mode
+    auto_factory = "tot"
+
+    upsert_agv(auto_name, agv_type, ip=None, port=None,
+               map_id=map_id or None, factory=auto_factory)
     # Reload registry trên server để AGV mới ngay lập tức được nhận diện
     try:
         import requests as _req
@@ -435,6 +496,37 @@ def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, data, style):
         style = {}
     style["right"] = "-420px"
     return data, style, "", "", "", "", None, None
+
+
+# ── Callback: mở modal khi click nút "Cấu hình" ─────────────────────────────
+from dash import ALL as _ALL
+
+@callback(
+    Output("ctrl-modal",    "is_open"),
+    Output("ctrl-iframe",   "src"),
+    Input({"type": "configure-agv", "name": _ALL}, "n_clicks"),
+    prevent_initial_call=True,
+)
+def open_ctrl_modal(n_clicks_list):
+    ctx = dash.callback_context
+    if not ctx.triggered or not any(n_clicks_list):
+        raise dash.exceptions.PreventUpdate
+    # Lấy tên AGV từ id của button được click
+    triggered_id = ctx.triggered[0]["prop_id"].split(".")[0]
+    import json as _json
+    agv_name = _json.loads(triggered_id).get("name", "")
+    if not agv_name:
+        raise dash.exceptions.PreventUpdate
+    src = f"/assets/agv_manager.html?auto_open={agv_name}"
+    return True, src
+
+
+@callback(
+    Output("ctrl-modal", "is_open", allow_duplicate=True),
+    Input("ctrl-modal",  "is_open"),
+    prevent_initial_call=True,
+)
+def _noop_ctrl(_): raise dash.exceptions.PreventUpdate
 
 
 # ✅ FIX: lấy lang từ Store global "lang-store" (được tạo ở main.py)

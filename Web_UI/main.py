@@ -11,9 +11,9 @@ from agv_manager import layout as agv_manager_layout
 from task_create import layout as task_create_layout
 from task_list import layout as task_list_layout
 from task_execute import layout as task_execute_layout
-from map_configure import map_configure_layout
 from journal_history import layout as journal_history_layout
 from journal_logs import layout as journal_logs_layout
+from statistics_page import layout as statistics_layout
 
 
 # Dash app
@@ -99,8 +99,6 @@ def _route_content(pathname, lang: str):
         return home_layout(lang)
     if pathname in ["/create-map", "/home/create-map"]:
         return create_map_layout(lang)
-    if pathname in ["/map-configure", "/home/map-configure"]:
-        return map_configure_layout()
     if pathname in ["/map-view", "/home/map-view"]:
         return map_view_layout(lang)
     if pathname in ["/agv-manager", "/home/agv-manager"]:
@@ -115,6 +113,8 @@ def _route_content(pathname, lang: str):
         return journal_history_layout(lang)
     if pathname in ["/journal-logs", "/home/journal-logs"]:
         return journal_logs_layout(lang)
+    if pathname in ["/statistics", "/home/statistics"]:
+        return statistics_layout(lang)
 
     return html.Div(
         html.H3(
@@ -237,4 +237,4 @@ def toggle_lang_menu(n_toggle, n_vi, n_en, is_open):
 
 
 if __name__ == "__main__":
-    app.run(host="192.168.0.56", port=8050, debug=True, dev_tools_ui=False)
+    app.run(host="192.168.1.13", port=8050, debug=True, dev_tools_ui=False)

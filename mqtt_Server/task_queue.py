@@ -86,6 +86,10 @@ class AGVTaskQueue:
         self._loop = None   # event loop reference — set khi set_pool gọi từ lifespan
         # Callback dispatch thực tế: dispatch_fn(QueuedCommand) -> bool
         self.dispatch_fn: Optional[Callable] = None
+        # Pickup tracking per session (lượt cấp hàng): {session_key: {supply_node,...}}
+        # Một supply node chỉ lấy hàng MỘT lần mỗi lượt; các lệnh giao hàng sau trong
+        # cùng session sẽ không dừng lại tại supply node đã lấy (đi một mạch qua).
+        self._session_pickups: dict[str, set[str]] = {}
 
     def set_pool(self, pool) -> None:
         self._pool = pool
@@ -107,6 +111,44 @@ class AGVTaskQueue:
 
     def is_busy(self, agv_id: str) -> bool:
         return bool(self._running.get(agv_id))
+
+    # ── Session pickup tracking ──────────────────────────────────────────────
+    @staticmethod
+    def _session_key(session_id: Optional[str]) -> str:
+        return session_id or "__none__"
+
+    def mark_session_pickup(self, session_id: Optional[str], node) -> None:
+        """Đánh dấu supply node đã (hoặc sẽ) lấy hàng trong session này."""
+        if node is None:
+            return
+        self._session_pickups.setdefault(self._session_key(session_id), set()).add(str(node))
+
+    def session_has_pickup(self, session_id: Optional[str], node) -> bool:
+        """True nếu supply node đã được lấy hàng trong session này → không dừng lại nữa."""
+        if node is None:
+            return False
+        return str(node) in self._session_pickups.get(self._session_key(session_id), ())
+
+    def current_session(self, agv_id: str) -> Optional[str]:
+        """session_id của lệnh đang chạy trên AGV (None nếu không có)."""
+        running = self._running.get(agv_id)
+        return running.session_id if running else None
+
+    def session_queued_dests(self, agv_id: str, session_id: Optional[str],
+                             command: str) -> list[str]:
+        """dest_node của các lệnh `command` đang CHỜ trong queue thuộc cùng session.
+
+        Dùng để gom pickup cả lượt: khi giao 1 tổ, biết các tổ còn lại đang chờ
+        để đi lấy hàng tại tất cả điểm cấp TRƯỚC khi giao.
+        """
+        out: list[str] = []
+        for c in self._queues.get(agv_id, deque()):
+            if c.command == command and c.dest_node and c.session_id == session_id:
+                out.append(str(c.dest_node))
+        return out
+
+    def _clear_session_pickups(self, session_id: Optional[str]) -> None:
+        self._session_pickups.pop(self._session_key(session_id), None)
 
     def dispatch_or_queue(
         self,
@@ -160,8 +202,15 @@ class AGVTaskQueue:
             print(f"[QUEUE] {agv_id}: enqueued '{command}' dest={dest_node} id={cmd.cmd_id}")
             return cmd, False
 
-    def on_agv_completed(self, agv_id: str, notes: str = "") -> None:
-        """Gọi khi AGV hoàn thành lệnh. Tự dispatch lệnh tiếp theo nếu có."""
+    def on_agv_completed(self, agv_id: str, notes: str = "",
+                         auto_dispatch: bool = True) -> None:
+        """Gọi khi AGV hoàn thành lệnh. Tự dispatch lệnh tiếp theo nếu có.
+
+        auto_dispatch=False: chỉ HOÀN THÀNH lệnh hiện tại + GIẢI PHÓNG xe, KHÔNG pop
+        lệnh kế. Dùng cho 'đứng yên chờ retry' (dest bị chiếm) — để xe rảnh cho
+        pending_retry dispatch LẠI go_to khi đích trống, mà KHÔNG chạy nhầm go_charge
+        đứng sau trong hàng đợi (gây bỏ giao hàng đi sạc).
+        """
         running = self._running.get(agv_id)
         if running:
             running.status        = STATUS_COMPLETED
@@ -169,10 +218,17 @@ class AGVTaskQueue:
             running.notes         = notes
             self._running[agv_id] = None   # ← Giải phóng AGV NGAY
             self._db_update(running)
-            print(f"[QUEUE] {agv_id}: completed cmd={running.cmd_id}")
+            print(f"[QUEUE] {agv_id}: completed cmd={running.cmd_id}"
+                  f"{' (giữ hàng đợi, chờ retry)' if not auto_dispatch else ''}")
+
+        if not auto_dispatch:
+            return   # giải phóng xe nhưng KHÔNG chạy lệnh kế (go_charge vẫn chờ)
 
         q = self._queues.get(agv_id)
         if not q:
+            # Hàng đợi rỗng → lượt cấp hàng (session) kết thúc → dọn pickup tracking
+            if running:
+                self._clear_session_pickups(running.session_id)
             return
 
         next_cmd            = q.popleft()

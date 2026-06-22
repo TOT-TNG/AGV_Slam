@@ -53,7 +53,7 @@ def _save_mqtt_mode(mode: str) -> None:
 def _resolve_broker_port(mode: str) -> tuple[str, int]:
     if mode == "cloud":
         return _CLOUD_BROKER, _CLOUD_PORT
-    return os.getenv("MQTT_BROKER", "192.168.0.56").strip(), int(os.getenv("MQTT_PORT", "1883"))
+    return os.getenv("MQTT_BROKER", "192.168.1.13").strip(), int(os.getenv("MQTT_PORT", "1883"))
 
 def _configure_client_for_mode(c, mode: str) -> None:
     """Cài TLS + auth cho client theo mode trước khi connect."""
@@ -1265,7 +1265,9 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
 
     from agv_registry import agv_registry
     if agv_registry.is_line(agv_id):
-        from line_agv_plan_builder import build_line_plan, build_edge_speeds, build_edge_lidar
+        from line_agv_plan_builder import (
+            build_line_plan, build_plan_window, build_edge_speeds, build_edge_lidar,
+        )
         from line_agv_handler import line_agv_handler
         from task_queue import agv_task_queue as _atq_s, CMD_GO_TO as _CGT_S, CMD_GO_CHARGE as _CGC_S, CMD_GO_WAIT as _CGW_S
         path         = [str(n.get("nodeId") or n) for n in route_nodes]
@@ -1279,6 +1281,231 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
         # Đọc hướng xe hiện tại
         _lstate   = line_agv_handler.state_store.get(agv_id)
         _prev_tag = str(_lstate.prev_tag) if (_lstate and _lstate.prev_tag) else None
+
+        # ── HEAD-ON check trước khi xử lý backward transit ───────────────────
+        # send_agv_to_special_target có code dispatch riêng, không qua _dispatch_go_to
+        # nên phải check HEAD-ON ở đây để phát hiện conflict với xe khác đang dừng/đi
+        try:
+            from line_agv_handler import traffic_coordinator as _tc_s
+            from line_agv_handler import _charger_exit_direction as _ced_s
+            # WAIT-BASED: KHÔNG maneuver (đỗ/né sang node tùy ý) lúc dispatch — gây Line
+            # AGV đi sai hướng, ra khỏi line, kẹt. Cứ dispatch tuyến bình thường; khi xe
+            # chạy tới gần vùng tranh chấp, _check_rolling_plan (runtime) sẽ tự DỪNG CHỜ
+            # (reservation/arbiter quyết ai đi trước; deadlock → lùi về prev_tag).
+            # (Khối maneuver cũ bên dưới bị tắt bằng _ho_s=None; giữ lại để tham khảo.)
+            _ho_s = None
+            if _ho_s is not None:
+                _ho_idx_s, _ho_other_s = _ho_s
+                _cur_tag_s = str(_lstate.current_tag) if (_lstate and _lstate.current_tag) else None
+                # Xác định hướng dựa trên backward transit detection:
+                # nếu path[1]==prev_tag → AGV cần đi lùi (bwd) để quay đầu trở lại
+                # Dùng cùng logic với backward transit detection trong hàm này
+                _need_bwd_s = (
+                    _prev_tag and len(path) >= 2
+                    and str(path[1]) == _prev_tag
+                    and not (getattr(_lstate, 'last_transit_direction', '') == 'bwd'
+                             if _lstate else False)
+                )
+                _ho_dir_raw_s = 'bwd' if _need_bwd_s else 'fwd'
+                if (getattr(_lstate, 'task_lifecycle', '') or '') == 'charging':
+                    _ho_dir_raw_s = 'fwd'
+                _ho_dir_s = _ced_s(_cur_tag_s or '', _ho_dir_raw_s)
+
+                _parking_s = _tc_s.find_parking_node(agv_id, path, _ho_idx_s, _ho_other_s)
+                if _parking_s and _parking_s[0] != _cur_tag_s:
+                    _park_node_s, _entry_node_s = _parking_s
+                    _entry_idx_s = path.index(_entry_node_s) if _entry_node_s in path else (_ho_idx_s - 1)
+                    _transit_s   = path[:_entry_idx_s + 1] + [_park_node_s]
+                    _park_dir_s  = _ced_s(_transit_s[0] if _transit_s else '', _ho_dir_s)
+                    _park_plan_s = build_line_plan(
+                        _transit_s, points, task_type="transit",
+                        node_actions=node_actions, direction=_park_dir_s,
+                        edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                        agv_id=agv_id, initial_prev_tag=None,
+                    )
+                    _rt_s = line_agv_handler.set_route(agv_id, _transit_s, "transit", direction=_park_dir_s)
+                    _rt_s.window_end  = len(_transit_s) - 1
+                    _rt_s.is_complete = True
+                    send_generated_order(agv_id, _park_plan_s)
+                    _next_cmd_s = _CGC_S if target_type == "charge" else _CGW_S
+                    _atq_s.insert_next(agv_id, _next_cmd_s)
+                    print(f"[SPECIAL] {agv_id}: HEAD-ON với {_ho_other_s} → "
+                          f"đỗ tại {_park_node_s} (dir={_park_dir_s}), queue tiếp")
+                    return {
+                        "success": True, "agv_id": agv_id,
+                        "target_type": target_type, "target_node": target_node,
+                        "target_name": target_info.get("name"),
+                        "map_id": resolved_map_id, "path": path,
+                    }
+                else:
+                    # Không có nhánh phụ → check safe_wait
+                    # BOUNCE PREVENTION: loại trừ prev_tag để tránh dao động 18↔5
+                    _prev_s = str(_prev_tag) if _prev_tag else None
+                    _safe_s = _tc_s.find_safe_wait_node(path, _ho_idx_s)
+                    _other_reg_s = _tc_s._registered.get(_ho_other_s, {})
+                    _other_fut_s = set(_other_reg_s.get('path', [])[_other_reg_s.get('current_idx', 0):])
+                    if (_safe_s and _safe_s != path[0] and _safe_s != path[-1]
+                            and _safe_s != _cur_tag_s and _safe_s not in _other_fut_s
+                            and _safe_s != _prev_s):
+                        _wait_s   = path[:path.index(_safe_s) + 1]
+                        _wait_dir_s = _ced_s(_wait_s[0] if _wait_s else '', _ho_dir_s)
+                        _wait_plan_s = build_line_plan(
+                            _wait_s, points, task_type="transit",
+                            node_actions=node_actions, direction=_wait_dir_s,
+                            edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                            agv_id=agv_id, initial_prev_tag=None,
+                        )
+                        _rt_sw = line_agv_handler.set_route(agv_id, _wait_s, "transit", direction=_wait_dir_s)
+                        _rt_sw.window_end  = len(_wait_s) - 1
+                        _rt_sw.is_complete = True
+                        send_generated_order(agv_id, _wait_plan_s)
+                        _next_cmd_s = _CGC_S if target_type == "charge" else _CGW_S
+                        _atq_s.insert_next(agv_id, _next_cmd_s)
+                        print(f"[SPECIAL] {agv_id}: HEAD-ON với {_ho_other_s} (safe_wait={_safe_s}, dir={_wait_dir_s})")
+                        return {
+                            "success": True, "agv_id": agv_id,
+                            "target_type": target_type, "target_node": target_node,
+                            "target_name": target_info.get("name"),
+                            "map_id": resolved_map_id, "path": path,
+                        }
+                    else:
+                        # Parking và safe_wait đều fail → tìm side_node từ vị trí hiện tại
+                        # (ví dụ: tại node 18, neighbor là node 5 không trên conflict path)
+                        _side_found_s = False
+                        if _cur_tag_s:
+                            try:
+                                from line_agv_handler import traffic_coordinator as _tc_sn
+                                _g_sn = map_manager.line_graph if map_manager.line_graph else map_manager.graph
+                                if _g_sn and _cur_tag_s in _g_sn:
+                                    _path_set_sn = set(path)
+                                    _other_reg_sn = _tc_sn._registered.get(_ho_other_s, {})
+                                    _other_fut_sn = set(_other_reg_sn.get('path', [])[_other_reg_sn.get('current_idx', 0):])
+                                    _side_cands_sn = [
+                                        str(n) for n in _g_sn.neighbors(_cur_tag_s)
+                                        if str(n) not in _path_set_sn
+                                        and str(n) not in _other_fut_sn
+                                        and str(n) != _prev_s   # BOUNCE PREVENTION
+                                    ]
+                                    if not _side_cands_sn and _other_reg_sn:
+                                        # Bottleneck: thử following direction
+                                        _other_path_sn = _other_reg_sn.get('path', [])
+                                        for _nb in _g_sn.neighbors(_cur_tag_s):
+                                            _nb_str = str(_nb)
+                                            if _nb_str in _path_set_sn:
+                                                continue
+                                            try:
+                                                _idx_c = _other_path_sn.index(_cur_tag_s)
+                                                _idx_n = _other_path_sn.index(_nb_str)
+                                                if _idx_n > _idx_c:
+                                                    _side_cands_sn.append(_nb_str)
+                                            except ValueError:
+                                                pass
+                                    if _side_cands_sn:
+                                        _side_cands_sn.sort(key=lambda n: _g_sn.degree(str(n)))
+                                        _side_prev_tag = str(_lstate.prev_tag) if (_lstate and _lstate.prev_tag) else None
+                                        _side_dir_try  = _ced_s(_cur_tag_s, _ho_dir_s)
+                                        import networkx as _nx_sn2
+
+                                        def _is_side_navigable_sn(_path, _prev, _dir, _na):
+                                            """
+                                            Kiểm tra tổng quát: path đến side_node có điều hướng rõ ràng không.
+                                            Áp dụng cho MỌI map layout:
+                                              - Path multi-hop (>=3 nodes): an toàn — junction có turn_map.
+                                              - Path 1-hop [A, B] nếu B == prev_tag: an toàn — hướng bwd tự nhiên.
+                                              - Path 1-hop [A, B] nếu có turn_map entry '{prev}_{B}_{dir}': an toàn.
+                                              - Path 1-hop [A, B] nếu geometry thẳng (prev→A→B ~0°): an toàn —
+                                                firmware đi thẳng không cần turn command. Ví dụ: node 17 nằm giữa
+                                                5 và 6 trên một đường thẳng, đi bwd từ 17 về 6 là tự nhiên.
+                                            """
+                                            if len(_path) < 2:
+                                                return False
+                                            if len(_path) >= 3:
+                                                return True  # multi-hop: junction nodes có turn_map
+                                            # 1-hop: [A, B]
+                                            _b = str(_path[1])
+                                            if not _prev or str(_b) == str(_prev):
+                                                return True  # B là prev → hướng bwd tự nhiên
+                                            # Kiểm tra turn_map
+                                            _tm = (_na.get(str(_path[0])) or {}).get('turn_map') or {}
+                                            if f"{_prev}_{_b}_{_dir}" in _tm:
+                                                return True  # explicit turn_map entry → navigable
+                                            # Fallback: geometry — nếu prev→A→B thẳng (không rẽ),
+                                            # AGV đi tự nhiên không cần turn command.
+                                            try:
+                                                from line_agv_plan_builder import get_turn_direction
+                                                _pts_sn = getattr(map_manager, 'points', {}) or {}
+                                                _geo = get_turn_direction(_prev, str(_path[0]), _b, _pts_sn)
+                                                if _geo is None:
+                                                    return True  # đường thẳng → an toàn
+                                            except Exception:
+                                                pass
+                                            return False  # có góc rẽ nhưng không có turn_map → không an toàn
+
+                                        for _snc in _side_cands_sn:
+                                            try:
+                                                _side_path_s = list(_nx_sn2.shortest_path(
+                                                    _g_sn, source=str(_cur_tag_s),
+                                                    target=str(_snc), weight='weight'
+                                                ))
+                                            except Exception:
+                                                _side_path_s = [_cur_tag_s, _snc]
+                                            if not _is_side_navigable_sn(_side_path_s, _side_prev_tag, _side_dir_try, node_actions):
+                                                print(f"[SPECIAL] {agv_id}: side_node {_snc} ambiguous navigation → bỏ qua")
+                                                continue
+                                            _side_node_s = _snc
+                                            _side_found_s = True
+                                            break
+                                        if _side_found_s:
+                                            _side_plan_s = build_line_plan(
+                                                _side_path_s, points, task_type="transit",
+                                                node_actions=node_actions, direction=_side_dir_try,
+                                                edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                                                agv_id=agv_id, initial_prev_tag=_side_prev_tag,
+                                            )
+                                            _rt_sn = line_agv_handler.set_route(agv_id, _side_path_s, "transit", direction=_side_dir_try)
+                                            _rt_sn.window_end  = len(_side_path_s) - 1
+                                            _rt_sn.is_complete = True
+                                            send_generated_order(agv_id, _side_plan_s)
+                                            _next_cmd_s = _CGC_S if target_type == "charge" else _CGW_S
+                                            _atq_s.insert_next(agv_id, _next_cmd_s)
+                                            print(f"[SPECIAL] {agv_id}: HEAD-ON side_node={_side_node_s} path={_side_path_s} (dir={_side_dir_try}), queue tiếp")
+                            except Exception as _se:
+                                print(f"[SPECIAL] side_node error: {_se}")
+                        if not _side_found_s:
+                            # Không tìm được chỗ đỗ không-bounce → đứng yên chờ xe kia rời.
+                            # 1. Hoàn thành task hiện tại để giải phóng _running (không stuck queue)
+                            try:
+                                from task_queue import agv_task_queue as _atq_cpl
+                                _atq_cpl.on_agv_completed(agv_id, notes='bounce_wait')
+                            except Exception:
+                                pass
+                            # 2. Set pending_retry_cmd để _check_waiting_agvs trigger khi xe cản rời
+                            _retry_cmd = 'go_charge' if target_type == 'charge' else 'go_wait'
+                            try:
+                                from line_agv_handler import line_agv_handler as _lah_br
+                                _st_br = _lah_br.state_store.get(agv_id)
+                                if _st_br:
+                                    _st_br.pending_retry_cmd = _retry_cmd
+                            except Exception:
+                                pass
+                            print(f"[SPECIAL] {agv_id}: HEAD-ON với {_ho_other_s} — "
+                                  f"bounce detected, đứng yên tại {_cur_tag_s} chờ xe kia rời")
+                        return {
+                            "success": True, "agv_id": agv_id,
+                            "target_type": target_type, "target_node": target_node,
+                            "target_name": target_info.get("name"),
+                            "map_id": resolved_map_id, "path": path,
+                        }
+        except Exception as _ho_err:
+            print(f"[SPECIAL] head-on check error in send_agv_to_special_target: {_ho_err}")
+
+        # Ghi TUYẾN ĐẦY ĐỦ (intent) tới đích cuối — dù bên dưới có chia đoạn lùi (17→5)
+        # rồi queue phần còn lại, xe KHÁC vẫn né được cả tuyến 5→18→4→19→…→13.
+        try:
+            from line_agv_handler import traffic_coordinator as _tc_intent
+            _tc_intent.set_intent_route(agv_id, path)
+        except Exception:
+            pass
 
         # Xử lý đoạn lùi đầu đường (nếu planner chọn lùi trước)
         if _prev_tag and len(path) >= 2 and str(path[1]) == _prev_tag:
@@ -1329,8 +1556,22 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
         _last_tdir_pre  = getattr(_lstate, 'last_transit_direction', '') if _lstate else ''
         _is_post_charge = (getattr(_lstate, 'task_lifecycle', '') or '') == "charging"
 
-        # initial_prev_tag chỉ dùng khi xe vừa đến start node theo chiều lùi
-        _initial_prev = _prev_tag if (_last_tdir_pre == 'bwd' and not _is_post_charge) else None
+        # initial_prev_tag: tính góc rẽ tại start node theo hướng đến từ prev_tag — chỉ
+        # đúng khi xe đi xuyên qua node. NGOẠI LỆ: xe xuất phát từ TRẠM SẠC (CHARGER):
+        # trạm approach_dir=bwd → xe lùi vào, mặt quay ra ngoài → xuất phát đi THẲNG theo
+        # hướng đang quay, không theo prev_tag → bỏ tính turn tại node đầu. TỔNG QUÁT cho
+        # MỌI node locationType=CHARGER (không hardcode), mọi lần ra trạm (không chỉ charging).
+        _cur_cfg_exit = (node_actions.get(str(path[0])) or {}) if path else {}
+        _exit_from_charger = (
+            str(_cur_cfg_exit.get('locationType', '')).upper() == 'CHARGER'
+            or str(_cur_cfg_exit.get('arrival_action', '')).lower() == 'wait_charge'
+        )
+        # CHỈ bỏ tính turn khi xe ĐANG Ở TRẠM SẠC (path[0]=CHARGER). KHÔNG dùng
+        # _is_post_charge (lifecycle='charging' còn sót sau khi rời trạm → ở node
+        # thường vẫn bị bỏ rẽ → đi thẳng nhầm node).
+        _suppress_initial_turn = _exit_from_charger
+        _initial_prev        = _prev_tag if not _suppress_initial_turn else None
+        _initial_arrived_bwd = (_last_tdir_pre == 'bwd' and not _suppress_initial_turn)
 
         # Khi AGV vừa xong bwd transit → tiếp tục direction=bwd (rẽ + lùi tiếp).
         # KHÔNG dùng direction=fwd vì firmware có thể chạy tiến trước khi rẽ.
@@ -1341,15 +1582,15 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
         print(f"[SPECIAL] {agv_id}: direction={_line_dir} "
               f"(last_tdir={_last_tdir_pre!r}, post_charge={_is_post_charge})")
 
-        order = build_line_plan(path, points, task_type=line_task,
-                                node_actions=node_actions, direction=_line_dir,
-                                edge_speeds=edge_spd, edge_lidar=edge_lidar,
-                                agv_id=agv_id, initial_prev_tag=_initial_prev)
         _rt = line_agv_handler.set_route(agv_id, path, line_task, direction=_line_dir)
+        # Gửi CỬA SỔ ĐẦU (≤LOOKAHEAD node) — rolling gửi tiếp nếu đường dài (tránh tràn buffer)
+        order = build_plan_window(
+            full_path=path, w_start=0, w_end=_rt.window_end, points=points,
+            is_final=_rt.is_complete, task_type=line_task,
+            node_actions=node_actions, direction=_line_dir,
+            edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
+            initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd)
         send_generated_order(agv_id, order)
-        # Full plan đã gửi → mark complete để arrived_wait_* handler xử lý đúng
-        _rt.window_end = len(path) - 1
-        _rt.is_complete = True
         return {
             "success": True,
             "agv_id": agv_id,
@@ -1688,17 +1929,20 @@ def _pick_least_claimed_station(
     # ── Line AGV: kiểm tra vị trí + đích route ──────────────────────────────
     try:
         from line_agv_handler import line_agv_handler as _lah
+        # Vị trí hiện tại
         for agv_id, st in _lah.state_store._states.items():
             if agv_id == requesting_agv_id or st is None:
                 continue
             cur_tag = str(st.current_tag or "").strip()
             if cur_tag in claims:
                 claims[cur_tag] += 2
-            # đích của route hiện tại
-            if st.route and st.route.full_path:
-                dest_tag = str(st.route.full_path[-1]).strip()
-                if dest_tag in claims:
-                    claims[dest_tag] += 1
+        # Destination từ _routes (KHÔNG phải LineAGVState.route)
+        for agv_id, route in _lah._routes.items():
+            if agv_id == requesting_agv_id or not route or not route.full_path:
+                continue
+            dest_tag = str(route.full_path[-1]).strip()
+            if dest_tag in claims:
+                claims[dest_tag] += 1
     except Exception:
         pass
 
@@ -1851,7 +2095,39 @@ def pick_available_agv() -> str | None:
     return "QR-SLAM-AGV-001"
 
 
-async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: str):
+def _planner_dest_priority(node_actions: dict, end_node) -> int:
+    """Ưu tiên (priority) của xe đang lập kế hoạch suy theo LOẠI node đích:
+    CHARGER/wait_charge → return_charge(1); còn lại → delivery(3). Dùng khi xe CHƯA
+    registered (vd vừa picking xong) để KHÔNG bị rank mặc định 2 → né nhầm xe khác."""
+    _cfg = (node_actions or {}).get(str(end_node)) or {}
+    if (str(_cfg.get('locationType', '')).upper() == 'CHARGER'
+            or str(_cfg.get('arrival_action', '')).lower() == 'wait_charge'):
+        return 1
+    return 3
+
+
+def _planner_should_avoid(my_prio: int, my_id: str,
+                          other_prio: int, other_id: str) -> bool:
+    """me có nên NÉ đường other không? CHỈ khi other MẠNH hơn theo (priority, id).
+    Antisymmetric → đúng 1 xe né. Dùng my_prio THẬT (không mặc định 2) để xe winner
+    KHÔNG né nhầm (gốc lỗi: cả 2 cùng né → đâm)."""
+    return (other_prio, str(other_id)) > (my_prio, str(my_id))
+
+
+def _path_is_headon_against(my_dir_edges: set, other_path: list,
+                            other_cur: int = 0) -> bool:
+    """True nếu other_path đi NGƯỢC chiều ta trên ≥1 cạnh vật lý CHUNG (head-on).
+    my_dir_edges = tập cạnh CÓ HƯỚNG (a,b) của đường ta. Xe kia đi a→b mà ta đi b→a
+    trên cùng cạnh = head-on. Cùng chiều hoàn toàn (following) hoặc rời nhau → False.
+    Dùng để chỉ NÉ xe ngược chiều, KHÔNG bắt xe đi vòng tránh xe cùng chiều (following)."""
+    for _j in range(other_cur, len(other_path) - 1):
+        if (str(other_path[_j + 1]), str(other_path[_j])) in my_dir_edges:
+            return True
+    return False
+
+
+async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: str,
+                          session_id: str | None = None):
     """
     Dùng MapManager thật để tính path từ start -> end.
 
@@ -1946,38 +2222,255 @@ async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: s
     if _is_line:
         _prev_tag = str(_line_st.prev_tag) if (_line_st and _line_st.prev_tag) else None
 
-        # Lấy danh sách nodes đang bị Line AGV khác chiếm (trừ start và end)
+        # Lấy nodes bị Line AGV khác chiếm — CHỈ current position + final destination.
+        # KHÔNG block intermediate nodes: xe khác sẽ đi qua trước khi mình đến,
+        # block tất cả sẽ ngắt đồ thị và làm không tìm được đường.
         _occupied: set[str] = set()
         try:
             from line_agv_handler import line_agv_handler as _lah_plan
+            # 1. Vị trí đang đứng (physically there — must avoid)
             for _oid, _ost in _lah_plan.state_store._states.items():
-                if _oid == agv_id or _ost is None:
+                if _oid == agv_id or _ost is None or _ost.current_tag is None:
                     continue
-                _ct = str(_ost.current_tag or "").strip()
+                _ct = str(_ost.current_tag).strip()
                 if _ct and _ct != start_node and _ct != end_node:
                     _occupied.add(_ct)
-                if _ost.route and _ost.route.full_path:
-                    _dt = str(_ost.route.full_path[-1]).strip()
-                    if _dt and _dt != start_node and _dt != end_node:
-                        _occupied.add(_dt)
+            # 2. Điểm đến cuối của route non-transit (same-destination conflict prevention)
+            # Xe khác đang đi đến cùng đích → tránh đường để planner tìm đường khác
+            for _oid, _route in _lah_plan._routes.items():
+                if _oid == agv_id or not _route or not _route.full_path:
+                    continue
+                if getattr(_route, 'task_type', '') in ('transit',):
+                    continue  # transit không chiếm destination
+                _dest = str(_route.full_path[-1]).strip()
+                if _dest and _dest != start_node and _dest != end_node:
+                    _occupied.add(_dest)
         except Exception:
             pass
 
-        if _occupied:
-            # Thử tìm đường tránh occupied nodes
-            import networkx as _nx
-            _g_copy = map_manager.line_graph.copy() if map_manager.line_graph else map_manager.graph.copy()
-            _g_copy.remove_nodes_from(n for n in _occupied if n in _g_copy)
+        # ── Tính đường cơ bản ────────────────────────────────────────────────
+        node_path = map_manager.line_directional_path(start_node, end_node, _prev_tag)
+
+        # ── Phase 0: Tìm supply node bắt buộc cho delivery này ─────────────────
+        # Nếu đích là DROPOFF có team, tìm supply node phục vụ team đó.
+        # Quy trình: AGV PHẢI đi qua supply node lấy hàng TRƯỚC rồi mới đến đích.
+        # Điều này đúng cho MỌI bản đồ, không phụ thuộc vào node ID cụ thể.
+        _req_supply = None
+        try:
+            _na_p0 = getattr(map_manager, 'node_actions', {}) or {}
+            _end_na_p0 = _na_p0.get(str(end_node)) or {}
+            _end_team_p0 = _end_na_p0.get('team')
+            if _end_team_p0:
+                _end_team_str_p0 = str(_end_team_p0)
+                for _snid_p0, _sncfg_p0 in _na_p0.items():
+                    if str(_sncfg_p0.get('arrival_action', '') or '').lower() == 'wait_sys':
+                        _sg_p0 = _sncfg_p0.get('supply_group') or []
+                        if isinstance(_sg_p0, str):
+                            _sg_p0 = [s.strip() for s in _sg_p0.split(',')]
+                        if _end_team_str_p0 in [str(g) for g in _sg_p0]:
+                            _req_supply = str(_snid_p0)
+                            break  # lấy supply node đầu tiên tìm được
+        except Exception:
+            pass
+
+        # Nếu supply node này ĐÃ lấy hàng trong session (lượt cấp) hiện tại →
+        # KHÔNG ép đi qua nữa. Tránh detour `…→supply→…` lặp lại cho mỗi tổ
+        # (nguyên nhân AGV "đi về node 64", U-turn lỗi → off_route sang node kế bên).
+        if _req_supply and session_id is not None:
             try:
-                _alt_path = _nx.shortest_path(_g_copy, source=start_node, target=end_node, weight="weight")
-                node_path = _alt_path
-                print(f"[PLAN] {agv_id}: tránh occupied nodes {_occupied} → {node_path}")
-            except Exception:
-                # Không có đường thay thế → dùng đường gốc (LIDAR xử lý runtime)
-                node_path = map_manager.line_directional_path(start_node, end_node, _prev_tag)
-                print(f"[PLAN] {agv_id}: không có đường tránh — dùng path gốc, cảnh báo conflict")
-        else:
-            node_path = map_manager.line_directional_path(start_node, end_node, _prev_tag)
+                from task_queue import agv_task_queue as _atq_pp
+                if _atq_pp.session_has_pickup(session_id, _req_supply):
+                    print(f"[PLAN] {agv_id}: supply {_req_supply} đã lấy hàng trong "
+                          f"session {session_id} → KHÔNG ép đi qua nữa (đi thẳng tới đích)")
+                    _req_supply = None
+            except Exception as _e_pp:
+                print(f"[PLAN] {agv_id}: session pickup check lỗi: {_e_pp}")
+
+        # ── ƯU TIÊN THẬT của xe đang lập KH (dùng cho MỌI quyết định né: Phase 1
+        # penalty, Phase 2 head-on). KHÔNG để rank mặc định 2 khi xe chưa registered
+        # (vừa picking xong) → winner né nhầm → cả 2 cùng né, đâm. Suy theo đích.
+        from line_agv_handler import traffic_coordinator as _tc_prio
+        _my_prio_plan = _planner_dest_priority(
+            getattr(map_manager, 'node_actions', {}) or {}, end_node)
+        _my_prio_plan = _tc_prio._registered.get(agv_id, {}).get('priority', _my_prio_plan)
+
+        # ── Phase 1: Tránh occupied nodes (current position + destination cuối) ─
+        # Nếu có supply node bắt buộc → KHÔNG thêm vào occupied (dù bị chiếm cũng phải đi qua,
+        # traffic logic sẽ xử lý chờ/né khi đến nơi).
+        if _req_supply:
+            _occupied.discard(_req_supply)
+
+        # ── Phase 1: ROUTING TRÁNH XE KHÁC (traffic-aware, PHẠT MỀM) ──────────
+        # Thay vì XOÁ node bị chiếm (cứng, dễ ngắt đồ thị), PHẠT (cộng weight) các
+        # cạnh mà xe khác đang dùng (path đăng ký) + nặng hơn quanh vị trí xe đứng.
+        # → planner ƯU TIÊN nhánh VÒNG thay thế nếu map có (vd 4-9-15-8-5 thay cho
+        # 4-18-5), nhưng VẪN đi được đoạn đường ĐƠN khi không còn lối khác (4-19-64-2).
+        # Phạt > chênh lệch quãng đường (cạnh ~80) để né được, nhưng hữu hạn để fallback.
+        try:
+            import networkx as _nx
+            _g_pen = (map_manager.line_graph.copy() if map_manager.line_graph
+                      else map_manager.graph.copy())
+            _PEN_PATH = 1000.0    # phạt cạnh xe khác sẽ đi qua (đăng ký)
+            _PEN_POS  = 10000.0   # phạt nặng quanh vị trí xe khác đang đứng
+            from line_agv_handler import (line_agv_handler as _lah_pen,
+                                          traffic_coordinator as _tc_pen)
+
+            def _bump(_u, _v, _amt):
+                if _g_pen.has_edge(_u, _v):
+                    _g_pen[_u][_v]['weight'] = _g_pen[_u][_v].get('weight', 1.0) + _amt
+
+            # ƯU TIÊN của CHÍNH xe đang lập kế hoạch: KHÔNG để mặc định 2 khi chưa
+            # registered (xe vừa picking xong lập route giao hàng CHƯA đăng ký lại →
+            # bị coi yếu hơn xe kia → NÉ NHẦM dù mình là winner → CẢ HAI cùng né, đâm
+            # nhau). Suy theo loại node đích: CHARGER → return_charge(1), còn lại
+            # delivery(3). Nếu đã registered thì dùng priority thật.
+            def _should_avoid_pen(_other_id: str) -> bool:
+                """Như should_avoid_path_of nhưng dùng _my_prio_plan cho xe đang lập KH
+                (tránh lỗi rank mặc định 2 khi chưa registered)."""
+                _op_prio = _tc_pen._registered.get(_other_id, {}).get('priority', 2)
+                return _planner_should_avoid(_my_prio_plan, agv_id, _op_prio, _other_id)
+
+            # 1. Phạt các cạnh trên path ĐĂNG KÝ (tương lai) của xe khác có route.
+            #    Path[current_idx:] bắt đầu từ vị trí xe → tự bao hướng nó đi; KHÔNG
+            #    phạt riêng vị trí (over-phạt cạnh nó KHÔNG đi → đẩy mình vào đúng
+            #    đường nó → đâm).
+            _routed = set()
+            # Tập cạnh CÓ HƯỚNG trên đường TỰ NHIÊN của ta (node_path lúc này CHƯA bị
+            # penalty sửa) → để phân biệt HEAD-ON (ngược chiều) vs FOLLOWING (cùng chiều).
+            _my_dir_edges = {(str(node_path[_i]), str(node_path[_i + 1]))
+                             for _i in range(len(node_path) - 1)} if node_path else set()
+            # Duyệt CẢ xe đăng ký LẪN xe đang chờ có intent_route (deregistered nhưng
+            # vẫn có ý định đi tới đích — vd xe chờ ở 18 sẽ đi 18→5→17) → né được.
+            for _oid in (set(_tc_pen._registered) | set(_tc_pen._intent_route)):
+                if _oid == agv_id:
+                    continue
+                _routed.add(_oid)
+                # BẤT ĐỐI XỨNG: chỉ né đường xe MẠNH hơn (chống dao động — cả 2 cùng né
+                # nhau sẽ cùng nhảy 1 nhánh → vẫn đâm). Xe mạnh giữ đường ngắn cố định.
+                if not _should_avoid_pen(_oid):
+                    continue
+                # Ưu tiên TUYẾN ĐẦY ĐỦ (intent) — biết cả phần xe sẽ đi sau khi chia đoạn
+                # HOẶC đang đứng chờ (vd 18→5→17 của xe chờ tới 17).
+                _intent = _tc_pen._intent_route.get(_oid)
+                if _intent and len(_intent) >= 2:
+                    _op = _intent; _oc = 0
+                else:
+                    _oreg = _tc_pen._registered.get(_oid, {})
+                    _op = _oreg.get('path', []); _oc = _oreg.get('current_idx', 0)
+                # CHỈ né khi HEAD-ON: xe kia đi NGƯỢC chiều ta trên CÙNG cạnh vật lý.
+                # FOLLOWING (cùng chiều — vd xe dẫn đầu vs xe theo sau cùng tới 1 đích)
+                # KHÔNG né: reservation/window-cap tự lo xe sau chờ xe trước; bắt xe đi
+                # vòng tránh xe-cùng-chiều = lãng phí + đúng lỗi user thấy (xe dẫn đi vòng).
+                if not _path_is_headon_against(_my_dir_edges, _op, _oc):
+                    continue
+                for _j in range(_oc, len(_op) - 1):
+                    _a, _b = str(_op[_j]), str(_op[_j + 1])
+                    _bump(_a, _b, _PEN_PATH); _bump(_b, _a, _PEN_PATH)
+            # 2. Né VỊ TRÍ xe đang DỪNG — BẤT ĐỐI XỨNG: chỉ né vị trí xe MẠNH hơn (mình
+            #    yếu → tránh), HOẶC xe đậu yên KHÔNG route (vật cản tĩnh). KHÔNG né vị trí
+            #    xe YẾU hơn có route: mình mạnh → đi đường ngắn, dừng trước CHỜ nó dời
+            #    (reserve không giành node nó đang đứng). Né vị trí xe yếu = nhảy nhánh
+            #    khác → trùng nhánh nó → dao động/kẹt.
+            for _oid2, _ost2 in _lah_pen.state_store._states.items():
+                if (_oid2 == agv_id or _ost2 is None or _ost2.current_tag is None
+                        or getattr(_ost2, 'driving', False)):
+                    continue
+                _reg2 = _oid2 in _tc_pen._registered
+                if _reg2 and not _should_avoid_pen(_oid2):
+                    continue   # xe YẾU hơn có route → KHÔNG né vị trí (chờ nó dời)
+                _cn = str(_ost2.current_tag).strip()
+                if _cn in (start_node, end_node) or _cn not in _g_pen:
+                    continue
+                for _nb in list(_g_pen.neighbors(_cn)):
+                    _bump(_cn, _nb, _PEN_POS); _bump(_nb, _cn, _PEN_POS)
+
+            _pen_path = _nx.shortest_path(_g_pen, source=start_node,
+                                          target=end_node, weight='weight')
+            if _pen_path and list(_pen_path) != list(node_path):
+                node_path = _pen_path
+                print(f"[PLAN] {agv_id}: traffic-aware route (né đường xe khác qua nhánh "
+                      f"vòng nếu có) → {node_path}")
+        except Exception as _e_pen:
+            print(f"[PLAN] {agv_id}: traffic-aware routing lỗi ({_e_pen}) — dùng path gốc")
+
+        # ── Phase 1b: Buộc đi qua supply node nếu chưa có trên path ─────────
+        # Trường hợp supply node không nằm trên đường ngắn nhất start→dest,
+        # xây dựng 2-leg route: start → supply → dest để đảm bảo quy trình lấy hàng.
+        # NGOẠI LỆ: không áp dụng nếu start_node nằm DOWNSTREAM của supply node
+        # (tức là AGV đã qua supply đi tiếp → không cần quay lại lấy hàng lần nữa).
+        if _req_supply and _req_supply not in node_path and _req_supply != start_node:
+            try:
+                import networkx as _nx
+                _g_via = map_manager.line_graph.copy() if map_manager.line_graph else map_manager.graph.copy()
+                _occ_no_supply = {n for n in _occupied if n != _req_supply}
+                _g_via.remove_nodes_from(n for n in _occ_no_supply if n in _g_via)
+                _leg1 = _nx.shortest_path(_g_via, source=start_node, target=_req_supply, weight='weight')
+                _leg2 = _nx.shortest_path(_g_via, source=_req_supply, target=end_node, weight='weight')
+                # Nếu start_node xuất hiện trong leg2 (downstream của supply) →
+                # AGV đã qua supply rồi, đang ở vị trí tiếp theo → KHÔNG quay lại.
+                if str(start_node) in [str(n) for n in _leg2[1:]]:
+                    print(f"[PLAN] {agv_id}: {start_node} downstream của supply {_req_supply} "
+                          f"(đã lấy hàng rồi) → bỏ qua Phase 1b")
+                else:
+                    _combined = list(_leg1) + list(_leg2[1:])
+                    # Duplicate-node check ĐÃ BỊ XÓA: U-shape route (ví dụ 13→1→2→64→2→1→12→69)
+                    # hoàn toàn hợp lệ khi supply ở "phía đối diện" với đích.
+                    # True circular loop đã được bắt bởi check trên (start_node in leg2[1:]).
+                    node_path = _combined
+                    print(f"[PLAN] {agv_id}: route qua supply {_req_supply} (team {_end_team_p0}) → {node_path}")
+            except Exception as _e:
+                print(f"[PLAN] {agv_id}: không thể route qua supply {_req_supply}: {_e}")
+
+        # ── Phase 2: Phát hiện head-on conflict, thử đường thay thế ─────────
+        try:
+            from line_agv_handler import traffic_coordinator as _tc
+            _head_on = _tc.find_head_on(agv_id, node_path, near_only=False)
+            # find_head_on trả về (idx, agv_id) cho head-on, hoặc negative int cho following.
+            # Negative int → following conflict, không cần reroute tại dispatch.
+            # BẤT ĐỐI XỨNG: chỉ xe YẾU hơn mới né (reroute hard); xe MẠNH giữ đường ngắn.
+            if (isinstance(_head_on, tuple)
+                    and not _tc.should_avoid_path_of(agv_id, _head_on[1],
+                                                     my_priority=_my_prio_plan)):
+                print(f"[PLAN] {agv_id}: HEAD-ON với {_head_on[1]} — TÔI ưu tiên (mạnh hơn) "
+                      f"→ giữ đường ngắn, để {_head_on[1]} né")
+                _head_on = None
+            if isinstance(_head_on, tuple):
+                _conflict_idx, _other_agv = _head_on
+                print(f"[PLAN] {agv_id}: HEAD-ON với {_other_agv} tại edge "
+                      f"{node_path[_conflict_idx]}→{node_path[_conflict_idx+1]} "
+                      f"(idx={_conflict_idx}) — tìm đường thay thế")
+                # Xóa các edges của xe kia ra khỏi graph để buộc dùng đường khác
+                import networkx as _nx
+                _g2 = map_manager.line_graph.copy() if map_manager.line_graph else map_manager.graph.copy()
+                _other_reg = _tc._registered.get(_other_agv, {})
+                _other_path = _other_reg.get('path', [])
+                _other_cur  = _other_reg.get('current_idx', 0)
+                # Xóa edges tương lai của xe kia
+                for _j in range(_other_cur, len(_other_path) - 1):
+                    _fn2, _tn2 = _other_path[_j], _other_path[_j + 1]
+                    if _g2.has_edge(_fn2, _tn2):
+                        _g2.remove_edge(_fn2, _tn2)
+                    if _g2.has_edge(_tn2, _fn2):
+                        _g2.remove_edge(_tn2, _fn2)
+                try:
+                    _alt2 = _nx.shortest_path(_g2, source=start_node, target=end_node, weight="weight")
+                    # Kiểm tra: alternate path có còn đi qua supply node bắt buộc không?
+                    # Nếu alternate BỎ QUA supply node → không dùng alternate (dù tránh HEAD-ON),
+                    # vì quy trình BẮT BUỘC phải lấy hàng tại supply node trước.
+                    # Traffic system sẽ xử lý HEAD-ON bằng cách dừng chờ tại conflict point.
+                    if _req_supply and _req_supply not in _alt2 and _req_supply in node_path:
+                        print(f"[PLAN] {agv_id}: alternate HEAD-ON bỏ qua supply {_req_supply} "
+                              f"→ giữ path gốc (bắt buộc qua supply)")
+                    else:
+                        node_path = list(_alt2)
+                        print(f"[PLAN] {agv_id}: đường thay thế tránh HEAD-ON → {node_path}")
+                except Exception:
+                    # Không có đường thay thế: giữ path gốc, _dispatch_go_to sẽ
+                    # truncate tại điểm chờ an toàn và queue phần còn lại
+                    print(f"[PLAN] {agv_id}: không có đường thay thế HEAD-ON "
+                          f"— sẽ chờ tại điểm an toàn trước conflict")
+        except Exception as _te:
+            print(f"[PLAN] head-on check error: {_te}")
     else:
         node_path = map_manager.shortest_path(start_node, end_node)
     if not node_path:
@@ -2023,9 +2516,13 @@ async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: s
 
     return route_nodes, route_edges
 
-def plan_path_for_order(agv_id: str, start_node_id: str | None, end_node_id: str):
+def plan_path_for_order(agv_id: str, start_node_id: str | None, end_node_id: str,
+                        session_id: str | None = None):
     """
     Gọi async planner từ thread MQTT.
+
+    session_id: lượt cấp hàng hiện tại — planner dùng để bỏ ép detour qua supply
+    node đã lấy hàng trong lượt (đi thẳng tới đích thay vì quay lại điểm lấy hàng).
     """
     app = get_app()
     loop = getattr(app.state, "loop", None)
@@ -2033,7 +2530,7 @@ def plan_path_for_order(agv_id: str, start_node_id: str | None, end_node_id: str
         raise RuntimeError("FastAPI event loop chưa sẵn sàng")
 
     fut = asyncio.run_coroutine_threadsafe(
-        plan_path_async(agv_id, start_node_id, end_node_id),
+        plan_path_async(agv_id, start_node_id, end_node_id, session_id),
         loop
     )
     return fut.result(timeout=10)
@@ -2403,6 +2900,115 @@ def run_async_in_thread(coro):
 
 
 # ==========================
+# AGV INFO SYNC FROM TOPIC
+# ==========================
+_synced_agv_factories: dict[str, str] = {}         # {agv_id: factory đã sync}
+_sync_candidate:       dict[str, tuple] = {}       # {agv_id: (factory, first_seen_ts)}
+_SYNC_STABLE_SEC = 8.0   # factory phải ổn định X giây mới cập nhật DB
+
+def _sync_agv_from_topic(agv_id: str, factory_from_topic: str) -> None:
+    """
+    Khi Line AGV gửi state, đọc factory từ MQTT topic (uagv/v2/{factory}/{agv_id}/state)
+    và tự động cập nhật vào agv_devices nếu khác DB.
+    Debounce: factory phải ổn định _SYNC_STABLE_SEC giây liên tiếp mới thật sự update.
+    Chạy async để không block MQTT thread.
+    """
+    if not factory_from_topic or factory_from_topic in ("manager",):
+        return
+    # Skip nếu đã sync cùng factory này rồi
+    if _synced_agv_factories.get(agv_id) == factory_from_topic:
+        return
+
+    # Debounce: ghi nhận candidate, chỉ proceed nếu đã ổn định đủ thời gian
+    now = time.monotonic()
+    cand = _sync_candidate.get(agv_id)
+    if cand and cand[0] == factory_from_topic:
+        if now - cand[1] < _SYNC_STABLE_SEC:
+            return   # chưa đủ stable, đợi thêm
+        # Stable đủ → proceed
+    else:
+        # Factory khác hoặc chưa có candidate → reset timer
+        _sync_candidate[agv_id] = (factory_from_topic, now)
+        return   # chưa đủ stable
+
+    def _do_sync():
+        try:
+            from agv_registry import agv_registry as _reg
+            current_factory = _reg.get_factory(agv_id, default=None) or ""
+            if factory_from_topic == current_factory:
+                _synced_agv_factories[agv_id] = factory_from_topic
+                return
+
+            import psycopg2
+            _DB = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+            _conn = psycopg2.connect(_DB)
+            _conn.autocommit = True
+            with _conn.cursor() as _cur:
+                # Chỉ cập nhật factory nếu AGV đã có trong DB
+                # KHÔNG tự tạo mới — tránh restore lại AGV đã bị xóa
+                _cur.execute(
+                    "UPDATE agv_devices SET factory = %s WHERE name = %s",
+                    (factory_from_topic, agv_id),
+                )
+                if _cur.rowcount == 0:
+                    # AGV không có trong DB (đã bị xóa hoặc chưa đăng ký) → bỏ qua
+                    _synced_agv_factories[agv_id] = factory_from_topic  # cache để tránh spam log
+                    return
+            _conn.close()
+            # Reload registry để nhận biết factory mới
+            _reg.load_from_db()
+            _synced_agv_factories[agv_id] = factory_from_topic
+            print(f"[AGV_SYNC] {agv_id}: factory {current_factory!r} → {factory_from_topic!r}")
+        except Exception as _e:
+            print(f"[AGV_SYNC] {agv_id}: sync error: {_e}")
+
+    # Chạy trong thread riêng để không block MQTT
+    import threading as _th
+    _th.Thread(target=_do_sync, daemon=True).start()
+
+
+def _sync_agv_network_info(agv_id: str, ip: str, subnet: str, gateway: str, dns: str) -> None:
+    """
+    Cập nhật thông tin mạng AGV vào agv_devices từ topic uagv/v2/{F}/{ID}/info.
+    Chạy trong thread riêng để không block MQTT.
+    """
+    def _do():
+        try:
+            import psycopg2
+            _DB = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+            _conn = psycopg2.connect(_DB)
+            _conn.autocommit = True
+            with _conn.cursor() as _cur:
+                # Cập nhật từng field nếu có giá trị
+                _fields, _vals = [], []
+                if ip:
+                    _fields.append("ip = %s::inet")
+                    _vals.append(ip)
+                if subnet:
+                    _fields.append("subnet = %s")
+                    _vals.append(subnet)
+                if gateway:
+                    _fields.append("gateway = %s")
+                    _vals.append(gateway)
+                if dns:
+                    _fields.append("dns = %s")
+                    _vals.append(dns)
+                if _fields:
+                    _vals.append(agv_id)
+                    _cur.execute(
+                        f"UPDATE agv_devices SET {', '.join(_fields)} WHERE name = %s",
+                        _vals,
+                    )
+            _conn.close()
+            print(f"[AGV_INFO] {agv_id}: ip={ip} subnet={subnet} gateway={gateway} dns={dns}")
+        except Exception as _e:
+            print(f"[AGV_INFO] {agv_id}: sync error: {_e}")
+
+    import threading as _th
+    _th.Thread(target=_do, daemon=True).start()
+
+
+# ==========================
 # FMS PRESENCE HELPERS (Phần 1 spec)
 # ==========================
 
@@ -2516,7 +3122,7 @@ def on_connect(client, userdata, flags, rc):
     # ── Line AGV v2 — luôn subscribe wildcard, không phụ thuộc registry ──────
     # Wildcard factory + agv_id: nhận từ mọi Line AGV bất kể factory name
     _line_ver = os.getenv("LINE_AGV_MQTT_VERSION", "v2")
-    for _kind in ("state", "connection"):
+    for _kind in ("state", "connection", "info"):
         _t = f"{UAGV_INTERFACE_NAME}/{_line_ver}/+/+/{_kind}"
         client.subscribe(_t, qos=QOS)
         print(f"[MQTT] Subscribed (LINE v2): {_t}")
@@ -2627,6 +3233,10 @@ def on_message(client, userdata, msg):
                     _tag = _st.current_tag if _st else None
                     _hb_touch(agv_id_route, tag=_tag)
                     _broadcast_line_agv_state(agv_id_route)
+                    # Đồng bộ factory từ topic vào DB (tự động sau khi AGV config xong)
+                    _topic_parts_r = msg.topic.split("/")
+                    if len(_topic_parts_r) >= 4:
+                        _sync_agv_from_topic(agv_id_route, _topic_parts_r[2])
                 else:
                     _hb_touch(agv_id_route)
                 return   # Line AGV handled — không đi vào VDA5050 flow
@@ -3396,6 +4006,16 @@ def on_message(client, userdata, msg):
 
             agv_manager.set_connection(agv_id, conn_value)
 
+        # === XỬ LÝ INFO (thông tin mạng AGV sau khi cấu hình) ===
+        elif message_kind == "info" and agv_id:
+            # Firmware publish sau khi connect: ip, subnet, gateway, dns
+            _ip      = str(payload.get("ip")      or "").strip()
+            _subnet  = str(payload.get("subnet")  or payload.get("mask") or "").strip()
+            _gateway = str(payload.get("gateway") or payload.get("gw")   or "").strip()
+            _dns     = str(payload.get("dns")     or "").strip()
+            if any([_ip, _subnet, _gateway, _dns]):
+                _sync_agv_network_info(agv_id, _ip, _subnet, _gateway, _dns)
+
         # === XỬ LÝ INSTANT ACTIONS ===
         elif message_kind == "instantActions" and agv_id:
             action_ids = [
@@ -3832,9 +4452,25 @@ def send_pick_action(agv_id: str):
 
 def cancel_agv_order(agv_id: str) -> dict:
     """
-    Hủy lệnh hiện tại của AGV bằng instant action.
-    Đồng thời xóa pending drop nếu có để tránh tự gửi tiếp DROP sau PICKUP.
+    Hủy lệnh hiện tại của AGV.
+    LINE AGV: gửi lệnh stop qua send_line_command.
+    VDA5050: gửi instant action CANCEL.
     """
+    from agv_registry import agv_registry
+
+    if agv_registry.is_line(agv_id):
+        from line_agv_handler import line_agv_handler
+        ok = send_line_command(agv_id, "stop")
+        line_agv_handler.clear_route(agv_id)
+        removed_pending = _pending_drop_orders.pop(agv_id, None) is not None
+        print(f"[CANCEL] LINE AGV={agv_id} | stop sent={ok} | removed_pending={removed_pending}")
+        return {
+            "success": ok,
+            "agv_id": agv_id,
+            "cancelled_order_id": "",
+            "removed_pending_drop": removed_pending,
+        }
+
     agv_state = agv_manager.get_agv(agv_id) or {}
     current_order_id = str(agv_state.get("orderId") or "").strip()
 

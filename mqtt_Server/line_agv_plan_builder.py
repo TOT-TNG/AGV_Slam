@@ -28,7 +28,9 @@ ACTION_WAIT_CHARGE = 35   # Đến trạm sạc: đèn vàng + cảm biến, ch�
 
 SPEED_FAST     = 120   # byte mặc định khi edge không cấu hình speed
 SPEED_SLOW     = 60    # byte tốc độ tiếp cận nút rẽ (N-1 pattern)
-LOOKAHEAD      = 6
+SPEED_STOP     = 30    # byte tiếp cận điểm DỪNG cuối (WAIT_SYS/WAIT_CHARGE)
+                       # Thấp hơn SPEED_SLOW để đảm bảo AGV kịp dừng trên cạnh ngắn
+LOOKAHEAD      = 4    # số node/cửa sổ rolling (≤5 node) — tránh tràn UART buffer Arduino (128B)
 RETRY_TIMEOUT  = 4.0   # giây, thời gian chờ ACK trước khi retry
 
 # Hệ số chuyển đổi m/s → Arduino byte: 0.5 m/s = SPEED_FAST = 120 → factor = 240
@@ -225,18 +227,19 @@ def _edge_speed(path: list[str], gi: int, edge_speeds: dict) -> int:
 
 
 def _build_steps(
-    full_path:         list[str],
-    w_start:           int,
-    w_end:             int,
-    points:            dict,
-    is_final:          bool,
-    task_type:         str,
-    node_actions:      dict = {},    # {nid: {fwd_turn, bwd_turn, ...}}
-    direction:         str  = "fwd", # "fwd" | "bwd"
-    edge_speeds:       dict = {},    # {"src_dst": speed_byte} từ map_manager.roads
-    edge_lidar:        dict = {},    # {"src_dst": True} edge có lidar_off từ map editor
-    _agv:              str  = "?",
-    initial_prev_tag:  str | None = None,  # hướng xe trước node đầu tiên (dùng khi w_start==0)
+    full_path:           list[str],
+    w_start:             int,
+    w_end:               int,
+    points:              dict,
+    is_final:            bool,
+    task_type:           str,
+    node_actions:        dict = {},    # {nid: {fwd_turn, bwd_turn, ...}}
+    direction:           str  = "fwd", # "fwd" | "bwd"
+    edge_speeds:         dict = {},    # {"src_dst": speed_byte} từ map_manager.roads
+    edge_lidar:          dict = {},    # {"src_dst": True} edge có lidar_off từ map editor
+    _agv:                str  = "?",
+    initial_prev_tag:    str | None = None,  # hướng xe trước node đầu tiên (dùng khi w_start==0)
+    initial_arrived_bwd: bool = False,       # True khi xe đến start node theo chiều lùi (charger exit)
 ) -> list[dict]:
     """
     Tạo action steps cho cửa sổ full_path[w_start..w_end].
@@ -251,12 +254,33 @@ def _build_steps(
     n_full  = len(full_path)
     w_len   = w_end - w_start + 1
 
-    # Kiểm tra node đích có cấu hình approach_dir=bwd không (lùi vào trạm sạc)
+    # Lùi vào đích (DIR_BWD ở node trước đích) CHỈ áp dụng khi:
+    #   (a) đích là TRẠM SẠC (locationType=CHARGER / wait_charge) — nơi THỰC SỰ cần lùi vào.
+    #       → KHÔNG honor approach_dir=bwd sót lại trên node thường (NORMAL/junction). Nhiều
+    #         node thường trong map để approach_dir=bwd mặc định → nếu lùi vào sẽ chèn DIR_BWD
+    #         bậy, kết hợp với TURN làm xe đi NHẦM node (vd 1→96 thay vì 1→2) → off_route loạn.
+    #   (b) node TRƯỚC đích KHÔNG phải trạm sạc — vì sau trạm sạc không có đường để lùi.
     dest_node_act      = node_actions.get(str(full_path[w_end]), {}) if full_path else {}
-    final_approach_bwd = (
-        is_final
-        and str(dest_node_act.get("approach_dir") or "").lower() == "bwd"
+    _dest_is_charger = (
+        str(dest_node_act.get("locationType", "")).upper() == "CHARGER"
+        or str(dest_node_act.get("arrival_action", "")).lower() == "wait_charge"
     )
+    _pre_final_node = full_path[w_end - 1] if (full_path and w_end >= 1) else None
+    _pre_final_cfg  = node_actions.get(str(_pre_final_node), {}) if _pre_final_node is not None else {}
+    _pre_final_is_charger = (
+        str(_pre_final_cfg.get("locationType", "")).upper() == "CHARGER"
+        or str(_pre_final_cfg.get("arrival_action", "")).lower() == "wait_charge"
+    )
+    _dest_wants_bwd = str(dest_node_act.get("approach_dir") or "").lower() == "bwd"
+    final_approach_bwd = (
+        is_final and _dest_wants_bwd and _dest_is_charger and not _pre_final_is_charger
+    )
+    if is_final and _dest_wants_bwd and not _dest_is_charger:
+        print(f"[PLAN] {_agv} | BỎ qua approach_dir=bwd tại {full_path[w_end]} "
+              f"(không phải trạm sạc) → đi TIẾN vào, tránh DIR_BWD bậy gây đi nhầm node")
+    elif is_final and _dest_wants_bwd and _pre_final_is_charger:
+        print(f"[PLAN] {_agv} | BỎ backward-approach vào {full_path[w_end]} "
+              f"vì node trước ({_pre_final_node}) là trạm sạc (sau trạm không có đường lùi) → đi tiến")
 
     # Đặt chiều đi ở bước đầu tiên của cửa sổ đầu tiên
     if w_start == 0:
@@ -314,25 +338,18 @@ def _build_steps(
         turn_at_current = None
         _turn_src_cur   = ""
         if _from_for_turn and global_i + 1 < n_full:
-            if _using_initial_prev:
-                if direction == "fwd":
-                    # Hiếm gặp: arrived bwd, new plan fwd → bù đảo chiều
-                    turn_at_current, _turn_src_cur = _resolve_turn_bwd_arrival(
-                        tag_str,
-                        _from_for_turn,
-                        full_path[global_i + 1],
-                        points, node_actions,
-                    )
-                else:
-                    # AGV vừa đến bwd, tiếp tục bwd → turn bình thường theo direction=bwd
-                    turn_at_current, _turn_src_cur = _resolve_turn(
-                        tag_str,
-                        _from_for_turn,
-                        full_path[global_i + 1],
-                        points, node_actions,
-                        direction,
-                    )
+            if _using_initial_prev and direction == "fwd" and initial_arrived_bwd:
+                # Xe đến start node theo chiều lùi (ví dụ: lùi vào trạm sạc), kế hoạch mới đi tiến.
+                # Front của xe đang hướng về phía prev_tag → cần đảo chiều geometry.
+                turn_at_current, _turn_src_cur = _resolve_turn_bwd_arrival(
+                    tag_str,
+                    _from_for_turn,
+                    full_path[global_i + 1],
+                    points, node_actions,
+                )
             else:
+                # Xe đến start node theo chiều tiến (bình thường, bao gồm cả staging node),
+                # HOẶC xe tiếp tục theo chiều lùi → dùng _resolve_turn với direction thực tế.
                 turn_at_current, _turn_src_cur = _resolve_turn(
                     tag_str,
                     _from_for_turn,
@@ -369,10 +386,30 @@ def _build_steps(
 
         # Tốc độ edge từ nút hiện tại → nút tiếp theo
         spd          = _edge_speed(full_path, global_i, edge_speeds)
-        spd_approach = min(spd, SPEED_SLOW)
+        spd_approach = min(spd, SPEED_SLOW)   # tốc độ tiếp cận nút rẽ
+        spd_stop     = min(spd, SPEED_STOP)   # tốc độ tiếp cận điểm DỪNG cuối (rất chậm)
 
-        # Tại node N-1 (ngay trước đích cuối): chèn DIR_BWD nếu approach_dir=bwd
-        is_pre_final = final_approach_bwd and (global_i == w_end - 1)
+        # Tại node N-1 (ngay trước đích cuối): chèn DIR_BWD NẾU plan đang đi fwd nhưng
+        # charger cần approach bwd (lùi vào). Nếu plan đã là bwd từ đầu → KHÔNG chèn thêm
+        # vì DIR_BWD thứ 2 sau TURN sẽ override/cancel lệnh rẽ, làm AGV đi nhầm hướng.
+        is_pre_final     = final_approach_bwd and (global_i == w_end - 1) and direction == 'fwd'
+
+        # Ngay trước điểm dừng cuối: giảm tốc xuống SPEED_STOP chỉ khi THỰC SỰ CẦN DỪNG CHÍNH XÁC:
+        #   - Supply node (arrival_action='wait_sys'/'wait_user'): cạnh ngắn, cần v=30
+        #   - Charger (wait_charge): covered bởi is_pre_final, nhưng giữ backup
+        #   - Transit: luôn cần dừng chính xác (cạnh có thể ngắn)
+        # KHÔNG giảm tốc cho delivery endpoint thông thường (arrival_action='')
+        # vì AGV có đủ không gian dừng, và v=30 có thể gây dừng sớm ở node trước.
+        _dest_na_stop   = node_actions.get(str(full_path[w_end]), {}) or {}
+        _dest_arr_stop  = str(_dest_na_stop.get('arrival_action', '') or '').lower()
+        _needs_slow_stop = (
+            _dest_arr_stop in ('wait_sys', 'wait_user', 'wait_charge')
+            or task_type in ('transit', 'return_charge')
+        )
+        approaching_stop = (
+            (global_i + 1 == w_end) and is_final and not is_pre_final
+            and _needs_slow_stop
+        )
         if is_pre_final:
             print(f"[PLAN] {_agv} | node {tag}: DIR_BWD inserted (final_approach_bwd → dest={full_path[w_end]})")
 
@@ -393,7 +430,7 @@ def _build_steps(
                 steps.append({"t": tag, "a": ACTION_RUN, "v": 0})
                 incoming_lidar_off = True   # LIDAR đã OFF cho rẽ tiếp
             else:
-                spd_val = spd_approach if is_pre_final else spd
+                spd_val = (spd_stop if approaching_stop else spd_approach) if (is_pre_final or approaching_stop) else spd
                 steps.append({"t": tag, "a": ACTION_SPEED, "v": spd_val})
                 if force_lidar_off:
                     steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
@@ -418,7 +455,8 @@ def _build_steps(
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
                     steps.append({"t": tag, "a": ACTION_RUN,     "v": 0})
                 else:
-                    steps.append({"t": tag, "a": ACTION_SPEED, "v": spd})
+                    _spd_straight = spd_stop if approaching_stop else spd
+                    steps.append({"t": tag, "a": ACTION_SPEED, "v": _spd_straight})
                     if force_lidar_off:
                         steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                         incoming_lidar_off = True
@@ -430,19 +468,20 @@ def _build_steps(
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def build_plan_window(
-    full_path:         list[str | int],
-    w_start:           int,
-    w_end:             int,
-    points:            dict,
-    is_final:          bool,
-    task_type:         str  = "delivery",
-    cmd_id:            str | None = None,
-    node_actions:      dict = {},
-    direction:         str  = "fwd",   # "fwd" | "bwd"
-    edge_speeds:       dict = {},      # {"{src}_{dst}": speed_byte}
-    edge_lidar:        dict = {},      # {"{src}_{dst}": True} edge có lidar_off
-    agv_id:            str  = "?",
-    initial_prev_tag:  str | None = None,  # hướng xe trước node đầu tiên
+    full_path:           list[str | int],
+    w_start:             int,
+    w_end:               int,
+    points:              dict,
+    is_final:            bool,
+    task_type:           str  = "delivery",
+    cmd_id:              str | None = None,
+    node_actions:        dict = {},
+    direction:           str  = "fwd",   # "fwd" | "bwd"
+    edge_speeds:         dict = {},      # {"{src}_{dst}": speed_byte}
+    edge_lidar:          dict = {},      # {"{src}_{dst}": True} edge có lidar_off
+    agv_id:              str  = "?",
+    initial_prev_tag:    str | None = None,  # hướng xe trước node đầu tiên
+    initial_arrived_bwd: bool = False,       # True khi xe đến start node theo chiều lùi
 ) -> dict:
     """
     Build plan cho cửa sổ [w_start, w_end] trong full_path.
@@ -460,31 +499,34 @@ def build_plan_window(
     str_path = [str(p) for p in full_path]
     steps    = _build_steps(str_path, w_start, w_end, points, is_final,
                             task_type, node_actions, direction, edge_speeds, edge_lidar,
-                            agv_id, initial_prev_tag)
+                            agv_id, initial_prev_tag, initial_arrived_bwd)
 
     return {"c": "plan", "id": cmd_id, "d": steps}
 
 
 def build_line_plan(
-    path:              list[str | int],
-    points:            dict,
-    task_type:         str  = "delivery",
-    cmd_id:            str | None = None,
-    node_actions:      dict = {},
-    direction:         str  = "fwd",
-    edge_speeds:       dict = {},      # {"{src}_{dst}": speed_byte}
-    edge_lidar:        dict = {},      # {"{src}_{dst}": True} build bằng build_edge_lidar()
-    agv_id:            str  = "?",
-    initial_prev_tag:  str | None = None,
+    path:                list[str | int],
+    points:              dict,
+    task_type:           str  = "delivery",
+    cmd_id:              str | None = None,
+    node_actions:        dict = {},
+    direction:           str  = "fwd",
+    edge_speeds:         dict = {},      # {"{src}_{dst}": speed_byte}
+    edge_lidar:          dict = {},      # {"{src}_{dst}": True} build bằng build_edge_lidar()
+    agv_id:              str  = "?",
+    initial_prev_tag:    str | None = None,
+    initial_arrived_bwd: bool = False,   # True khi xe đến start node theo chiều lùi (charger exit)
 ) -> dict:
     """
     Build plan đầy đủ (không rolling) cho path.
 
     Args:
-        node_actions: {nid: action_dict} từ map_manager.node_actions
-        direction:    "fwd" | "bwd"
-        edge_speeds:  build bằng build_edge_speeds(map_manager.roads)
-        edge_lidar:   build bằng build_edge_lidar(map_manager.roads)
+        node_actions:        {nid: action_dict} từ map_manager.node_actions
+        direction:           "fwd" | "bwd"
+        edge_speeds:         build bằng build_edge_speeds(map_manager.roads)
+        edge_lidar:          build bằng build_edge_lidar(map_manager.roads)
+        initial_arrived_bwd: True nếu xe vừa đến start node theo chiều lùi (charger exit).
+                             False (default) cho tất cả trường hợp còn lại (fwd arrival, staging...).
     """
     return build_plan_window(
         full_path=path,
@@ -500,6 +542,7 @@ def build_line_plan(
         edge_lidar=edge_lidar,
         agv_id=agv_id,
         initial_prev_tag=initial_prev_tag,
+        initial_arrived_bwd=initial_arrived_bwd,
     )
 
 

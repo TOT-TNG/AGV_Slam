@@ -35,12 +35,58 @@
   .sec-label{font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes agvGlowPulse{0%,100%{opacity:.1}50%{opacity:.38}}
+
+  /* ══ Schedule HUD styles ══ */
+
+  /* Glass panels */
+  .sched-glass{background:rgba(13,17,27,.88);backdrop-filter:blur(10px);border:1px solid rgba(173,198,255,.12);position:relative;overflow:hidden}
+
+  /* Day checkboxes */
+  .day-chk{display:inline-flex;align-items:center;justify-content:center;width:30px;height:26px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#8c909f;font-size:10px;font-weight:700;cursor:pointer;transition:.15s;font-family:'JetBrains Mono',monospace;letter-spacing:.02em}
+  .day-chk input{display:none}
+  .day-chk.active{border-color:#adc6ff;background:rgba(173,198,255,.18);color:#adc6ff;box-shadow:0 0 6px rgba(173,198,255,.2)}
+
+  /* Schedule type buttons */
+  .sched-type-btn{flex:1;padding:6px 4px;border:1px solid rgba(255,255,255,.1);background:transparent;color:#8c909f;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.06em;text-transform:uppercase;transition:.15s;font-family:'JetBrains Mono',monospace}
+  .sched-type-btn.active{border-color:rgba(173,198,255,.6);background:rgba(173,198,255,.12);color:#adc6ff;box-shadow:0 0 8px rgba(173,198,255,.1)}
+
+  /* Timeline entry */
+  .sched-entry{border-left:2px solid rgba(173,198,255,.25);padding:12px 14px;display:flex;align-items:center;gap:14px;transition:all .18s;cursor:default}
+  .sched-entry:hover{background:rgba(255,255,255,.04)}
+  .sched-entry.imminent{border-left-color:#facc15;background:rgba(250,204,21,.04)}
+  .sched-entry.paused{border-left-color:rgba(255,255,255,.08);opacity:.5;filter:grayscale(.4)}
+
+  /* Date separator */
+  .sched-date-sep{display:flex;align-items:center;gap:8px;padding:10px 0 6px;font-size:9px;font-weight:700;color:#adc6ff;letter-spacing:.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace}
+  .sched-date-sep::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(173,198,255,.2),transparent)}
+
+  /* Priority bars */
+  .pri-bars{display:flex;gap:2px;margin-top:2px}
+  .pri-bar{width:12px;height:3px}
+  .pri-bar.on-1{background:#f87171}
+  .pri-bar.on-2{background:#fb923c}
+  .pri-bar.on-3{background:#60a5fa}
+  .pri-bar.on-4{background:#94a3b8}
+  .pri-bar.on-5{background:#475569}
+  .pri-bar.off{background:rgba(255,255,255,.08)}
+
+  /* Toggle switch */
+  .sched-toggle{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0}
+  .sched-toggle input{opacity:0;width:0;height:0}
+  .sched-toggle-slider{position:absolute;cursor:pointer;inset:0;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.15);transition:.2s}
+  .sched-toggle-slider:before{content:'';position:absolute;width:14px;height:14px;left:2px;top:2px;background:#8c909f;transition:.2s}
+  .sched-toggle input:checked + .sched-toggle-slider{background:rgba(173,198,255,.2);border-color:rgba(173,198,255,.5)}
+  .sched-toggle input:checked + .sched-toggle-slider:before{transform:translateX(16px);background:#adc6ff;box-shadow:0 0 6px rgba(173,198,255,.5)}
+
+  /* Imminent pulse */
+  @keyframes imminentPulse{0%,100%{box-shadow:inset 0 0 0 rgba(250,204,21,0)}50%{box-shadow:inset 3px 0 12px rgba(250,204,21,.08)}}
+  .sched-entry.imminent{animation:imminentPulse 2.5s ease-in-out infinite}
 </style>
 </head>
 <body style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
 
 <!-- ── Header ──────────────────────────────────────────────────────────────── -->
-<div style="padding:12px 18px 10px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(15,23,42,.6)">
+<div id="te-header" style="padding:12px 18px 10px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(15,23,42,.6)">
   <div>
     <h1 style="font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em">Thực hiện nhiệm vụ</h1>
     <p style="font-size:11px;color:#8c909f;margin:2px 0 0">Điều phối AGV · chọn quy trình · xác nhận lệnh</p>
@@ -55,11 +101,34 @@
   </div>
 </div>
 
+<!-- ── Mode tab bar ─────────────────────────────────────────────────────────── -->
+<div id="te-tabbar" style="display:flex;padding:0 16px;background:rgba(11,19,38,.9);border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0">
+  <button id="tab-btn-task" onclick="switchMode('task')"
+    style="padding:9px 18px;border:none;background:transparent;color:#adc6ff;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid #adc6ff;display:flex;align-items:center;gap:6px;white-space:nowrap">
+    <span class="material-symbols-outlined" style="font-size:15px">task_alt</span>Thực hiện nhiệm vụ
+  </button>
+  <button id="tab-btn-sim" onclick="switchMode('sim')"
+    style="padding:9px 18px;border:none;background:transparent;color:#8c909f;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px;white-space:nowrap">
+    <span class="material-symbols-outlined" style="font-size:15px">route</span>Chạy thử nghiệm
+  </button>
+  <button id="tab-btn-sched" onclick="switchMode('sched')"
+    style="padding:9px 18px;border:none;background:transparent;color:#8c909f;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px;white-space:nowrap">
+    <span class="material-symbols-outlined" style="font-size:15px">schedule</span>Lập lịch
+  </button>
+  <button id="tab-btn-multi" onclick="switchMode('multi')"
+    style="padding:9px 18px;border:none;background:transparent;color:#8c909f;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px;white-space:nowrap">
+    <span class="material-symbols-outlined" style="font-size:15px">inventory_2</span>Đa tổ
+  </button>
+</div>
+
 <!-- ── 2-column body ────────────────────────────────────────────────────────── -->
-<div style="flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0;overflow:hidden">
+<div id="body-grid" style="flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0;overflow:hidden">
 
   <!-- ════ LEFT ════ -->
-  <div style="display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,.07);min-height:0">
+  <div id="left-panel" style="display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,.07);min-height:0">
+
+    <!-- ─ Task mode content ─ -->
+    <div id="task-left-content" style="display:flex;flex-direction:column;flex:1;min-height:0">
 
     <!-- TOP 2/3: AGV list -->
     <div style="flex:2;min-height:0;display:flex;flex-direction:column;padding:12px 12px 8px;overflow:hidden;border-bottom:1px solid rgba(255,255,255,.06)">
@@ -84,10 +153,304 @@
       <!-- Steps preview -->
       <div id="wf-steps" style="display:none;margin-top:7px;padding:7px 9px;border-radius:7px;background:rgba(173,198,255,.05);border:1px solid rgba(173,198,255,.1);font-size:10px;color:#8c909f;line-height:1.7;overflow-y:auto;flex:1"></div>
     </div>
-  </div>
+    </div><!-- /task-left-content -->
+
+  <!-- ════ SIM PANEL ════ -->
+  <div id="sim-panel" style="display:none;flex-direction:column;flex:1;min-height:0">
+
+    <!-- Scrollable config area -->
+    <div style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px">
+
+      <!-- Config grid -->
+      <div>
+        <div class="sec-label" style="margin-bottom:8px">⚙ Cấu hình</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">AGV</div>
+            <select id="sim-agv" style="width:100%;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:8px;padding:5px 8px;font-size:12px;outline:none">
+              <option value="">-- Chọn AGV --</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Kiểu lộ trình</div>
+            <select id="sim-type" onchange="simUpdateGuide()" style="width:100%;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:8px;padding:5px 8px;font-size:12px;outline:none">
+              <option value="loop">🔁 Loop</option>
+              <option value="pingpong">↔ Ping-pong</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Số vòng</div>
+            <input id="sim-cycles" type="number" min="1" max="9999" value="10"
+              style="width:100%;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);border-radius:8px;color:#fff;padding:5px 8px;font-size:12px;outline:none"/>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Dừng tại điểm (s)</div>
+            <input id="sim-delay" type="number" min="0" max="60" step="0.5" value="1"
+              style="width:100%;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);border-radius:8px;color:#fff;padding:5px 8px;font-size:12px;outline:none"/>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hướng dẫn kiểu lộ trình -->
+      <div id="sim-guide" style="border-radius:9px;padding:9px 11px;font-size:11px;line-height:1.7"></div>
+
+      <!-- Route builder -->
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div class="sec-label">🗺 Lộ trình <span id="sim-route-count" style="color:#adc6ff;font-size:10px">(0 node)</span></div>
+          <button onclick="simClearRoute()" style="padding:2px 8px;border-radius:6px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;font-size:10px;cursor:pointer">Xóa</button>
+        </div>
+        <div style="font-size:10px;color:#555;margin-bottom:5px">→ Bấm node trên bản đồ để thêm</div>
+        <div id="sim-route-list" style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto">
+          <div style="color:#555;font-size:11px;text-align:center;padding:10px">Chưa có node nào</div>
+        </div>
+      </div>
+    </div><!-- /scrollable -->
+
+    <!-- Fixed bottom: controls + status -->
+    <div style="flex-shrink:0;border-top:1px solid rgba(255,255,255,.06);padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+
+      <!-- Control buttons -->
+      <div style="display:flex;gap:6px">
+        <button id="sim-btn-start" onclick="simStart()"
+          style="flex:1;padding:7px 4px;border-radius:8px;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.35);color:#4ade80;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px">
+          <span class="material-symbols-outlined" style="font-size:15px">play_arrow</span>Bắt đầu
+        </button>
+        <button id="sim-btn-pause" onclick="simPause()" disabled
+          style="flex:1;padding:7px 4px;border-radius:8px;background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.25);color:#fde047;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;opacity:.35">
+          <span class="material-symbols-outlined" style="font-size:15px">pause</span>Tạm dừng
+        </button>
+        <button id="sim-btn-stop" onclick="simStop()" disabled
+          style="flex:1;padding:7px 4px;border-radius:8px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;opacity:.35">
+          <span class="material-symbols-outlined" style="font-size:15px">stop</span>Dừng hẳn
+        </button>
+      </div>
+
+      <!-- Status -->
+      <div id="sim-status-box" style="display:none;background:rgba(13,22,42,.9);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <span id="sim-status-label" style="font-size:12px;font-weight:600;color:#4ade80">Đang chạy</span>
+          <span id="sim-status-cycles" style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#adc6ff"></span>
+        </div>
+        <div style="height:5px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden;margin-bottom:6px">
+          <div id="sim-progress-bar" style="height:100%;background:linear-gradient(90deg,#4ade80,#22c55e);border-radius:3px;transition:width .5s;width:0%"></div>
+        </div>
+        <div id="sim-status-dest" style="font-size:10px;color:#8c909f;margin-bottom:3px"></div>
+        <div style="display:flex;gap:10px;font-size:10px;color:#555;font-family:'JetBrains Mono',monospace">
+          <span id="sim-stat-dispatch"></span>
+          <span id="sim-stat-error"></span>
+          <span id="sim-stat-eta"></span>
+        </div>
+      </div>
+    </div><!-- /fixed bottom -->
+
+  </div><!-- /sim-panel -->
+
+  <!-- ════ SCHEDULE PANEL — full-width HUD ════ -->
+  <div id="sched-panel" style="display:none;flex-direction:row;flex:1;min-height:0;overflow:hidden;background:rgba(9,13,22,.95)">
+
+    <!-- ── LEFT: New Task Creator ── -->
+    <div class="sched-glass" style="width:340px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(173,198,255,.1);overflow-y:auto">
+
+
+      <!-- Header -->
+      <div style="padding:16px 18px 12px;border-bottom:1px solid rgba(173,198,255,.08);flex-shrink:0">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+          <span class="material-symbols-outlined" style="color:#adc6ff;font-size:16px">add_task</span>
+          <span style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace">TẠO LỊCH MỚI</span>
+        </div>
+        <p style="font-size:9px;color:#8c909f;font-family:'JetBrains Mono',monospace;letter-spacing:.04em">CẤU HÌNH → LẬP LỊCH → TRIỂN KHAI</p>
+      </div>
+
+      <!-- Form body -->
+      <div style="padding:16px 18px;flex:1;display:flex;flex-direction:column;gap:14px">
+
+        <!-- Task label -->
+        <div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">TÊN LỊCH</div>
+          <input id="sched-label" type="text" placeholder="VD: VAN_CHUYEN_TO_1_SANG"
+            style="width:100%;background:rgba(255,255,255,.04);color:#e8eaf6;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;box-sizing:border-box;outline:none;transition:.2s"
+            onfocus="this.style.borderColor='rgba(173,198,255,.6)'" onblur="this.style.borderColor='rgba(173,198,255,.2)'">
+        </div>
+
+        <!-- AGV + Tác vụ -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">AGV</div>
+            <select id="sched-agv"
+              style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
+              <option value="">-- Chọn AGV --</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">TÁC VỤ</div>
+            <select id="sched-cmd" onchange="schedCmdChange()"
+              style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
+              <option value="">-- Chọn tác vụ --</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Bản đồ -->
+        <div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">BẢN ĐỒ</div>
+          <select id="sched-map" onchange="schedMapChange()"
+            style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
+            <option value="">-- Chọn bản đồ --</option>
+          </select>
+        </div>
+
+        <!-- Tổ đích + Priority -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">TỔ ĐÍCH</div>
+            <select id="sched-team"
+              style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
+              <option value="">-- Chọn bản đồ trước --</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">MỨC ƯU TIÊN</div>
+            <select id="sched-priority"
+              style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
+              <option value="1">🔴 Khẩn cấp</option>
+              <option value="2">🟠 Cao</option>
+              <option value="3" selected>🔵 Bình thường</option>
+              <option value="4">⚫ Thấp</option>
+              <option value="5">⬜ Rất thấp</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Recurrence type -->
+        <div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:6px">CHẾ ĐỘ LẶP</div>
+          <div style="display:flex;gap:0">
+            <button id="sched-type-once"     class="sched-type-btn active" onclick="schedTypeSwitch('once')">MỘT LẦN</button>
+            <button id="sched-type-daily"    class="sched-type-btn" onclick="schedTypeSwitch('daily')">HÀNG NGÀY</button>
+            <button id="sched-type-interval" class="sched-type-btn" onclick="schedTypeSwitch('interval')">LẶP LẠI</button>
+          </div>
+        </div>
+
+        <!-- Panel: Một lần -->
+        <div id="sched-panel-once">
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">NGÀY GIỜ THỰC HIỆN</div>
+          <input type="datetime-local" id="sched-datetime"
+            style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;box-sizing:border-box;outline:none">
+        </div>
+
+        <!-- Panel: Hàng ngày -->
+        <div id="sched-panel-daily" style="display:none">
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">GIỜ THỰC HIỆN</div>
+          <input type="time" id="sched-time" value="08:00"
+            style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:13px;font-family:'JetBrains Mono',monospace;box-sizing:border-box;outline:none;margin-bottom:10px">
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:6px">NGÀY TRONG TUẦN</div>
+          <div style="display:flex;gap:4px">
+            <label id="day-lbl-1" class="day-chk"><input type="checkbox" value="1" onchange="schedDayToggle(1)">T2</label>
+            <label id="day-lbl-2" class="day-chk"><input type="checkbox" value="2" onchange="schedDayToggle(2)">T3</label>
+            <label id="day-lbl-3" class="day-chk"><input type="checkbox" value="3" onchange="schedDayToggle(3)">T4</label>
+            <label id="day-lbl-4" class="day-chk"><input type="checkbox" value="4" onchange="schedDayToggle(4)">T5</label>
+            <label id="day-lbl-5" class="day-chk"><input type="checkbox" value="5" onchange="schedDayToggle(5)">T6</label>
+            <label id="day-lbl-6" class="day-chk"><input type="checkbox" value="6" onchange="schedDayToggle(6)">T7</label>
+            <label id="day-lbl-7" class="day-chk"><input type="checkbox" value="7" onchange="schedDayToggle(7)">CN</label>
+          </div>
+        </div>
+
+        <!-- Panel: Lặp lại -->
+        <div id="sched-panel-interval" style="display:none">
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">LẶP MỖI (PHÚT)</div>
+          <input type="number" id="sched-interval" value="60" min="5"
+            style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:13px;font-family:'JetBrains Mono',monospace;box-sizing:border-box;outline:none">
+        </div>
+
+        <!-- Save button -->
+        <button onclick="schedSave()"
+          style="width:100%;padding:10px;border:1px solid rgba(173,198,255,.4);background:rgba(173,198,255,.08);color:#adc6ff;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:.2s;margin-top:auto"
+          onmouseover="this.style.background='rgba(173,198,255,.18)'" onmouseout="this.style.background='rgba(173,198,255,.08)'">
+          LƯU LỊCH ▶
+        </button>
+
+      </div>
+    </div>
+
+    <!-- ── RIGHT: Active Schedule Stream ── -->
+    <div class="sched-glass" style="flex:1;display:flex;flex-direction:column;min-width:0">
+
+
+      <!-- Header -->
+      <div style="padding:16px 20px 12px;border-bottom:1px solid rgba(173,198,255,.08);flex-shrink:0;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="material-symbols-outlined" style="color:#adc6ff;font-size:16px">calendar_view_day</span>
+          <span style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace">DANH SÁCH LỊCH ĐÃ ĐẶT</span>
+          <span id="sched-count-badge" style="font-size:9px;background:rgba(173,198,255,.12);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:1px 7px;font-family:'JetBrains Mono',monospace"></span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="sched-clock" style="font-size:10px;color:#adc6ff;font-family:'JetBrains Mono',monospace;letter-spacing:.05em"></span>
+          <button onclick="schedLoad()"
+            style="border:1px solid rgba(173,198,255,.2);background:transparent;color:#8c909f;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s"
+            onmouseover="this.style.borderColor='rgba(173,198,255,.5)';this.style.color='#adc6ff'"
+            onmouseout="this.style.borderColor='rgba(173,198,255,.2)';this.style.color='#8c909f'">
+            <span class="material-symbols-outlined" style="font-size:14px">refresh</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Timeline list -->
+      <div id="sched-list" style="flex:1;overflow-y:auto;padding:6px 0">
+        <div style="text-align:center;padding:32px;color:#8c909f;font-size:11px;font-family:'JetBrains Mono',monospace">Đang tải dữ liệu lịch...</div>
+      </div>
+    </div>
+
+  </div><!-- /sched-panel -->
+
+  <!-- ════ MULTI-TEAM PANEL ════ -->
+  <div id="multi-panel" style="display:none;flex-direction:column;flex:1;min-height:0;overflow-y:auto;padding:14px 14px 20px;gap:12px">
+
+    <!-- AGV picker -->
+    <div>
+      <div class="sec-label" style="margin-bottom:6px">AGV thực hiện</div>
+      <select id="multi-agv-select" onchange="multiOnAgvChange()"
+        style="background:#fff;border:1px solid #c0c8d8;border-radius:8px;color:#111;padding:7px 10px;font-size:13px;width:100%">
+        <option value="">— Chọn AGV —</option>
+      </select>
+    </div>
+
+    <!-- Team checkboxes -->
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span class="sec-label">Chọn tổ cần cấp hàng</span>
+        <span id="multi-no-supply-warn" style="display:none;font-size:10px;color:#f87171">⚠ Một số tổ chưa có node lấy hàng</span>
+      </div>
+      <div id="multi-team-list" style="display:flex;flex-direction:column;gap:5px">
+        <div style="color:#8c909f;font-size:12px;text-align:center;padding:12px">Đang tải danh sách tổ…</div>
+      </div>
+    </div>
+
+    <!-- Priority reorder -->
+    <div id="multi-priority-section" style="display:none">
+      <div class="sec-label" style="margin-bottom:6px">Thứ tự giao hàng <small style="color:#8c909f;font-weight:400;text-transform:none">(kéo hoặc dùng ↑↓)</small></div>
+      <div id="multi-priority-list" style="display:flex;flex-direction:column;gap:4px"></div>
+    </div>
+
+    <!-- Route preview -->
+    <div id="multi-route-preview" style="display:none;background:rgba(173,198,255,.05);border:1px solid rgba(173,198,255,.15);border-radius:10px;padding:12px">
+      <div class="sec-label" style="margin-bottom:8px">Lộ trình sẽ thực hiện</div>
+      <div id="multi-route-steps" style="display:flex;flex-direction:column;gap:5px"></div>
+    </div>
+
+    <!-- Dispatch button -->
+    <button id="multi-dispatch-btn" onclick="multiDispatch()" disabled
+      style="background:rgba(77,142,255,.15);color:#8c909f;border:1px solid rgba(77,142,255,.2);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:not-allowed;transition:all .2s;letter-spacing:.04em">
+      <span class="material-symbols-outlined" style="font-size:15px;vertical-align:middle;margin-right:4px">play_arrow</span>
+      Bắt đầu thực hiện
+    </button>
+
+  </div><!-- /multi-panel -->
+
+  </div><!-- /left-panel -->
 
   <!-- ════ RIGHT ════ -->
-  <div style="display:flex;flex-direction:column;min-height:0;overflow:hidden">
+  <div id="right-panel" style="display:flex;flex-direction:column;min-height:0;overflow:hidden">
 
     <!-- Map controls row -->
     <div style="flex-shrink:0;padding:8px 12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid rgba(255,255,255,.07)">
@@ -179,71 +542,7 @@
 </div>
 
 <!-- ── Manual control bar (chỉ hiện khi Line AGV được chọn) ──────────────── -->
-<div id="manual-bar" style="display:none;flex-shrink:0;padding:6px 16px;border-top:1px solid rgba(77,142,255,.2);background:rgba(11,19,38,.9);backdrop-filter:blur(8px)">
-  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-    <!-- Toggle -->
-    <div style="display:flex;align-items:center;gap:7px">
-      <button id="manual-toggle" onclick="toggleManual()"
-        style="padding:4px 12px;border-radius:7px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);color:#8c909f;font-size:10px;font-weight:600;cursor:pointer;letter-spacing:.04em;transition:all .2s">
-        <span class="material-symbols-outlined" style="font-size:12px;vertical-align:middle">gamepad</span> THỦ CÔNG
-      </button>
-      <span id="manual-hint" style="font-size:9px;color:#424754;font-family:'JetBrains Mono',monospace">Bật để dùng phím mũi tên</span>
-    </div>
-
-    <!-- D-pad visual -->
-    <div id="dpad" style="display:none;align-items:center;gap:2px">
-      <div style="display:grid;grid-template-columns:repeat(3,28px);grid-template-rows:repeat(3,28px);gap:2px">
-        <div></div>
-        <button id="kb-up" onclick="sendManual('up')" title="↑ Deba (tiến)"
-          style="width:28px;height:28px;border-radius:5px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);color:#c2c6d6;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .1s">↑</button>
-        <div></div>
-        <button id="kb-left" onclick="sendManual('left')" title="← Rẽ trái"
-          style="width:28px;height:28px;border-radius:5px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);color:#c2c6d6;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .1s">←</button>
-        <button id="kb-stop" onclick="emergencyStop()" title="■ Dừng"
-          style="width:28px;height:28px;border-radius:5px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ffb4ab;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:10px;transition:all .1s">■</button>
-        <button id="kb-right" onclick="sendManual('right')" title="→ Rẽ phải"
-          style="width:28px;height:28px;border-radius:5px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);color:#c2c6d6;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .1s">→</button>
-        <div></div>
-        <button id="kb-down" onclick="sendManual('down')" title="↓ Lùi"
-          style="width:28px;height:28px;border-radius:5px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);color:#c2c6d6;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .1s">↓</button>
-        <div></div>
-      </div>
-      <!-- Labels -->
-      <div style="font-size:9px;color:#555;font-family:'JetBrains Mono',monospace;line-height:1.9;margin-left:6px">
-        <div>↑ Tiến (deba)</div>
-        <div>↓ Lùi</div>
-        <div>← Rẽ trái &nbsp;→ Rẽ phải</div>
-      </div>
-    </div>
-
-    <!-- Speed -->
-    <div id="manual-speed-wrap" style="display:none;align-items:center;gap:6px;font-size:10px;color:#8c909f">
-      <span class="material-symbols-outlined" style="font-size:13px">speed</span>
-      <span>Tốc độ:</span>
-      <input id="manual-speed" type="range" min="50" max="255" value="150" step="10"
-        style="width:80px;accent-color:#adc6ff" oninput="document.getElementById('speed-val').textContent=this.value">
-      <span id="speed-val" style="font-family:'JetBrains Mono',monospace;color:#adc6ff;min-width:24px">150</span>
-    </div>
-
-    <div id="manual-status" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#424754;margin-left:auto"></div>
-  </div>
-  <!-- Gán vị trí thủ công (ẩn trong manual bar) -->
-  <div id="manual-pos-wrap" style="display:none;margin-top:5px;padding-top:6px;border-top:1px solid rgba(77,142,255,.15)">
-    <div style="display:flex;align-items:center;gap:6px">
-      <span class="material-symbols-outlined" style="color:#8c909f;font-size:13px;flex-shrink:0">pin_drop</span>
-      <span style="font-size:9px;color:#8c909f;white-space:nowrap;flex-shrink:0">Gán vị trí:</span>
-      <div style="position:relative;flex:1">
-        <select id="override-node-select" style="font-size:10px;padding:4px 8px;width:100%">
-          <option value="">-- Chọn node --</option>
-        </select>
-      </div>
-      <button id="btn-override-pos" onclick="assignAgvPosition('override')"
-        style="padding:3px 9px;border-radius:6px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.5);color:#a5b4fc;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;flex-shrink:0">
-        <span class="material-symbols-outlined" style="font-size:11px">pin_drop</span>Gán
-      </button>
-    </div>
-  </div>
-</div>
+<!-- Manual controls moved to Quản lý AGV page -->
 
 <!-- ── Lifecycle action bar (lấy hàng / giao hàng — chỉ hiện khi AGV đang chờ xác nhận) ── -->
 <div id="lifecycle-bar" style="display:none;flex-shrink:0;padding:8px 16px;border-top:1px solid;backdrop-filter:blur(8px)">
@@ -389,7 +688,7 @@
 
 <script>
 // ── Config ─────────────────────────────────────────────────────────────────
-const API  = 'http://' + (window.location.hostname || '192.168.0.56') + ':8000';
+const API  = 'http://' + (window.location.hostname || '192.168.1.13') + ':8000';
 const DASH = '';   // same origin as iframe
 
 // AGV type → icon path (served by Dash /assets/)
@@ -414,7 +713,7 @@ const STEP_C = [
 function sc(i){ return STEP_C[i % STEP_C.length]; }
 
 // ── State ──────────────────────────────────────────────────────────────────
-let agvs=[], workflows=[], selAgv=null, selWf=null, mapNodes=[];
+let agvs=[], workflows=[], selAgv=null, selWf=null, mapNodes=[], teamNodes=[], supplyGroupNodes=[];
 let wfSteps=[];         // [{idx,type,cmd,needsDest,label}] — bước đã parse
 let selNodes={};        // {stepIdx: nodeObj} — điểm đến từng bước
 let activeStepIdx=0;    // bước đang nhận click từ map
@@ -774,11 +1073,37 @@ function renderStepSelectors(){
         <span style="font-size:10px;color:#555;flex:1">${badge[s.cmd]||s.label}</span>
       </div>`;
     }
-    const opts=mapNodes.map(n=>{
+    // Nhóm 1: Các Tổ (DROPOFF nodes có mapping) — hiển thị cho người dùng
+    const teamOpts = teamNodes.length
+      ? `<optgroup label="🏭 Điểm giao hàng (Tổ)">`
+        + teamNodes.map(t=>{
+            const sel = selN && String(selN.name_id)===String(t.node_id) ? ' selected' : '';
+            return `<option value="${t.node_id}"${sel}>Tổ ${t.team}${t.name?' — '+t.name:''}</option>`;
+          }).join('')
+        + `</optgroup>`
+      : '';
+    // Nhóm 2: Điểm lấy hàng theo tổ cấp
+    const supplyOpts = supplyGroupNodes.length
+      ? `<optgroup label="📦 Điểm lấy hàng (Tổ cấp)">`
+        + supplyGroupNodes.map(sg=>{
+            const sel = selN && String(selN.name_id)===String(sg.node_id) ? ' selected' : '';
+            return `<option value="${sg.node_id}"${sel}>${sg.supply_group}${sg.node_name?' — '+sg.node_name:''}</option>`;
+          }).join('')
+        + `</optgroup>`
+      : '';
+    // Nhóm 3: Tất cả node (cho kỹ sư/admin)
+    const nodeOpts = mapNodes.map(n=>{
       const nid=String(n.name_id);
+      // Nếu đã có trong teamNodes hoặc supplyGroupNodes thì bỏ qua (tránh trùng)
+      if(teamNodes.some(t=>String(t.node_id)===nid)) return '';
+      if(supplyGroupNodes.some(sg=>String(sg.node_id)===nid)) return '';
       const lbl=n.name?`${n.name} (${nid})`:`Node ${nid}`;
       return `<option value="${nid}"${selN&&String(selN.name_id)===nid?' selected':''}>${lbl}</option>`;
     }).join('');
+    const allNodeOpts = (teamNodes.length||supplyGroupNodes.length)
+      ? `<optgroup label="— Tất cả node —">${nodeOpts}</optgroup>`
+      : nodeOpts;
+    const opts = teamOpts + supplyOpts + allNodeOpts;
     const done=!!selN;
     return `<div onclick="setActiveStep(${s.idx})" style="display:flex;align-items:center;gap:6px;padding:4px 7px;border-radius:7px;cursor:pointer;transition:all .15s;
       background:${isActive?`rgba(${c.r},.09)`:'rgba(255,255,255,.02)'};
@@ -872,6 +1197,18 @@ async function onMapChange(){
     mapData=await r.json();
     document.getElementById('map-badge').textContent=(mapData.name||'').slice(0,16).toUpperCase();
     mapNodes=mapData.robot_points||[];
+    // Load team nodes (DROPOFF nodes có mapping Tổ)
+    try{
+      const tr=await fetch(`${API}/api/execute/team-nodes?map_id=${mapId}`);
+      const td=await tr.json();
+      teamNodes=td.teams||[];
+    }catch(e){ teamNodes=[]; }
+    // Load supply group nodes (điểm lấy hàng cấp cho từng tổ)
+    try{
+      const sr=await fetch(`${API}/api/map/node/supply-groups?map_id=${mapId}`);
+      const sd=await sr.json();
+      supplyGroupNodes=sd.supply_groups||[];
+    }catch(e){ supplyGroupNodes=[]; }
     detectCoordSystem();
     populateNodeDropdown();
     updateStartNodeRow();
@@ -975,7 +1312,7 @@ function autoFit(){
 }
 
 // Màu sắc riêng cho từng AGV — palette sáng, rõ trên nền tối
-const AGV_ROUTE_COLORS=['#00e5ff','#5b9dff','#4ade80','#ff79c6','#ffd700','#c084fc'];
+const AGV_ROUTE_COLORS=['#39ff14','#e91e63','#00e676','#ffd600','#651fff','#2979ff'];
 const _agvColorMap={};
 let _agvColorIdx=0;
 function agvRouteColor(agv_id){
@@ -1203,6 +1540,66 @@ function renderMap(){
       g.appendChild(num);
     }
   });
+
+  // ── Simulation Route overlay ───────────────────────────────────────────────
+  if(simRouteData && simRouteData.active && simRouteData.route && simRouteData.route.length>=2){
+    const SIM_COL='rgba(250,204,21,'; // vàng
+    const route=simRouteData.route;
+    // Vẽ đường nối các node
+    for(let i=0;i<route.length-1;i++){
+      const na=mapNodes.find(n=>String(n.name_id)===String(route[i]));
+      const nb=mapNodes.find(n=>String(n.name_id)===String(route[i+1]));
+      if(!na||!nb) continue;
+      const {x:x1,y:y1}=worldToPixel(+na.x,+na.y);
+      const {x:x2,y:y2}=worldToPixel(+nb.x,+nb.y);
+      // glow
+      const gl=document.createElementNS(NS,'line');
+      gl.setAttribute('x1',x1);gl.setAttribute('y1',y1);gl.setAttribute('x2',x2);gl.setAttribute('y2',y2);
+      gl.setAttribute('stroke',SIM_COL+'0.18)');gl.setAttribute('stroke-width',String(14/vp.zoom));
+      gl.setAttribute('stroke-linecap','round');gl.setAttribute('pointer-events','none');
+      g.appendChild(gl);
+      // main line dashed
+      const ln=document.createElementNS(NS,'line');
+      ln.setAttribute('x1',x1);ln.setAttribute('y1',y1);ln.setAttribute('x2',x2);ln.setAttribute('y2',y2);
+      ln.setAttribute('stroke',SIM_COL+'0.9)');ln.setAttribute('stroke-width',String(2.5/vp.zoom));
+      ln.setAttribute('stroke-dasharray',`${7/vp.zoom} ${3/vp.zoom}`);
+      ln.setAttribute('stroke-linecap','round');ln.setAttribute('pointer-events','none');
+      g.appendChild(ln);
+    }
+    // Vẽ số thứ tự trên mỗi node
+    route.forEach((nid,i)=>{
+      const nd=mapNodes.find(n=>String(n.name_id)===String(nid));
+      if(!nd) return;
+      const {x,y}=worldToPixel(+nd.x,+nd.y);
+      const isCurrent=String(nid)===String(simRouteData.current_dest);
+      const R=Math.max(7,10/vp.zoom);
+      // highlight current destination
+      if(isCurrent){
+        const pulse=document.createElementNS(NS,'circle');
+        pulse.setAttribute('cx',x);pulse.setAttribute('cy',y);
+        pulse.setAttribute('r',String(R*2.5));
+        pulse.setAttribute('fill',SIM_COL+'0.2)');pulse.setAttribute('pointer-events','none');
+        pulse.style.animation='agvGlowPulse 1s ease-in-out infinite';
+        g.appendChild(pulse);
+      }
+      // badge số thứ tự
+      const bg=document.createElementNS(NS,'circle');
+      bg.setAttribute('cx',String(x-R*0.9));bg.setAttribute('cy',String(y-R*0.9));
+      bg.setAttribute('r',String(Math.max(5,7/vp.zoom)));
+      bg.setAttribute('fill',isCurrent?'#facc15':'rgba(250,204,21,0.7)');
+      bg.setAttribute('stroke','#0c0e12');bg.setAttribute('stroke-width',String(0.8/vp.zoom));
+      bg.setAttribute('pointer-events','none');
+      g.appendChild(bg);
+      const num=document.createElementNS(NS,'text');
+      num.setAttribute('x',String(x-R*0.9));num.setAttribute('y',String(y-R*0.9));
+      num.setAttribute('text-anchor','middle');num.setAttribute('dominant-baseline','central');
+      num.setAttribute('font-size',String(Math.max(5,6/vp.zoom)));
+      num.setAttribute('fill','#0c0e12');num.setAttribute('font-weight','700');
+      num.setAttribute('pointer-events','none');num.setAttribute('font-family','monospace');
+      num.textContent=String(i+1);
+      g.appendChild(num);
+    });
+  }
 
   // ── AGV Icons (top-view với hướng di chuyển) ─────────────────────────────
   agvPositions.forEach(agv=>{
@@ -1519,6 +1916,8 @@ async function emergencyStop(){
   }catch{toast('✗ Không kết nối server','error');}
 }
 
+// ── Config mode và manual control đã chuyển sang Quản lý AGV ─────────────
+
 // ── Queue Manager ─────────────────────────────────────────────────────────
 async function openQueueManager(){
   if(!selAgv) return;
@@ -1614,98 +2013,8 @@ async function cancelSingle(cmdId){
   else { toast('✗ Không tìm thấy lệnh này','error'); }
 }
 
-// ── Manual keyboard control ────────────────────────────────────────────────
-let manualEnabled = false;
-let manualCooldown = false;   // debounce: tránh spam lệnh khi giữ phím
-
-function updateManualBar(){
-  const bar = document.getElementById('manual-bar');
-  const isLine = selAgv && selAgv.agv_type === 'LINE';
-  bar.style.display = isLine ? 'flex' : 'none';
-
-  // Hiện/ẩn + populate override-node-select
-  const posWrap = document.getElementById('manual-pos-wrap');
-  if(posWrap){
-    posWrap.style.display = isLine ? 'block' : 'none';
-    const overSel = document.getElementById('override-node-select');
-    if(overSel && isLine) _populateNodeSel(overSel, selAgv?.current_node);
-  }
-}
-
-function toggleManual(){
-  manualEnabled = !manualEnabled;
-  const btn  = document.getElementById('manual-toggle');
-  const dpad = document.getElementById('dpad');
-  const spdW = document.getElementById('manual-speed-wrap');
-  const hint = document.getElementById('manual-hint');
-  if(manualEnabled){
-    btn.style.background  = 'rgba(77,142,255,.25)';
-    btn.style.borderColor = '#adc6ff';
-    btn.style.color       = '#adc6ff';
-    dpad.style.display    = 'flex';
-    spdW.style.display    = 'flex';
-    hint.textContent      = 'Phím mũi tên đang hoạt động';
-    hint.style.color      = '#adc6ff';
-    document.getElementById('manual-status').textContent = '';
-  } else {
-    btn.style.background  = 'rgba(34,42,61,.8)';
-    btn.style.borderColor = 'rgba(66,71,84,.5)';
-    btn.style.color       = '#8c909f';
-    dpad.style.display    = 'none';
-    spdW.style.display    = 'none';
-    hint.textContent      = 'Bật để dùng phím mũi tên';
-    hint.style.color      = '#424754';
-  }
-}
-
-async function sendManual(action){
-  if(!selAgv || selAgv.agv_type !== 'LINE') return;
-  if(manualCooldown) return;
-  manualCooldown = true;
-
-  // Flash button
-  const ids = {up:'kb-up',down:'kb-down',left:'kb-left',right:'kb-right'};
-  const btnEl = document.getElementById(ids[action]);
-  if(btnEl){ btnEl.style.background='rgba(77,142,255,.35)'; btnEl.style.borderColor='#adc6ff'; }
-
-  const speed = parseInt(document.getElementById('manual-speed').value) || 150;
-  const st = document.getElementById('manual-status');
-  const labels = {up:'↑ Tiến',down:'↓ Lùi',left:'← Rẽ trái',right:'→ Rẽ phải'};
-  st.textContent = `${labels[action]} → ${selAgv.agv_id}`;
-  st.style.color = '#adc6ff';
-
-  try{
-    const r = await fetch(`${API}/api/execute/manual-control`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({agv_id:selAgv.agv_id, action, speed})
-    });
-    if(!r.ok){
-      const d = await r.json().catch(()=>({}));
-      st.textContent = '✗ '+(d.detail||'Lỗi');
-      st.style.color = '#ef4444';
-    }
-  }catch(e){
-    st.textContent = '✗ Mất kết nối server';
-    st.style.color = '#ef4444';
-  }
-
-  if(btnEl){ setTimeout(()=>{ btnEl.style.background='rgba(34,42,61,.8)'; btnEl.style.borderColor='rgba(66,71,84,.5)'; },150); }
-  setTimeout(()=>{ manualCooldown=false; },400);  // 400ms giữa các lệnh
-}
-
-// Arrow key listener
-window.addEventListener('keydown', e=>{
-  if(!manualEnabled) return;
-  if(!selAgv || selAgv.agv_type !== 'LINE') return;
-  // Không áp dụng khi đang focus vào input/select
-  if(['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)) return;
-  const map = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right'};
-  if(map[e.key]){
-    e.preventDefault();
-    sendManual(map[e.key]);
-  }
-});
+// ── Manual controls đã chuyển sang Quản lý AGV → agv_manager.html ─────────
+function updateManualBar(){ /* no-op: manual bar removed */ }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 function updateLifecycleBar(){
@@ -1841,7 +2150,972 @@ function startAnimation(){
 setInterval(()=>{ loadAgvs(); if(currentMapId){ loadAgvPositions(); loadAgvRoutes(); } },2000);
 window.addEventListener('resize',()=>{ if(mapData&&mapNodes.length){autoFit();renderMap();} });
 startAnimation();
-loadAll();
+
+// ── CHẾ ĐỘ "BẢN ĐỒ THEO DÕI" (mở từ menu, tab mới ?view=monitor) ────────────
+// Tái dùng NGUYÊN bản đồ theo dõi của trang Thực hiện tác vụ: chỉ ẩn header + thanh
+// tab + panel điều khiển bên trái, để KHUNG BẢN ĐỒ chiếm toàn bộ màn hình. KHÔNG đổi
+// gì khi mở bình thường (trong iframe) → không ảnh hưởng trang Thực hiện tác vụ.
+const _MONITOR_VIEW = new URLSearchParams(location.search).get('view') === 'monitor';
+if (_MONITOR_VIEW) {
+  const _hideEl = id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
+  _hideEl('te-header'); _hideEl('te-tabbar'); _hideEl('left-panel');
+  const _bg = document.getElementById('body-grid');
+  if (_bg) _bg.style.gridTemplateColumns = '1fr';   // bản đồ chiếm trọn chiều ngang
+  document.title = 'Bản đồ theo dõi';
+}
+
+loadAll().then(() => {
+  if (!_MONITOR_VIEW) return;
+  // Tự chọn bản đồ đầu tiên để BẢN ĐỒ LOAD NGAY (không bắt người dùng chọn thủ công).
+  const sel = document.getElementById('map-select');
+  if (sel && !currentMapId) {
+    const opt = Array.from(sel.options).find(o => o.value);
+    if (opt) { sel.value = opt.value; onMapChange(); }
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// MODE SWITCHING (Thực hiện / Mô phỏng)
+// ══════════════════════════════════════════════════════════════
+let currentMode = 'task';
+
+function switchMode(mode) {
+  currentMode = mode;
+  const tabs   = ['task','sim','sched','multi'];
+  const panels = {task:'task-left-content', sim:'sim-panel', sched:'sched-panel', multi:'multi-panel'};
+
+  tabs.forEach(t => {
+    const btn = document.getElementById('tab-btn-' + t);
+    if (!btn) return;
+    const active = t === mode;
+    btn.style.color        = active ? '#adc6ff' : '#8c909f';
+    btn.style.borderBottom = active ? '2px solid #adc6ff' : '2px solid transparent';
+  });
+
+  const isSched = mode === 'sched';
+  // Schedule mode: full-width (ẩn map panel)
+  const grid  = document.getElementById('body-grid');
+  const right = document.getElementById('right-panel');
+  const left  = document.getElementById('left-panel');
+  if (grid && right) {
+    if (isSched) {
+      grid.style.gridTemplateColumns = '1fr';
+      right.style.display = 'none';
+      if (left) left.style.borderRight = 'none';
+    } else {
+      grid.style.gridTemplateColumns = '1fr 1fr';
+      right.style.display = 'flex';
+      if (left) left.style.borderRight = '1px solid rgba(255,255,255,.07)';
+    }
+  }
+
+  Object.entries(panels).forEach(([t, pid]) => {
+    const el = document.getElementById(pid);
+    if (el) el.style.display = t === mode ? 'flex' : 'none';
+  });
+
+  if (mode === 'sim') {
+    simPopulateAgvs();
+    simUpdateGuide();
+    simRefreshStatus();
+  }
+  if (mode === 'sched') {
+    schedInit();
+  }
+  if (mode === 'multi') {
+    multiInit();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// SIMULATION — Route builder
+// ══════════════════════════════════════════════════════════════
+let simRoute = [];      // list of node_id strings
+let simSessionId = null;
+let simPollTimer = null;
+
+const SIM_GUIDES = {
+  loop: {
+    color: 'rgba(99,102,241,.12)', border: 'rgba(99,102,241,.3)', icon: '🔁',
+    title: 'Loop — Vòng tròn',
+    desc: 'AGV chạy lần lượt qua từng node theo thứ tự bạn chọn, rồi quay lại node đầu tiên và lặp lại.',
+    example: 'Ví dụ: A→B→C→D → A→B→C→D → ...',
+    tips: ['Phù hợp cho đường một chiều hoặc đường vòng kín.', 'Thêm node theo đúng chiều xe sẽ đi.', 'Nếu có 4 node, 1 vòng = 4 chặng đi.'],
+  },
+  pingpong: {
+    color: 'rgba(14,165,233,.12)', border: 'rgba(14,165,233,.3)', icon: '↔',
+    title: 'Ping-pong — Qua lại',
+    desc: 'AGV đi từ đầu đến cuối lộ trình, rồi quay ngược lại từ cuối về đầu, cứ thế lặp lại.',
+    example: 'Ví dụ: A→B→C→D → D→C→B→A → A→B→... (1 vòng = đi và về)',
+    tips: ['Phù hợp cho hành lang thẳng 2 chiều.', 'Chọn các node từ điểm đầu đến điểm cuối.', 'Điểm đầu và cuối không bị lặp khi quay đầu.'],
+  },
+};
+
+function simUpdateGuide() {
+  const type  = document.getElementById('sim-type')?.value || 'loop';
+  const g     = SIM_GUIDES[type] || SIM_GUIDES.loop;
+  const el    = document.getElementById('sim-guide');
+  if (!el) return;
+  el.style.background = g.color;
+  el.style.border     = `1px solid ${g.border}`;
+  el.innerHTML = `
+    <div style="font-weight:700;font-size:12px;margin-bottom:4px">${g.icon} ${g.title}</div>
+    <div style="color:#c2c6d6;margin-bottom:5px">${g.desc}</div>
+    <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#adc6ff;margin-bottom:5px">${g.example}</div>
+    <ul style="margin:0;padding-left:14px;font-size:10px;color:#8c909f">
+      ${g.tips.map(t => `<li>${t}</li>`).join('')}
+    </ul>`;
+}
+
+function simPopulateAgvs() {
+  const sel = document.getElementById('sim-agv');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">-- Chọn AGV --</option>' +
+    agvs.filter(a => a.connection === 'ONLINE').map(a =>
+      `<option value="${a.agv_id}"${a.agv_id===cur?' selected':''}>${a.agv_id}</option>`
+    ).join('');
+}
+
+// Override pickNode để thêm node vào sim route khi ở sim mode
+const _origPickNode = typeof pickNode === 'function' ? pickNode : null;
+function pickNode(n) {
+  if (currentMode === 'sim') {
+    simAddNode(n);
+    return;
+  }
+  if (_origPickNode) _origPickNode(n);
+}
+
+function simAddNode(n) {
+  const nid = String(n.name_id ?? n.node_id ?? n);
+  simRoute.push(nid);
+  simRenderRoute();
+  renderMap(); // redraw to show route
+}
+
+function simRemoveNode(idx) {
+  simRoute.splice(idx, 1);
+  simRenderRoute();
+  renderMap();
+}
+
+function simClearRoute() {
+  simRoute = [];
+  simRenderRoute();
+  renderMap();
+}
+
+function simRenderRoute() {
+  const el  = document.getElementById('sim-route-list');
+  const cnt = document.getElementById('sim-route-count');
+  cnt.textContent = `(${simRoute.length} node)`;
+  if (!simRoute.length) {
+    el.innerHTML = `<div style="color:#555;font-size:11px;text-align:center;padding:12px">Chưa có node nào</div>`;
+    return;
+  }
+  el.innerHTML = simRoute.map((nid, i) => {
+    const nd = mapNodes.find(n => String(n.name_id) === nid);
+    const label = nd?.name ? `${nd.name} (${nid})` : `Node ${nid}`;
+    return `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:7px;background:rgba(77,142,255,.08);border:1px solid rgba(77,142,255,.15)">
+      <span style="width:18px;height:18px;border-radius:50%;background:rgba(173,198,255,.2);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#adc6ff;flex-shrink:0">${i+1}</span>
+      <span style="font-size:11px;flex:1;font-family:'JetBrains Mono',monospace;color:#fff">${label}</span>
+      <button onclick="simRemoveNode(${i})" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:13px;padding:0;line-height:1">✕</button>
+    </div>`;
+  }).join('');
+}
+
+// Override renderMap để vẽ sim route nếu ở sim mode
+const _origRenderMap = typeof renderMap === 'function' ? renderMap : null;
+
+// ══════════════════════════════════════════════════════════════
+// SIMULATION — Controls
+// ══════════════════════════════════════════════════════════════
+async function simStart() {
+  const agvId  = document.getElementById('sim-agv').value;
+  const cycles = parseInt(document.getElementById('sim-cycles').value) || 10;
+  const delay  = parseFloat(document.getElementById('sim-delay').value) || 1;
+  const type   = document.getElementById('sim-type').value;
+
+  if (!agvId)           { toast('Chọn AGV trước', 'warn'); return; }
+  if (simRoute.length < 2) { toast('Cần ít nhất 2 node trong lộ trình', 'warn'); return; }
+
+  try {
+    const r = await fetch(`${API}/api/simulation/start`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ agv_id: agvId, route: simRoute, route_type: type,
+                             total_cycles: cycles, delay_s: delay }),
+    });
+    const d = await r.json();
+    if (!r.ok) { toast('✗ ' + (d.detail||'Lỗi khởi động'), 'error'); return; }
+    simSessionId = d.session.session_id;
+    toast(`✓ Bắt đầu mô phỏng ${agvId} — ${cycles} vòng`, 'success');
+    simUpdateControls('running');
+    simStartPolling(agvId);
+  } catch(e) { toast('✗ Mất kết nối server', 'error'); }
+}
+
+async function simPause() {
+  if (!simSessionId) return;
+  const r = await fetch(`${API}/api/simulation/pause/${simSessionId}`, {method:'POST'});
+  const d = await r.json();
+  simUpdateControls(d.session?.status || 'paused');
+}
+
+async function simResume() {
+  if (!simSessionId) return;
+  const r = await fetch(`${API}/api/simulation/resume/${simSessionId}`, {method:'POST'});
+  const d = await r.json();
+  simUpdateControls(d.session?.status || 'running');
+}
+
+async function simStop() {
+  if (!simSessionId) return;
+  await fetch(`${API}/api/simulation/stop/${simSessionId}`, {method:'POST'});
+  simSessionId = null;
+  simStopPolling();
+  simUpdateControls('idle');
+  document.getElementById('sim-status-box').style.display = 'none';
+  toast('⏹ Đã dừng mô phỏng', 'warn');
+}
+
+function simUpdateControls(status) {
+  const running = status === 'running';
+  const paused  = status === 'paused';
+  const active  = running || paused;
+
+  const btnStart = document.getElementById('sim-btn-start');
+  const btnPause = document.getElementById('sim-btn-pause');
+  const btnStop  = document.getElementById('sim-btn-stop');
+
+  btnStart.disabled = active;
+  btnStart.style.opacity = active ? '.35' : '1';
+  btnPause.disabled = !active;
+  btnPause.style.opacity = active ? '1' : '.35';
+  btnStop.disabled = !active;
+  btnStop.style.opacity = active ? '1' : '.35';
+
+  // Toggle pause/resume label
+  if (paused) {
+    btnPause.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">play_arrow</span>Tiếp tục';
+    btnPause.onclick = simResume;
+  } else {
+    btnPause.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">pause</span>Tạm dừng';
+    btnPause.onclick = simPause;
+  }
+}
+
+// ── Status polling ─────────────────────────────────────────────
+async function simRefreshStatus() {
+  const agvId = document.getElementById('sim-agv')?.value;
+  if (!agvId) return;
+  try {
+    const r = await fetch(`${API}/api/simulation/status/${encodeURIComponent(agvId)}`);
+    const d = await r.json();
+    if (d.active && d.session) {
+      simSessionId = d.session.session_id;
+      simRenderStatus(d.session);
+      simUpdateControls(d.session.status);
+      if (!simPollTimer) simStartPolling(agvId);
+    }
+  } catch(e) {}
+}
+
+let simRouteData = null;  // route đang mô phỏng (để vẽ lên map)
+
+function simStartPolling(agvId) {
+  simStopPolling();
+  simPollTimer = setInterval(async () => {
+    try {
+      // Poll status + sim route song song
+      const [r, r2] = await Promise.all([
+        fetch(`${API}/api/simulation/status/${encodeURIComponent(agvId)}`),
+        fetch(`${API}/api/simulation/route/${encodeURIComponent(agvId)}`),
+      ]);
+      const d  = await r.json();
+      const rd = await r2.json();
+
+      if (d.session) {
+        simRenderStatus(d.session);
+        simUpdateControls(d.session.status);
+        if (!d.active) {
+          simStopPolling();
+          simSessionId = null;
+          simRouteData = null;
+          renderMap();
+          if (d.session.status === 'completed') toast('✅ Mô phỏng hoàn thành!', 'success');
+        }
+      } else {
+        simStopPolling();
+        simSessionId = null;
+        simRouteData = null;
+        simUpdateControls('idle');
+        renderMap();
+      }
+
+      // Cập nhật sim route để vẽ lên map
+      simRouteData = rd.active ? rd : null;
+      renderMap();
+
+    } catch(e) {}
+  }, 1000);
+}
+
+function simStopPolling() {
+  if (simPollTimer) { clearInterval(simPollTimer); simPollTimer = null; }
+}
+
+function simRenderStatus(s) {
+  const box = document.getElementById('sim-status-box');
+  box.style.display = 'block';
+
+  const STATUS_LABELS = {running:'▶ Đang chạy', paused:'⏸ Tạm dừng',
+                         completed:'✅ Hoàn thành', stopped:'⏹ Đã dừng', error:'❌ Lỗi'};
+  const STATUS_COLORS = {running:'#4ade80', paused:'#fde047',
+                         completed:'#4ade80', stopped:'#94a3b8', error:'#f87171'};
+
+  document.getElementById('sim-status-label').textContent = STATUS_LABELS[s.status] || s.status;
+  document.getElementById('sim-status-label').style.color = STATUS_COLORS[s.status] || '#fff';
+  document.getElementById('sim-status-cycles').textContent =
+    `Vòng ${s.current_cycle+1}/${s.total_cycles}`;
+  document.getElementById('sim-progress-bar').style.width = s.progress_pct + '%';
+
+  const nd = mapNodes.find(n => String(n.name_id) === String(s.current_dest || ''));
+  const destLabel = nd?.name ? `${nd.name} (${s.current_dest})` : `Node ${s.current_dest}`;
+  document.getElementById('sim-status-dest').textContent =
+    s.current_dest ? `→ Đang đến: ${destLabel} (bước ${s.current_step+1}/${s.sequence_len})` : '';
+
+  document.getElementById('sim-stat-dispatch').textContent = `✓ ${s.dispatch_count} lệnh`;
+  document.getElementById('sim-stat-error').textContent    = s.error_count ? `⚠ ${s.error_count} lỗi` : '';
+  document.getElementById('sim-stat-eta').textContent      = s.eta_s != null ? `⏱ ~${fmtETA(s.eta_s)}` : '';
+}
+
+function fmtETA(sec) {
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec/60), s = sec%60;
+  if (m < 60) return `${m}p${String(s).padStart(2,'0')}s`;
+  return `${Math.floor(m/60)}g${String(m%60).padStart(2,'0')}p`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// SCHEDULE — Lập lịch tự động
+// ══════════════════════════════════════════════════════════════
+let _schedType = 'once';
+let _schedDays = new Set();
+let _schedPollTimer = null;
+
+async function schedInit() {
+  await schedLoadAgvs();
+  await schedLoadWorkflows();
+  await schedLoadMaps();
+  await schedLoad();
+  clearInterval(_schedPollTimer);
+  _schedPollTimer = setInterval(schedLoad, 60000);
+  // Clock
+  function _tickClock() {
+    const el = document.getElementById('sched-clock');
+    if (el) {
+      const n = new Date();
+      el.textContent = `SYS: ${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}`;
+    }
+  }
+  _tickClock();
+  setInterval(_tickClock, 1000);
+}
+
+async function schedLoadAgvs() {
+  try {
+    const r = await fetch(`${API}/api/execute/agv-list`);
+    const d = await r.json();
+    const sel = document.getElementById('sched-agv');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">-- Chọn AGV --</option>';
+    (d.agvs || []).forEach(a => {
+      const online = a.connection === 'ONLINE';
+      const icon = !online ? '🔴' : a.is_busy ? '🟡' : '🟢';
+      const bat  = a.battery != null ? ` · ${Math.round(a.battery)}%🔋` : '';
+      const mode = online ? (a.is_busy ? ' [đang bận]' : ' [sẵn sàng]') : ' [offline]';
+      const o = document.createElement('option');
+      o.value = a.agv_id;
+      o.textContent = `${icon} ${a.agv_id}${bat}${mode}`;
+      sel.appendChild(o);
+    });
+    if (cur) sel.value = cur;
+  } catch(e) {}
+}
+
+async function schedLoadMaps() {
+  try {
+    const r = await fetch(`${API}/api/maps/list`);
+    const d = await r.json();
+    const sel = document.getElementById('sched-map');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">-- Chọn bản đồ --</option>';
+    (d.maps || d || []).forEach(m => {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.name || m.id;
+      sel.appendChild(o);
+    });
+    if (cur) sel.value = cur;
+  } catch(e) {}
+}
+
+function schedMapChange() {
+  schedLoadTeams();
+}
+
+async function schedLoadTeams() {
+  const mapId = document.getElementById('sched-map')?.value;
+  const sel = document.getElementById('sched-team');
+  if (!mapId) {
+    sel.innerHTML = '<option value="">-- Chọn bản đồ trước --</option>';
+    return;
+  }
+  try {
+    const r = await fetch(`${API}/api/execute/team-nodes?map_id=${encodeURIComponent(mapId)}`);
+    const d = await r.json();
+    const teams = d.teams || [];
+    if (!teams.length) {
+      sel.innerHTML = '<option value="">Chưa có tổ nào trong bản đồ này</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">-- Chọn tổ --</option>';
+    teams.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.team;
+      o.textContent = `Tổ ${t.team}${t.name ? ' — ' + t.name : ''}`;
+      sel.appendChild(o);
+    });
+  } catch(e) {
+    sel.innerHTML = '<option value="">Lỗi tải danh sách tổ</option>';
+  }
+}
+
+function schedCmdChange() {
+  // Tổ đích luôn hiển thị (tác vụ nào cũng có thể cần chỉ định tổ)
+}
+
+function schedTypeSwitch(type) {
+  _schedType = type;
+  ['once','daily','interval'].forEach(t => {
+    const btn = document.getElementById('sched-type-' + t);
+    const pan = document.getElementById('sched-panel-' + t);
+    if (btn) { btn.classList.toggle('active', t === type); }
+    if (pan) pan.style.display = t === type ? '' : 'none';
+  });
+}
+
+function schedDayToggle(d) {
+  if (_schedDays.has(d)) _schedDays.delete(d); else _schedDays.add(d);
+  const lbl = document.getElementById('day-lbl-' + d);
+  if (lbl) lbl.classList.toggle('active', _schedDays.has(d));
+}
+
+async function schedSave() {
+  const agv    = document.getElementById('sched-agv').value;
+  const cmd    = document.getElementById('sched-cmd').value;
+  const mapId  = document.getElementById('sched-map').value;
+  const teamId = document.getElementById('sched-team').value;
+  if (!agv)  return toast('Chọn AGV trước', 'error');
+  if (!cmd)  return toast('Chọn tác vụ trước', 'error');
+  if (!mapId) return toast('Chọn bản đồ trước', 'error');
+
+  const body = {
+    agv_id:        agv,
+    command:       cmd,
+    map_id:        mapId,
+    team_id:       teamId ? parseInt(teamId) : null,
+    priority:      parseInt(document.getElementById('sched-priority').value),
+    schedule_type: _schedType,
+    label:         document.getElementById('sched-label').value.trim(),
+  };
+
+  if (_schedType === 'once') {
+    const dt = document.getElementById('sched-datetime').value;
+    if (!dt) return toast('Chọn ngày giờ', 'error');
+    body.scheduled_at = dt;
+  } else if (_schedType === 'daily') {
+    const t = document.getElementById('sched-time').value;
+    if (!t) return toast('Chọn giờ', 'error');
+    if (!_schedDays.size) return toast('Chọn ít nhất 1 ngày', 'error');
+    body.time_of_day  = t;
+    body.days_of_week = [..._schedDays].sort((a,b)=>a-b);
+  } else {
+    const mins = parseInt(document.getElementById('sched-interval').value);
+    if (!mins || mins < 5) return toast('Tối thiểu 5 phút', 'error');
+    body.interval_minutes = mins;
+  }
+
+  try {
+    const r = await fetch(`${API}/api/schedule/create`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error(await r.text());
+    toast('✅ Đã lưu lịch', 'success');
+    document.getElementById('sched-label').value = '';
+    schedLoad();
+  } catch(e) { toast('Lỗi: ' + e.message, 'error'); }
+}
+
+async function schedToggle(sid) {
+  try {
+    await fetch(`${API}/api/schedule/${sid}/toggle`, {method:'PUT'});
+    schedLoad();
+  } catch(e) {}
+}
+
+async function schedDelete(sid) {
+  if (!confirm('Xóa lịch này?')) return;
+  try {
+    await fetch(`${API}/api/schedule/${sid}`, {method:'DELETE'});
+    schedLoad();
+  } catch(e) {}
+}
+
+async function schedLoad() {
+  try {
+    const r = await fetch(`${API}/api/schedule/upcoming`);
+    const d = await r.json();
+    schedRender(d.schedules || []);
+  } catch(e) {
+    document.getElementById('sched-list').innerHTML =
+      '<div style="color:#f87171;font-size:11px;padding:12px">Lỗi tải lịch</div>';
+  }
+}
+
+function schedRender(list) {
+  const el = document.getElementById('sched-list');
+  const badge = document.getElementById('sched-count-badge');
+  if (badge) badge.textContent = list.length ? `${list.length} TASKS` : '';
+
+  if (!list.length) {
+    el.innerHTML = `<div style="text-align:center;padding:48px 24px;color:#8c909f;font-size:10px;font-family:'JetBrains Mono',monospace;letter-spacing:.08em">
+      <div style="font-size:28px;margin-bottom:12px;opacity:.3">📅</div>
+      Chưa có lịch nào được đặt<br>
+      <span style="color:#555">Dùng form bên trái để tạo lịch mới</span>
+    </div>`;
+    return;
+  }
+
+  const groups = {};
+  const today    = _fmtDay(new Date());
+  const tomorrow = _fmtDay(new Date(Date.now() + 86400000));
+
+  list.forEach(s => {
+    const dt  = s.next_run ? new Date(s.next_run) : null;
+    const key = dt ? _fmtDay(dt) : '__none';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({...s, _dt: dt});
+  });
+
+  let html = '';
+  const sortedKeys = Object.keys(groups).sort();
+  sortedKeys.forEach(day => {
+    let dayTag = '';
+    if (day === today)         dayTag = '⚡ HÔM_NAY';
+    else if (day === tomorrow) dayTag = '→ NGÀY_MAI';
+    else if (day === '__none') dayTag = '∞ LẶP LẠI KHÔNG XÁC ĐỊNH';
+    else {
+      const dt2 = new Date(day + 'T00:00:00');
+      dayTag = `◈ ${dt2.toLocaleDateString('vi-VN',{weekday:'short',day:'2-digit',month:'2-digit'}).toUpperCase()}`;
+    }
+    html += `<div class="sched-date-sep" style="padding:8px 20px 4px">${dayTag}</div>`;
+    groups[day].forEach(s => { html += schedCardHTML(s); });
+  });
+
+  el.innerHTML = html;
+}
+
+function schedCardHTML(s) {
+  const pri   = s.priority || 3;
+  const imm   = s.is_imminent;
+
+  // Time display
+  const timeStr = s.next_run
+    ? new Date(s.next_run).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})
+    : '--:--';
+  const dayStr = s.next_run
+    ? (()=>{ const d=new Date(s.next_run),t=_fmtDay(d),to=_fmtDay(new Date()),tm=_fmtDay(new Date(Date.now()+86400000));
+              return t===to?'HÔM NAY':t===tm?'NGÀY MAI':d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'}); })()
+    : 'LẶP LẠI';
+
+  // Countdown
+  const countdown = s.mins_left == null ? ''
+    : s.mins_left === 0 ? `<span style="color:#facc15;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace">▶ NGAY BÂY GIỜ</span>`
+    : s.mins_left < 60  ? `<span style="color:#facc15;font-size:9px;font-family:'JetBrains Mono',monospace">còn ${s.mins_left} phút</span>`
+    : `<span style="color:#8c909f;font-size:9px;font-family:'JetBrains Mono',monospace">còn ${Math.floor(s.mins_left/60)}g${String(s.mins_left%60).padStart(2,'0')}p</span>`;
+
+  // Priority bars (5 bars)
+  const priColors = {1:'#f87171',2:'#fb923c',3:'#60a5fa',4:'#94a3b8',5:'#475569'};
+  const priCount  = 6 - pri; // pri=1→5bars, pri=5→1bar
+  let bars = '';
+  for(let i=0;i<5;i++) {
+    bars += `<div class="pri-bar ${i<priCount ? `on-${pri}` : 'off'}"></div>`;
+  }
+
+  // Task info
+  const cmdLabel = {go_to:'GIAO HÀNG',go_charge:'SẠC PIN',go_wait:'CHỜ TẠI TRẠM'}[s.command]||(s.command||'').toUpperCase();
+  const dest     = s.team_id ? `→ TỔ_${s.team_id}` : '';
+  const repeat   = schedRepeatLabel(s);
+  const labelStr = s.label ? `<span style="color:#475569;font-size:9px;font-family:'JetBrains Mono',monospace">// ${s.label}</span>` : '';
+
+  // Toggle switch
+  const toggleId = `tog-${s.id.slice(0,8)}`;
+  const togChecked = s.active ? 'checked' : '';
+
+  return `
+<div class="sched-entry${imm?' imminent':''}${!s.active?' paused':''}">
+  <!-- Time col -->
+  <div style="min-width:68px;text-align:center">
+    <div style="font-size:18px;font-weight:800;color:${imm?'#facc15':'#adc6ff'};font-family:'JetBrains Mono',monospace;line-height:1">${timeStr}</div>
+    <div style="font-size:8px;color:#8c909f;font-family:'JetBrains Mono',monospace;letter-spacing:.06em;text-transform:uppercase;margin-top:2px">${dayStr}</div>
+    ${countdown}
+  </div>
+  <!-- Divider -->
+  <div style="width:1px;background:rgba(173,198,255,.12);align-self:stretch"></div>
+  <!-- Info -->
+  <div style="flex:1;min-width:0">
+    <div style="font-size:13px;font-weight:700;color:${imm?'#facc15':'#e1e2e7'};font-family:'Space Grotesk',sans-serif;margin-bottom:4px">
+      ${s.agv_id} ${dest}
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;font-family:'JetBrains Mono',monospace;color:#8c909f;background:rgba(255,255,255,.05);padding:2px 7px;border:1px solid rgba(255,255,255,.07)">
+        <span class="material-symbols-outlined" style="font-size:10px">precision_manufacturing</span>${s.agv_id}
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:4px;font-size:9px;font-family:'JetBrains Mono',monospace;color:#8c909f;background:rgba(255,255,255,.05);padding:2px 7px;border:1px solid rgba(255,255,255,.07)">
+        <span class="material-symbols-outlined" style="font-size:10px">move_item</span>${cmdLabel}
+      </span>
+      <span style="font-size:9px;color:#555;font-family:'JetBrains Mono',monospace">${repeat}</span>
+      ${labelStr}
+    </div>
+  </div>
+  <!-- Priority + Toggle + Delete -->
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
+    <div>
+      <div style="font-size:8px;color:#8c909f;font-family:'JetBrains Mono',monospace;letter-spacing:.06em;text-align:right;margin-bottom:3px">ƯU TIÊN</div>
+      <div class="pri-bars">${bars}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <label class="sched-toggle" title="${s.active?'Tạm dừng':'Kích hoạt'}">
+        <input type="checkbox" ${togChecked} onchange="schedToggle('${s.id}')">
+        <span class="sched-toggle-slider"></span>
+      </label>
+      <button onclick="schedDelete('${s.id}')"
+        style="border:1px solid rgba(248,113,113,.2);background:transparent;color:#f87171;width:24px;height:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s"
+        onmouseover="this.style.background='rgba(248,113,113,.1)'" onmouseout="this.style.background='transparent'"
+        title="Xóa">
+        <span class="material-symbols-outlined" style="font-size:13px">delete</span>
+      </button>
+    </div>
+    ${s.run_count>0 ? `<span style="font-size:8px;color:#555;font-family:'JetBrains Mono',monospace">Đã chạy: ${s.run_count} lần</span>` : ''}
+  </div>
+</div>`;
+}
+
+function schedRepeatLabel(s) {
+  if (s.schedule_type === 'once')     return '📌 Một lần';
+  if (s.schedule_type === 'interval') return `⏱ Lặp mỗi ${s.interval_minutes} phút`;
+  if (s.schedule_type === 'daily') {
+    const dayNames = {1:'T2',2:'T3',3:'T4',4:'T5',5:'T6',6:'T7',7:'CN'};
+    const days = (s.days_of_week || []).map(d => dayNames[d] || d).join(' ');
+    return `🔁 Hàng ngày · ${days || 'Tất cả các ngày'}`;
+  }
+  return '';
+}
+
+async function schedLoadWorkflows() {
+  try {
+    const r = await fetch(`${API}/api/workflow-templates`);
+    if (!r.ok) return;
+    const d = await r.json();
+    const templates = d.templates || d || [];
+    const sel = document.getElementById('sched-cmd');
+    sel.innerHTML = '<option value="">-- Chọn tác vụ --</option>';
+    if (!templates.length) {
+      sel.innerHTML += '<option value="" disabled>Chưa có tác vụ nào</option>';
+      return;
+    }
+    templates.forEach(t => {
+      const o = document.createElement('option');
+      o.value = `wf:${t.template_id || t.id}`;
+      o.textContent = `📋 ${t.name}`;
+      sel.appendChild(o);
+    });
+  } catch(e) {
+    const sel = document.getElementById('sched-cmd');
+    if (sel) sel.innerHTML = '<option value="">Lỗi tải danh sách tác vụ</option>';
+  }
+}
+
+function _fmtDay(dt) {
+  if (!dt || isNaN(dt)) return 'Chưa xác định';
+  return dt.toISOString().slice(0, 10);
+}
+
+function _fmtDateVN(dt) {
+  if (!dt || isNaN(dt)) return '';
+  return dt.toLocaleDateString('vi-VN', {weekday:'long', day:'2-digit', month:'2-digit', year:'numeric'});
+}
+
+// ══════════════════════════════════════════════════════════════
+// MULTI-TEAM DELIVERY
+// ══════════════════════════════════════════════════════════════
+let multiSelectedTeams = new Set();   // Set<number> — tổ đã chọn
+let multiTeamOrder     = [];          // number[] — thứ tự ưu tiên giao
+let multiInited        = false;
+
+async function multiInit() {
+  // Populate AGV selector
+  const sel = document.getElementById('multi-agv-select');
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Chọn AGV —</option>'
+      + agvs.filter(a => a.online !== false)
+            .map(a => `<option value="${a.agv_id}"${a.agv_id === cur ? ' selected' : ''}>${a.agv_id}</option>`)
+            .join('');
+  }
+  if (!currentMapId) return;
+  if (multiInited) { multiRenderTeamList(); multiUpdateBtn(); return; }
+  multiInited = true;
+  await multiLoadData();
+}
+
+async function multiLoadData() {
+  if (!currentMapId) return;
+  try {
+    // Load DROPOFF teams
+    const tr = await fetch(`${API}/api/execute/team-nodes?map_id=${currentMapId}`);
+    const td = await tr.json();
+    teamNodes = td.team_nodes || [];
+    // Load supply groups
+    const sr = await fetch(`${API}/api/map/node/supply-groups?map_id=${currentMapId}`);
+    const sd = await sr.json();
+    supplyGroupNodes = sd.supply_groups || [];
+  } catch(e) { console.warn('[MULTI] load error', e); }
+  multiRenderTeamList();
+}
+
+function multiRenderTeamList() {
+  const el = document.getElementById('multi-team-list');
+  if (!el) return;
+  if (!teamNodes.length) {
+    el.innerHTML = '<div style="color:#8c909f;font-size:12px;text-align:center;padding:12px">Chưa có tổ nào được cấu hình trong bản đồ</div>';
+    return;
+  }
+  el.innerHTML = teamNodes.map(t => {
+    const tNum = t.team;
+    const checked = multiSelectedTeams.has(tNum);
+    // Tìm supply node cho tổ này
+    const sg = supplyGroupNodes.find(s => {
+      const sg_t = parseInt(s.supply_group);
+      return !isNaN(sg_t) && sg_t === tNum;
+    });
+    const supplyInfo = sg
+      ? `<span style="font-size:10px;color:#06b6d4;margin-left:6px">📦 Lấy tại Node ${sg.node_id}</span>`
+      : `<span style="font-size:10px;color:#f87171;margin-left:6px">⚠ Chưa có node lấy hàng</span>`;
+    return `<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;
+        background:${checked ? 'rgba(77,142,255,.12)' : 'rgba(255,255,255,.03)'};
+        border:1px solid ${checked ? 'rgba(77,142,255,.4)' : 'rgba(66,71,84,.3)'};transition:all .15s">
+      <input type="checkbox" ${checked ? 'checked' : ''} onchange="multiToggleTeam(${tNum},this.checked)"
+        style="width:14px;height:14px;accent-color:#4d8eff;cursor:pointer;flex-shrink:0"/>
+      <span style="font-size:13px;font-weight:600;color:${checked ? '#adc6ff' : '#c8d0e7'}">Tổ ${tNum}</span>
+      ${t.name ? `<span style="font-size:11px;color:#8c909f">— ${t.name}</span>` : ''}
+      ${supplyInfo}
+      <span style="font-size:11px;color:#8c909f;margin-left:auto">→ Node ${t.node_id}</span>
+    </label>`;
+  }).join('');
+}
+
+function multiToggleTeam(team, checked) {
+  if (checked) {
+    multiSelectedTeams.add(team);
+    if (!multiTeamOrder.includes(team)) multiTeamOrder.push(team);
+  } else {
+    multiSelectedTeams.delete(team);
+    multiTeamOrder = multiTeamOrder.filter(t => t !== team);
+  }
+  multiRenderTeamList();
+  multiRenderPriority();
+  multiRenderRoute();
+  multiUpdateBtn();
+}
+
+function multiRenderPriority() {
+  const sec = document.getElementById('multi-priority-section');
+  const el  = document.getElementById('multi-priority-list');
+  if (!sec || !el) return;
+  if (multiTeamOrder.length < 2) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+  el.innerHTML = multiTeamOrder.map((t, i) => `
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;
+      background:rgba(255,255,255,.04);border:1px solid rgba(66,71,84,.3)">
+      <span style="width:18px;height:18px;border-radius:50%;background:rgba(77,142,255,.2);border:1px solid rgba(77,142,255,.4);
+        font-size:10px;display:flex;align-items:center;justify-content:center;color:#adc6ff;font-weight:700;flex-shrink:0">${i+1}</span>
+      <span style="flex:1;font-size:12px;font-weight:600;color:#adc6ff">Tổ ${t}</span>
+      <button onclick="multiMoveUp(${i})" ${i===0?'disabled':''} style="background:none;border:none;color:${i===0?'#3a3f50':'#adc6ff'};cursor:${i===0?'default':'pointer'};font-size:16px;padding:0 3px">↑</button>
+      <button onclick="multiMoveDown(${i})" ${i===multiTeamOrder.length-1?'disabled':''} style="background:none;border:none;color:${i===multiTeamOrder.length-1?'#3a3f50':'#adc6ff'};cursor:${i===multiTeamOrder.length-1?'default':'pointer'};font-size:16px;padding:0 3px">↓</button>
+    </div>`).join('');
+}
+
+function multiMoveUp(i) {
+  if (i <= 0) return;
+  [multiTeamOrder[i-1], multiTeamOrder[i]] = [multiTeamOrder[i], multiTeamOrder[i-1]];
+  multiRenderPriority(); multiRenderRoute();
+}
+function multiMoveDown(i) {
+  if (i >= multiTeamOrder.length-1) return;
+  [multiTeamOrder[i], multiTeamOrder[i+1]] = [multiTeamOrder[i+1], multiTeamOrder[i]];
+  multiRenderPriority(); multiRenderRoute();
+}
+
+function multiRenderRoute() {
+  const sec  = document.getElementById('multi-route-preview');
+  const el   = document.getElementById('multi-route-steps');
+  const warn = document.getElementById('multi-no-supply-warn');
+  if (!sec || !el) return;
+  if (!multiTeamOrder.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
+
+  // Build route steps
+  const steps = multiBuildSteps();
+  let hasWarn = false;
+  el.innerHTML = steps.map((s, i) => {
+    let icon, color, label;
+    if (s.type === 'pickup') {
+      icon = '📦'; color = '#06b6d4';
+      label = `Đến Node ${s.node} — lấy hàng cho Tổ ${s.teams.join(', ')}`;
+    } else {
+      icon = '🏭'; color = '#4d8eff';
+      label = `Giao hàng Tổ ${s.team} tại Node ${s.node}`;
+      if (!s.node) { icon = '⚠'; color = '#f87171'; label = `Tổ ${s.team} — chưa có node giao (bỏ qua)`; hasWarn = true; }
+    }
+    if (!s.node && s.type === 'pickup') { icon = '⚠'; color = '#f87171'; label = `Tổ ${s.teams.join(',')} — chưa có node lấy hàng`; hasWarn = true; }
+    return `<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05)">
+      <span style="width:18px;font-size:12px;color:${color};flex-shrink:0">${icon}</span>
+      <span style="font-size:11px;color:${color}">${i+1}.</span>
+      <span style="font-size:12px;color:${hasWarn && !s.node ? '#f87171' : '#c8d0e7'}">${label}</span>
+    </div>`;
+  }).join('')
+  + `<div style="display:flex;align-items:center;gap:8px;padding:5px 0">
+      <span style="width:18px;font-size:12px;color:#22c55e">⚡</span>
+      <span style="font-size:11px;color:#22c55e">${steps.length+1}.</span>
+      <span style="font-size:12px;color:#c8d0e7">Về trạm sạc</span>
+    </div>`;
+
+  if (warn) warn.style.display = hasWarn ? 'inline' : 'none';
+}
+
+function multiBuildSteps() {
+  const steps = [];
+  const supplyDone = new Set(); // supply node đã thêm
+
+  // 1. Pickup steps (group by supply node, giữ thứ tự theo multiTeamOrder)
+  for (const t of multiTeamOrder) {
+    const sg = supplyGroupNodes.find(s => {
+      const sg_t = parseInt(s.supply_group);
+      return !isNaN(sg_t) && sg_t === t;
+    });
+    const snid = sg ? sg.node_id : null;
+    if (snid && !supplyDone.has(snid)) {
+      supplyDone.add(snid);
+      // Find all teams served by this supply node
+      const served = multiTeamOrder.filter(tt => {
+        const ssg = supplyGroupNodes.find(ss => {
+          const sst = parseInt(ss.supply_group);
+          return !isNaN(sst) && sst === tt;
+        });
+        return ssg && ssg.node_id === snid;
+      });
+      steps.push({ type: 'pickup', node: snid, teams: served });
+    } else if (!snid) {
+      steps.push({ type: 'pickup', node: null, teams: [t] });
+    }
+  }
+
+  // 2. Delivery steps in priority order
+  for (const t of multiTeamOrder) {
+    const tn = teamNodes.find(n => n.team === t);
+    steps.push({ type: 'delivery', node: tn ? tn.node_id : null, team: t });
+  }
+
+  return steps;
+}
+
+function multiOnAgvChange() { multiUpdateBtn(); }
+
+function multiUpdateBtn() {
+  const btn = document.getElementById('multi-dispatch-btn');
+  const agvSel = document.getElementById('multi-agv-select');
+  if (!btn) return;
+  const agvOk = agvSel && agvSel.value;
+  const ok = agvOk && multiTeamOrder.length > 0;
+  btn.disabled = !ok;
+  btn.style.background   = ok ? 'rgba(77,142,255,.25)' : 'rgba(77,142,255,.08)';
+  btn.style.color        = ok ? '#adc6ff' : '#8c909f';
+  btn.style.cursor       = ok ? 'pointer' : 'not-allowed';
+  btn.style.borderColor  = ok ? 'rgba(77,142,255,.5)' : 'rgba(77,142,255,.1)';
+}
+
+async function multiDispatch() {
+  const agvSel = document.getElementById('multi-agv-select');
+  const agvId  = agvSel ? agvSel.value : '';
+  if (!agvId || !multiTeamOrder.length) return;
+
+  const steps = multiBuildSteps().filter(s => s.node); // skip steps without node
+  if (!steps.length) { alert('Không có bước hợp lệ. Hãy kiểm tra cấu hình tổ và node lấy hàng.'); return; }
+
+  const btn = document.getElementById('multi-dispatch-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang gửi lệnh…'; }
+
+  // session_id chung cho cả lượt cấp hàng này → backend chỉ lấy hàng MỘT lần mỗi
+  // supply node trong lượt; các lệnh giao hàng sau đi một mạch qua điểm lấy hàng.
+  const sessionId = (crypto.randomUUID ? crypto.randomUUID()
+                     : Date.now().toString(36) + Math.random().toString(36).slice(2));
+  const sessionLabel = `Cấp Tổ ${multiTeamOrder.join(', ')}`;
+
+  let ok = 0, fail = 0;
+  // Send all steps sequentially — backend queues them
+  for (const step of steps) {
+    try {
+      const r = await fetch(`${API}/api/execute/dispatch`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          agv_id:    agvId,
+          command:   'go_to',
+          dest_node: step.node,
+          map_id:    currentMapId,
+          session_id:    sessionId,
+          session_label: sessionLabel,
+          label:     step.type === 'pickup'
+            ? `Lấy hàng Tổ ${step.teams.join(',')}`
+            : `Giao Tổ ${step.team}`,
+        })
+      });
+      if (r.ok) ok++; else fail++;
+    } catch(e) { fail++; }
+  }
+  // go_charge at end
+  try {
+    await fetch(`${API}/api/execute/dispatch`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ agv_id: agvId, command: 'go_charge', map_id: currentMapId,
+                             session_id: sessionId, session_label: sessionLabel, label: 'Về sạc' })
+    });
+  } catch(e) {}
+
+  if (btn) {
+    btn.textContent = ok > 0 ? `✓ Đã gửi ${ok} lệnh` : '✗ Lỗi gửi lệnh';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:15px;vertical-align:middle;margin-right:4px">play_arrow</span>Bắt đầu thực hiện';
+      multiUpdateBtn();
+    }, 2500);
+  }
+  if (fail > 0) alert(`${fail} bước gửi thất bại. Kiểm tra kết nối server.`);
+}
 </script>
 </body>
 </html>

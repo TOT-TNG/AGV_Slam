@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Thống kê</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  :root{--bg:#0b1326;--card:rgba(13,22,42,.85);--border:rgba(255,255,255,.09)}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:#fff;font-family:Inter,system-ui,sans-serif;font-size:13px}
+  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;font-size:18px;line-height:1;vertical-align:middle;user-select:none}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}
+
+  /* ── Toolbar tabs ── */
+  .ptab{padding:4px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid rgba(255,255,255,.1);background:transparent;color:#fff;transition:all .15s;white-space:nowrap}
+  .ptab:hover{color:#fff;border-color:rgba(255,255,255,.4)}
+  .ptab.active{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.5);color:#fff}
+
+  /* ── View toggle ── */
+  .vtab{padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:#fff;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
+  .vtab:hover{color:#fff}
+  .vtab.active{color:#fff;border-bottom-color:#fff}
+
+  /* ── KPI card ── */
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 18px;display:flex;flex-direction:column;gap:5px}
+  .kpi-val{font-size:26px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1}
+  .kpi-lbl{font-size:10px;color:#fff;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+  .kpi-sub{font-size:11px;color:#fff}
+
+  /* ── Chart card ── */
+  .cc{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+  .cc-title{font-size:12px;font-weight:600;color:#fff;display:flex;align-items:center;gap:6px}
+
+  /* ── Table ── */
+  .st{width:100%;border-collapse:collapse}
+  .st th{padding:6px 12px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#fff;text-transform:uppercase;letter-spacing:.05em;text-align:left;border-bottom:1px solid rgba(255,255,255,.07)}
+  .st td{padding:7px 12px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.04);color:#fff}
+  .st tr:hover td{background:rgba(255,255,255,.03)}
+
+  /* ── Select/Input ── */
+  select,input[type=date]{background:#fff;border:1px solid #c0c8d8;border-radius:8px;color:#111;padding:4px 8px;font-size:12px;cursor:pointer;outline:none;height:30px}
+  select:focus,input[type=date]:focus{border-color:#4d8eff}
+  select option{background:#fff;color:#111}
+
+  /* ── Scrollable content ── */
+  #content{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:12px;min-height:0}
+
+  /* ── View sections ── */
+  .view-section{display:none}
+  .view-section.active{display:contents}
+
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spinning{animation:spin .6s linear infinite}
+
+  /* ── Progress bar inline ── */
+  .pbar-wrap{display:flex;align-items:center;gap:6px}
+  .pbar{height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.1);width:50px;flex-shrink:0}
+  .pbar-fill{height:100%;border-radius:3px}
+</style>
+</head>
+<body style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+
+<!-- ══ TOOLBAR ══ -->
+<div style="flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(11,19,38,.9)">
+
+  <!-- View toggle -->
+  <div style="display:flex;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.06)">
+    <button class="vtab active" onclick="switchView('tasks')">
+      <span class="material-symbols-outlined" style="font-size:14px;margin-right:4px">task_alt</span>Nhiệm vụ
+    </button>
+    <button class="vtab" onclick="switchView('trips')">
+      <span class="material-symbols-outlined" style="font-size:14px;margin-right:4px">route</span>Chuyến đi AGV
+    </button>
+  </div>
+
+  <!-- Period + filters -->
+  <div style="padding:8px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:3px">
+      <button class="ptab"        data-p="week"    onclick="setPeriod('week')">Tuần</button>
+      <button class="ptab"        data-p="month"   onclick="setPeriod('month')">Tháng</button>
+      <button class="ptab"        data-p="quarter" onclick="setPeriod('quarter')">Quý</button>
+      <button class="ptab active" data-p="year"    onclick="setPeriod('year')">Năm</button>
+      <button class="ptab"        data-p="custom"  onclick="setPeriod('custom')">Tùy chỉnh</button>
+    </div>
+    <div id="custom-range" style="display:none;align-items:center;gap:5px">
+      <input type="date" id="date-from"/>
+      <span style="color:#fff">—</span>
+      <input type="date" id="date-to"/>
+      <button onclick="loadAll()" style="padding:3px 10px;border-radius:7px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:12px;cursor:pointer">Áp dụng</button>
+    </div>
+    <select id="filter-agv" onchange="loadAll()" style="min-width:120px">
+      <option value="">Tất cả AGV</option>
+    </select>
+    <span id="period-label" style="font-size:11px;color:#fff;font-family:'JetBrains Mono',monospace"></span>
+    <button onclick="loadAll()" style="margin-left:auto;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px">
+      <span class="material-symbols-outlined" id="refresh-icon" style="font-size:14px">refresh</span>Làm mới
+    </button>
+  </div>
+</div>
+
+<!-- ══ CONTENT ══ -->
+<div id="content">
+
+  <!-- ══════════ VIEW: NHIỆM VỤ ══════════ -->
+  <div class="view-section active" id="view-tasks">
+
+    <!-- KPI row -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">
+      <div class="kpi">
+        <span class="kpi-lbl">Tổng nhiệm vụ</span>
+        <span class="kpi-val" id="t-total" style="color:#fff">—</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">Hoàn thành</span>
+        <span class="kpi-val" id="t-done" style="color:#fff">—</span>
+        <span class="kpi-sub" id="t-done-pct"></span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">Thất bại</span>
+        <span class="kpi-val" id="t-fail" style="color:#fff">—</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">Đã hủy</span>
+        <span class="kpi-val" id="t-cancel" style="color:#fff">—</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">Đang chạy</span>
+        <span class="kpi-val" id="t-run" style="color:#fff">—</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">TG trung bình</span>
+        <span class="kpi-val" id="t-avg" style="color:#fff;font-size:20px">—</span>
+        <span class="kpi-sub">mỗi lệnh</span>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div style="display:grid;grid-template-columns:3fr 2fr;gap:10px">
+      <div class="cc" style="min-height:220px">
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">bar_chart</span>Nhiệm vụ theo ngày</div>
+        <div style="flex:1;position:relative"><canvas id="t-chart-day"></canvas></div>
+      </div>
+      <div class="cc" style="min-height:220px">
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">pie_chart</span>Phân bổ trạng thái</div>
+        <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center"><canvas id="t-chart-status" style="max-height:200px"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Bottom row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="cc" style="max-height:220px">
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">conveyor_belt</span>Hiệu suất AGV</div>
+        <div style="overflow:auto;flex:1">
+          <table class="st" id="t-agv-table">
+            <thead><tr>
+              <th>AGV</th><th style="text-align:right">Tổng</th>
+              <th style="text-align:right">✓</th><th style="text-align:right">✗</th><th>Tỉ lệ</th>
+            </tr></thead>
+            <tbody id="t-agv-tbody"><tr><td colspan="5" style="text-align:center;padding:20px;color:#fff">Đang tải…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="cc" style="max-height:220px">
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">location_on</span>Top điểm đến</div>
+        <div style="flex:1;position:relative"><canvas id="t-chart-dest"></canvas></div>
+      </div>
+    </div>
+  </div><!-- /view-tasks -->
+
+  <!-- ══════════ VIEW: CHUYẾN ĐI AGV ══════════ -->
+  <div class="view-section" id="view-trips">
+
+    <!-- KPI row -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">
+      <div class="kpi">
+        <span class="kpi-lbl">Tổng chuyến đi</span>
+        <span class="kpi-val" id="r-total" style="color:#fff">—</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">Hoàn thành</span>
+        <span class="kpi-val" id="r-done" style="color:#fff">—</span>
+        <span class="kpi-sub" id="r-done-pct"></span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">Thất bại / Hủy</span>
+        <span class="kpi-val" id="r-fail" style="color:#fff">—</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">Đang chạy</span>
+        <span class="kpi-val" id="r-run" style="color:#fff">—</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">Tổng TG hoạt động</span>
+        <span class="kpi-val" id="r-active" style="color:#fff;font-size:20px">—</span>
+        <span class="kpi-sub">xe đang di chuyển</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-lbl">TG TB / chuyến</span>
+        <span class="kpi-val" id="r-avg-trip" style="color:#fff;font-size:20px">—</span>
+        <span class="kpi-sub" id="r-avg-steps"></span>
+      </div>
+    </div>
+
+    <!-- Charts row 1 -->
+    <div style="display:grid;grid-template-columns:3fr 2fr;gap:10px">
+      <div class="cc" style="min-height:220px">
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">bar_chart</span>Chuyến đi theo ngày</div>
+        <div style="flex:1;position:relative"><canvas id="r-chart-day"></canvas></div>
+      </div>
+      <div class="cc" style="min-height:220px">
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">pie_chart</span>Trạng thái chuyến</div>
+        <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center"><canvas id="r-chart-status" style="max-height:200px"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Charts row 2: AGV table + workflow labels -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="cc" style="max-height:240px">
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">directions_car</span>Hiệu suất AGV (chuyến)</div>
+        <div style="overflow:auto;flex:1">
+          <table class="st" id="r-agv-table">
+            <thead><tr>
+              <th>AGV</th>
+              <th style="text-align:right">Chuyến</th>
+              <th style="text-align:right">Hoàn thành</th>
+              <th style="text-align:right">TG HĐ</th>
+              <th style="text-align:right">TB/chuyến</th>
+              <th>Tỉ lệ</th>
+            </tr></thead>
+            <tbody id="r-agv-tbody"><tr><td colspan="6" style="text-align:center;padding:20px;color:#fff">Đang tải…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="cc" style="max-height:240px">
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">account_tree</span>Top loại workflow</div>
+        <div style="flex:1;position:relative"><canvas id="r-chart-label"></canvas></div>
+      </div>
+    </div>
+  </div><!-- /view-trips -->
+
+</div><!-- /content -->
+
+<script>
+const API = 'http://' + (window.location.hostname || '192.168.1.13') + ':8000';
+
+let period  = 'year';    // mặc định năm để bao phủ dữ liệu từ các tháng trước
+let curView = 'tasks';
+const charts = {};
+
+const STATUS_COLORS = { completed:'#34d399', failed:'#fb7185', cancelled:'#94a3b8', running:'#fbbf24', queued:'#a78bfa' };
+const STATUS_LABELS = { completed:'Hoàn thành', failed:'Thất bại', cancelled:'Đã hủy', running:'Đang chạy', queued:'Hàng chờ' };
+
+// Palette màu cho horizontal bar
+const BAR_PALETTE = ['#06b6d4','#a78bfa','#fbbf24','#34d399','#fb7185','#38bdf8','#f472b6','#4ade80'];
+
+// ── View toggle ────────────────────────────────────────────────────────────────
+function switchView(v) {
+  curView = v;
+  document.querySelectorAll('.vtab').forEach((b,i) => b.classList.toggle('active', (i===0&&v==='tasks')||(i===1&&v==='trips')));
+  document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
+  document.getElementById('view-' + v).classList.add('active');
+  loadAll();
+}
+
+// ── Period ─────────────────────────────────────────────────────────────────────
+function setPeriod(p) {
+  period = p;
+  document.querySelectorAll('.ptab').forEach(b => b.classList.toggle('active', b.dataset.p === p));
+  const cr = document.getElementById('custom-range');
+  cr.style.display = p === 'custom' ? 'flex' : 'none';
+  if (p !== 'custom') loadAll();
+}
+
+// ── Build URL params ───────────────────────────────────────────────────────────
+function buildParams(endpoint) {
+  const agv = document.getElementById('filter-agv').value;
+  const df  = document.getElementById('date-from').value;
+  const dt  = document.getElementById('date-to').value;
+  let url = `${API}/api/statistics/${endpoint}?period=${period}`;
+  if (agv) url += `&agv_id=${encodeURIComponent(agv)}`;
+  if (period === 'custom' && df && dt) url += `&date_from=${df}&date_to=${dt}`;
+  return url;
+}
+
+async function loadAll() {
+  const icon = document.getElementById('refresh-icon');
+  icon.classList.add('spinning');
+  hideError();
+  try {
+    const endpoint = curView === 'tasks' ? 'tasks' : 'trips';
+    const res = await fetch(buildParams(endpoint));
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Server ${res.status}: ${body.slice(0, 200)}`);
+    }
+    const d = await res.json();
+    if (curView === 'tasks') renderTasks(d);
+    else renderTrips(d);
+  } catch(e) {
+    console.error('[STATS]', e);
+    showError(e.message);
+  }
+  icon.classList.remove('spinning');
+}
+
+function showError(msg) {
+  let el = document.getElementById('err-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'err-banner';
+    el.style.cssText = 'background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#f87171;padding:10px 16px;font-size:12px;border-radius:10px;margin:10px 14px;flex-shrink:0';
+    document.getElementById('content').prepend(el);
+  }
+  el.textContent = '⚠ ' + msg;
+  el.style.display = 'block';
+}
+function hideError() {
+  const el = document.getElementById('err-banner');
+  if (el) el.style.display = 'none';
+}
+
+// ══ RENDER: NHIỆM VỤ ══════════════════════════════════════════════════════════
+function renderTasks(d) {
+  const s = d.summary;
+  setPeriodLabel(d.date_from, d.date_to);
+
+  setText('t-total',  s.total);
+  setText('t-done',   s.completed);
+  setText('t-fail',   s.failed);
+  setText('t-cancel', s.cancelled);
+  setText('t-run',    s.running);
+  setText('t-avg',    fmtDur(s.avg_duration_s));
+  setText('t-done-pct', s.total > 0 ? pct(s.completed, s.total) + '% tổng' : '');
+
+  // Daily bar + line
+  mkBarChart('t-chart-day', d.by_day.map(r => fmtDs(r.day)),
+    [
+      { label:'Hoàn thành', type:'bar',
+        data: d.by_day.map(r=>r.completed),
+        backgroundColor:'rgba(52,211,153,.75)', borderColor:'#34d399',
+        borderWidth:1.5, borderRadius:6, borderSkipped:false,
+        hoverBackgroundColor:'#34d399', order:1 },
+      { label:'Thất bại/Hủy', type:'line',
+        data: d.by_day.map(r=>r.failed),
+        borderColor:'#fb7185', borderWidth:2,
+        backgroundColor:'rgba(251,113,133,.1)',
+        pointBackgroundColor:'#fb7185', pointBorderColor:'rgba(255,255,255,.9)',
+        pointBorderWidth:1.5, pointRadius:5, pointHoverRadius:7, pointStyle:'circle',
+        tension:0.35, fill:false, order:0 },
+    ], false);
+
+  // Status pie
+  mkDoughnut('t-chart-status',
+    d.by_status.map(r => STATUS_LABELS[r.status]||r.status),
+    d.by_status.map(r => r.count),
+    d.by_status.map(r => STATUS_COLORS[r.status]||'#64748b'));
+
+  // AGV table
+  renderAgvTable('t-agv-tbody',
+    d.by_agv.map(r => ({
+      agv_id: r.agv_id, total: r.total,
+      completed: r.completed, failed: r.failed,
+    })),
+    ['AGV', 'Tổng', '✓ Hoàn thành', '✗ Lỗi/Hủy', 'Tỉ lệ']);
+
+  // Top destinations horizontal bar
+  mkHBar('t-chart-dest',
+    d.top_destinations.map(r => `Tag ${r.node}`),
+    d.top_destinations.map(r => r.count),
+    d.top_destinations.map((_,i) => BAR_PALETTE[i % BAR_PALETTE.length]),
+    'Lần ghé');
+
+  populateAgvFilter(d.by_agv);
+}
+
+// ══ RENDER: CHUYẾN ĐI ═════════════════════════════════════════════════════════
+function renderTrips(d) {
+  const s = d.summary;
+  setPeriodLabel(d.date_from, d.date_to);
+
+  setText('r-total',    s.total);
+  setText('r-done',     s.completed);
+  setText('r-fail',     s.failed + s.cancelled);
+  setText('r-run',      s.running);
+  setText('r-active',   fmtDur(d.total_active_time_s));
+  setText('r-avg-trip', fmtDur(d.avg_trip_duration_s));
+  setText('r-done-pct', s.total > 0 ? pct(s.completed, s.total) + '% tổng' : '');
+  setText('r-avg-steps', d.avg_steps_per_trip != null
+    ? `TB ${d.avg_steps_per_trip.toFixed(1)} lệnh/chuyến` : '');
+
+  // Daily bar + line (chuyến)
+  mkBarChart('r-chart-day', d.by_day.map(r => fmtDs(r.day)),
+    [
+      { label:'Hoàn thành', type:'bar',
+        data: d.by_day.map(r=>r.completed),
+        backgroundColor:'rgba(52,211,153,.75)', borderColor:'#34d399',
+        borderWidth:1.5, borderRadius:6, borderSkipped:false,
+        hoverBackgroundColor:'#34d399', order:1 },
+      { label:'Thất bại/Hủy', type:'line',
+        data: d.by_day.map(r=>r.failed),
+        borderColor:'#fb7185', borderWidth:2,
+        backgroundColor:'rgba(251,113,133,.1)',
+        pointBackgroundColor:'#fb7185', pointBorderColor:'rgba(255,255,255,.9)',
+        pointBorderWidth:1.5, pointRadius:5, pointHoverRadius:7, pointStyle:'circle',
+        tension:0.35, fill:false, order:0 },
+    ], false);
+
+  // Status pie (chuyến)
+  mkDoughnut('r-chart-status',
+    d.by_status.map(r => STATUS_LABELS[r.status]||r.status),
+    d.by_status.map(r => r.count),
+    d.by_status.map(r => STATUS_COLORS[r.status]||'#64748b'));
+
+  // AGV table (chuyến)
+  const tbody = document.getElementById('r-agv-tbody');
+  if (!d.by_agv.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:#fff">Không có dữ liệu</td></tr>`;
+  } else {
+    tbody.innerHTML = d.by_agv.map(r => {
+      const rate = r.total > 0 ? pct(r.completed, r.total) : 0;
+      const col  = rate >= 80 ? '#4ade80' : rate >= 50 ? '#fde047' : '#f87171';
+      return `<tr>
+        <td style="font-family:'JetBrains Mono',monospace;font-weight:600">${esc(r.agv_id||'—')}</td>
+        <td style="text-align:right">${r.total}</td>
+        <td style="text-align:right;color:#fff">${r.completed}</td>
+        <td style="text-align:right;color:#fff;font-size:11px">${fmtDur(r.active_s)}</td>
+        <td style="text-align:right;color:#fff;font-size:11px">${r.avg_trip_s != null ? fmtDur(r.avg_trip_s) : '—'}</td>
+        <td>
+          <div class="pbar-wrap">
+            <span style="font-size:11px;min-width:28px;text-align:right">${rate}%</span>
+            <div class="pbar"><div class="pbar-fill" style="width:${rate}%;background:${col}"></div></div>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Workflow labels horizontal bar
+  mkHBar('r-chart-label',
+    d.by_label.map(r => r.label),
+    d.by_label.map(r => r.count),
+    d.by_label.map((_,i) => BAR_PALETTE[i % BAR_PALETTE.length]),
+    'Số chuyến');
+
+  populateAgvFilter(d.by_agv);
+}
+
+// ══ CHART HELPERS ══════════════════════════════════════════════════════════════
+const _tooltipDefaults = {
+  backgroundColor: 'rgba(5,13,30,.96)',
+  borderColor: 'rgba(255,255,255,.15)',
+  borderWidth: 1,
+  titleColor: '#fff',
+  bodyColor: 'rgba(255,255,255,.85)',
+  padding: 10,
+  cornerRadius: 8,
+  displayColors: true,
+  boxWidth: 10,
+  boxHeight: 10,
+};
+
+function mkBarChart(id, labels, datasets, stacked) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 500, easing: 'easeOutQuart' },
+      plugins: {
+        legend: {
+          labels: { color:'#fff', font:{size:11}, boxWidth:10, usePointStyle:true, pointStyle:'circle', padding:14 },
+        },
+        tooltip: _tooltipDefaults,
+      },
+      scales: {
+        x: {
+          stacked,
+          ticks: { color:'rgba(255,255,255,.75)', font:{size:10} },
+          grid:  { color:'rgba(255,255,255,.05)', drawBorder:false },
+          border:{ dash:[4,4] },
+        },
+        y: {
+          stacked,
+          ticks: { color:'rgba(255,255,255,.75)', font:{size:10} },
+          grid:  { color:'rgba(255,255,255,.08)', drawBorder:false },
+          border:{ dash:[4,4] },
+          beginAtZero: true,
+        },
+      },
+    },
+  });
+}
+
+function mkDoughnut(id, labels, data, colors) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type: 'doughnut',
+    data: { labels, datasets:[{
+      data,
+      backgroundColor: colors,
+      borderColor: 'rgba(13,22,42,.9)',
+      borderWidth: 3,
+      hoverBorderColor: '#fff',
+      hoverBorderWidth: 2,
+      hoverOffset: 10,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '62%',
+      animation: { duration: 500, animateRotate: true },
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color:'#fff', font:{size:11}, padding:12, boxWidth:10, usePointStyle:true, pointStyle:'circle' },
+        },
+        tooltip: _tooltipDefaults,
+      },
+    },
+  });
+}
+
+function mkHBar(id, labels, data, colors, lbl) {
+  if (charts[id]) charts[id].destroy();
+  const bgColors = Array.isArray(colors) ? colors : data.map((_,i) => BAR_PALETTE[i % BAR_PALETTE.length]);
+  const borderColors = bgColors.map(c => c);
+  charts[id] = new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: { labels, datasets:[{
+      label: lbl,
+      data,
+      backgroundColor: bgColors.map(c => c + 'cc'),
+      borderColor: borderColors,
+      borderWidth: 1.5,
+      borderRadius: 6,
+      borderSkipped: false,
+      hoverBackgroundColor: bgColors,
+    }]},
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 500, easing: 'easeOutQuart' },
+      plugins: {
+        legend: { display: false },
+        tooltip: _tooltipDefaults,
+      },
+      scales: {
+        x: {
+          ticks: { color:'rgba(255,255,255,.75)', font:{size:10} },
+          grid:  { color:'rgba(255,255,255,.07)', drawBorder:false },
+          border:{ dash:[4,4] },
+          beginAtZero: true,
+        },
+        y: {
+          ticks: { color:'#fff', font:{size:11} },
+          grid:  { display: false },
+        },
+      },
+    },
+  });
+}
+
+// ══ AGV TABLE (tasks view) ════════════════════════════════════════════════════
+function renderAgvTable(tbodyId, rows) {
+  const tbody = document.getElementById(tbodyId);
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#fff">Không có dữ liệu</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    const rate = r.total > 0 ? pct(r.completed, r.total) : 0;
+    const col  = rate >= 80 ? '#4ade80' : rate >= 50 ? '#fde047' : '#f87171';
+    return `<tr>
+      <td style="font-family:'JetBrains Mono',monospace;font-weight:600">${esc(r.agv_id||'—')}</td>
+      <td style="text-align:right">${r.total}</td>
+      <td style="text-align:right;color:#fff">${r.completed}</td>
+      <td style="text-align:right;color:#fff">${r.failed}</td>
+      <td>
+        <div class="pbar-wrap">
+          <span style="font-size:11px;min-width:28px;text-align:right">${rate}%</span>
+          <div class="pbar"><div class="pbar-fill" style="width:${rate}%;background:${col}"></div></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ══ HELPERS ════════════════════════════════════════════════════════════════════
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val == null ? '—' : val;
+}
+function setPeriodLabel(f, t) {
+  document.getElementById('period-label').textContent = `${fmtD(f)} → ${fmtD(t)}`;
+}
+function fmtD(s) {
+  if (!s) return '—';
+  const [y,m,d] = s.split('-');
+  return `${d}/${m}/${y}`;
+}
+function fmtDs(s) {
+  if (!s) return '';
+  const [,m,d] = s.split('-');
+  return `${d}/${m}`;
+}
+function fmtDur(sec) {
+  if (sec == null || sec === 0) return '—';
+  if (sec < 60)   return `${Math.round(sec)}s`;
+  const m = Math.floor(sec/60), s2 = Math.floor(sec%60);
+  if (m < 60)    return `${m}p${String(s2).padStart(2,'0')}s`;
+  const h = Math.floor(m/60), rm = m%60;
+  return `${h}g${String(rm).padStart(2,'0')}p`;
+}
+function pct(a, b) { return b > 0 ? Math.round((a/b)*100) : 0; }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function populateAgvFilter(byAgv) {
+  const sel = document.getElementById('filter-agv');
+  const cur = sel.value;
+  const exist = new Set([...sel.options].map(o => o.value));
+  (byAgv || []).forEach(r => {
+    if (r.agv_id && !exist.has(r.agv_id)) {
+      const o = document.createElement('option');
+      o.value = r.agv_id; o.textContent = r.agv_id;
+      sel.appendChild(o);
+    }
+  });
+  sel.value = cur;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+setPeriod('year');
+</script>
+</body>
+</html>

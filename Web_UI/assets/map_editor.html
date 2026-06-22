@@ -262,12 +262,24 @@ select:focus{border-color:var(--accent) !important}
           <div style="font-size:10px;font-weight:700;color:#f97316;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">⬛ Hành động khi đến nơi</div>
           <div class="field" style="margin-bottom:6px">
             <label style="font-size:11px">Arrival action</label>
-            <select id="pn-arrival-action" style="font-size:11px">
+            <select id="pn-arrival-action" style="font-size:11px" onchange="onArrivalActionChange_pn()">
               <option value="none">— Mặc định (theo loại task)</option>
               <option value="wait_sys">⚙ WAIT_SYS — Chờ hệ thống (lấy hàng)</option>
               <option value="wait_user">👤 WAIT_USER — Chờ người xác nhận (giao hàng)</option>
               <option value="wait_charge">🔋 WAIT_CHARGE — Trạm sạc pin</option>
             </select>
+          </div>
+          <!-- Tổ được cấp — chỉ hiện khi wait_sys hoặc wait_user -->
+          <div id="pn-supply-group-field" style="display:none;border-left:3px solid #06b6d4;padding-left:8px;margin:4px 0 6px 2px">
+            <label style="font-size:11px;color:#06b6d4;display:block;margin-bottom:4px">📦 Tổ được cấp hàng <small style="color:#8c909f;font-weight:400">(1 node có thể cấp nhiều tổ)</small></label>
+            <div id="pn-supply-group-tags" style="display:flex;flex-wrap:wrap;gap:3px;min-height:24px;padding:4px 6px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;margin-bottom:4px"></div>
+            <div style="display:flex;gap:4px">
+              <input type="text" id="pn-supply-group-input" placeholder="Tên tổ, nhấn Enter…"
+                onkeydown="onPnSupplyGroupKeydown(event)"
+                style="flex:1;background:var(--surface3);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:11px;outline:none"/>
+              <button type="button" onclick="addPnSupplyGroup()"
+                style="background:#0e7490;color:#fff;border:none;border-radius:6px;padding:4px 9px;font-size:11px;cursor:pointer">+</button>
+            </div>
           </div>
           <div class="field" style="margin-bottom:0">
             <label style="font-size:11px">Hướng tiếp cận (approach)</label>
@@ -328,7 +340,7 @@ select:focus{border-color:var(--accent) !important}
       <div class="field"><label>Tên / Nhãn</label><input id="pn-name" placeholder="Conveyor01, ChargeA, Home..."/></div>
       <div class="field">
         <label>Loại vị trí</label>
-        <select id="pn-type">
+        <select id="pn-type" onchange="onNodeTypeChange()">
           <option value="normal">Normal — Thông thường</option>
           <option value="conveyor">Conveyor — Băng tải / Nhận hàng</option>
           <option value="charger">Charger — Trạm sạc</option>
@@ -338,6 +350,16 @@ select:focus{border-color:var(--accent) !important}
           <option value="parking">Parking — Đỗ xe</option>
           <option value="wait">Wait — Điểm chờ</option>
         </select>
+      </div>
+
+      <!-- Trường "Tổ" — chỉ hiện khi loại vị trí là Dropoff -->
+      <div class="field" id="pn-team-field" style="display:none;border-left:3px solid var(--node-dropoff);padding-left:8px">
+        <label style="color:var(--node-dropoff)">🏭 Tổ (mapping cho người dùng)</label>
+        <input id="pn-team" type="number" min="1" max="999" placeholder="Ví dụ: 1, 2, 3…"
+          style="background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:7px;padding:6px 10px;font-size:12px;width:100%;outline:none"/>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">
+          Người dùng chọn <b>Tổ X</b> thay vì số node. Server tự điều hướng đến đây.
+        </div>
       </div>
       <div class="field">
         <label>Hành động mặc định</label>
@@ -1146,6 +1168,10 @@ function updateProps(){
     document.getElementById('pn-name').value=n.name||'';
     document.getElementById('pn-type').value=n.type||'normal';
     document.getElementById('pn-action').value=n.action||'';
+    // Load team number
+    const teamEl=document.getElementById('pn-team');
+    if(teamEl) teamEl.value = (n.team!=null) ? n.team : '';
+    onNodeTypeChange();
     document.getElementById('pn-speed').value=n.speed||0.5;
     document.getElementById('pn-x').value=Math.round(n.x);
     document.getElementById('pn-y').value=Math.round(n.y);
@@ -1157,6 +1183,13 @@ function updateProps(){
     document.getElementById('pn-vda-turn-angle').value= n.vdaTurnAngle || '360';
     document.getElementById('pn-arrival-action').value = n.arrivalAction || 'none';
     document.getElementById('pn-approach-dir').value   = n.approachDir   || 'none';
+    // Load supply groups
+    const _sg = n.supplyGroups;
+    if(Array.isArray(_sg)) _pnSupplyGroups = [..._sg];
+    else if(_sg) _pnSupplyGroups = _sg.split(',').map(s=>s.trim()).filter(Boolean);
+    else _pnSupplyGroups = [];
+    renderPnSupplyGroupTags();
+    onArrivalActionChange_pn();
     currentNodeTurnMap = Object.assign({}, n.turnMap || {});
     _populateEditorTurnDropdowns();
     renderEditorTurnMap();
@@ -1211,6 +1244,9 @@ document.getElementById('btn-apply').onclick = ()=>{
     n.name   = document.getElementById('pn-name').value.trim();
     n.type   = document.getElementById('pn-type').value;
     n.action = document.getElementById('pn-action').value;
+    // Lưu team number (chỉ cho dropoff)
+    const _teamVal = document.getElementById('pn-team')?.value;
+    n.team = (n.type==='dropoff' && _teamVal) ? parseInt(_teamVal,10) : null;
     n.speed  = parseFloat(document.getElementById('pn-speed').value)||0.5;
     // Lưu cấu hình rẽ (chỉ có ý nghĩa với RFID/both)
     n.fwdTurn     = document.getElementById('pn-fwd-turn').value      || 'none';
@@ -1220,6 +1256,7 @@ document.getElementById('btn-apply').onclick = ()=>{
     n.vdaTurnAngle= document.getElementById('pn-vda-turn-angle').value|| '360';
     n.arrivalAction = document.getElementById('pn-arrival-action').value || 'none';
     n.approachDir   = document.getElementById('pn-approach-dir').value   || 'none';
+    n.supplyGroups  = (['wait_sys','wait_user'].includes(n.arrivalAction) && _pnSupplyGroups.length) ? [..._pnSupplyGroups] : [];
     n.turnMap       = Object.assign({}, currentNodeTurnMap);
     const nx = parseFloat(document.getElementById('pn-x').value);
     const ny = parseFloat(document.getElementById('pn-y').value);
@@ -1236,6 +1273,58 @@ document.getElementById('btn-apply').onclick = ()=>{
   }
 };
 document.getElementById('btn-delete-sel').onclick = deleteSelected;
+
+function onNodeTypeChange(){
+  const type = document.getElementById('pn-type').value;
+  const teamField = document.getElementById('pn-team-field');
+  if(teamField){
+    teamField.style.display = (type === 'dropoff') ? 'block' : 'none';
+    if(type !== 'dropoff') document.getElementById('pn-team').value = '';
+  }
+}
+
+// ── Tag-input "Tổ được cấp" trong properties panel ──────────────────
+let _pnSupplyGroups = [];
+
+function onArrivalActionChange_pn(){
+  const act = document.getElementById('pn-arrival-action').value;
+  const field = document.getElementById('pn-supply-group-field');
+  if(!field) return;
+  const show = (act === 'wait_sys' || act === 'wait_user');
+  field.style.display = show ? 'block' : 'none';
+  if(!show){ _pnSupplyGroups = []; renderPnSupplyGroupTags(); }
+}
+
+function renderPnSupplyGroupTags(){
+  const c = document.getElementById('pn-supply-group-tags');
+  if(!c) return;
+  c.innerHTML = _pnSupplyGroups.map((g,i) =>
+    `<span style="display:inline-flex;align-items:center;gap:2px;background:#164e63;color:#67e8f9;border:1px solid #0e7490;border-radius:20px;padding:1px 7px;font-size:10px">
+      ${g}<span onclick="removePnSupplyGroup(${i})" style="cursor:pointer;margin-left:2px;font-size:13px;line-height:1;color:#67e8f9">&times;</span>
+    </span>`
+  ).join('');
+}
+
+function addPnSupplyGroup(){
+  const inp = document.getElementById('pn-supply-group-input');
+  if(!inp) return;
+  const val = inp.value.trim();
+  if(!val) return;
+  val.split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{
+    if(!_pnSupplyGroups.includes(p)) _pnSupplyGroups.push(p);
+  });
+  inp.value = '';
+  renderPnSupplyGroupTags();
+}
+
+function removePnSupplyGroup(i){
+  _pnSupplyGroups.splice(i,1);
+  renderPnSupplyGroupTags();
+}
+
+function onPnSupplyGroupKeydown(e){
+  if(e.key==='Enter'||e.key===','){ e.preventDefault(); addPnSupplyGroup(); }
+}
 
 function _setIdEditable(editable){
   const inp  = document.getElementById('pn-id');
@@ -1684,6 +1773,9 @@ async function loadMap(mapId){
         arrivalAction: (['wait_sys','wait_user','wait_charge'].includes(act.arrival_action) ? act.arrival_action : 'none'),
         approachDir:   act.approach_dir   || 'none',
         turnMap: (act.turn_map && typeof act.turn_map === 'object') ? {...act.turn_map} : {},
+        team: act.team != null ? parseInt(act.team) : null,
+        supplyGroups: Array.isArray(act.supply_group) ? [...act.supply_group]
+                    : (act.supply_group ? act.supply_group.split(',').map(s=>s.trim()).filter(Boolean) : []),
       };
     }
 
@@ -1820,6 +1912,8 @@ async function _doSaveMap(name){
         ...(n.arrivalAction && n.arrivalAction!=='none' ? {arrival_action:n.arrivalAction} : {}),
         ...(n.approachDir   && n.approachDir!=='none'   ? {approach_dir:n.approachDir}     : {}),
         ...(n.turnMap && Object.keys(n.turnMap).length  ? {turn_map:n.turnMap}             : {}),
+        ...(n.type==='dropoff' && n.team!=null           ? {team:n.team}                   : {}),
+        ...(['wait_sys','wait_user'].includes(n.arrivalAction) && n.supplyGroups?.length ? {supply_group:n.supplyGroups} : {}),
       },
       speed: n.speed||0.5,
       carrier:0, available:false, accuracy:0,

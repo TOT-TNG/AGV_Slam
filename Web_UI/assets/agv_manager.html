@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Quản lý AGV</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  :root{--bg:#0b1326;--card:rgba(13,22,42,.9);--border:rgba(255,255,255,.09);--accent:#adc6ff}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:#fff;font-family:Inter,system-ui,sans-serif;font-size:13px;overflow:hidden}
+  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;font-size:18px;line-height:1;vertical-align:middle;user-select:none}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}
+
+  /* ── AGV Grid ── */
+  #agv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;padding:14px}
+
+  /* ── AGV Card ── */
+  .agv-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;transition:border-color .2s}
+  .agv-card.online{border-color:rgba(34,197,94,.2)}
+  .agv-card.offline{opacity:.55}
+  .agv-name{font-size:15px;font-weight:700;font-family:'JetBrains Mono',monospace}
+  .agv-type{font-size:10px;color:#8c909f;text-transform:uppercase;letter-spacing:.05em}
+  .status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+  .dot-online{background:#22c55e;box-shadow:0 0 6px #22c55e}
+  .dot-offline{background:#475569}
+  .info-row{display:flex;align-items:center;gap:6px;font-size:11px;color:#c2c6d6}
+  .info-row .material-symbols-outlined{font-size:13px;color:#8c909f}
+
+  /* ── Battery bar ── */
+  .batt-bar{height:4px;border-radius:2px;background:rgba(255,255,255,.1);overflow:hidden;flex:1}
+  .batt-fill{height:100%;border-radius:2px;transition:width .3s}
+
+  /* ── Btn ── */
+  .btn-cfg{width:100%;padding:7px;border-radius:9px;border:1px solid rgba(173,198,255,.3);background:rgba(173,198,255,.1);color:#adc6ff;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s}
+  .btn-cfg:hover:not(:disabled){background:rgba(173,198,255,.2);border-color:rgba(173,198,255,.5)}
+  .btn-cfg:disabled{opacity:.35;cursor:not-allowed}
+
+  /* ══ CONTROL PANEL (side drawer) ══ */
+  #panel-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:none;backdrop-filter:blur(3px)}
+  #panel-backdrop.open{display:block}
+  #ctrl-panel{position:fixed;right:0;top:0;bottom:0;width:360px;background:#0d1629;border-left:1px solid rgba(255,255,255,.12);z-index:101;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+  #ctrl-panel.open{transform:translateX(0)}
+
+  /* Panel header */
+  #panel-header{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px;flex-shrink:0}
+  #panel-close{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#8c909f;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-left:auto}
+  #panel-close:hover{background:rgba(255,80,80,.15);border-color:rgba(255,80,80,.3);color:#f87171}
+
+  /* Panel tabs */
+  .ptab-bar{display:flex;border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0}
+  .ptab{flex:1;padding:9px 4px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:transparent;color:#8c909f;border-bottom:2px solid transparent;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:5px}
+  .ptab:hover{color:#c2c6d6}
+  .ptab.active{color:#adc6ff;border-bottom-color:#adc6ff}
+
+  /* Panel body */
+  #panel-body{flex:1;overflow-y:auto;padding:14px}
+
+  /* ── Section inside panel ── */
+  .section{margin-bottom:18px}
+  .section-title{font-size:10px;font-weight:700;color:#8c909f;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+  .section-title .material-symbols-outlined{font-size:13px}
+
+  /* ── D-pad ── */
+  #dpad-grid{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px);gap:4px;width:fit-content;margin:0 auto}
+  .dpad-btn{width:44px;height:44px;border-radius:9px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);color:#c2c6d6;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .1s;user-select:none}
+  .dpad-btn:active,.dpad-btn.pressed{background:rgba(77,142,255,.25);border-color:#adc6ff;color:#adc6ff}
+  .dpad-stop{background:rgba(255,80,80,.12);border-color:rgba(255,80,80,.3);color:#f87171;font-size:12px;font-weight:700}
+  .dpad-stop:active{background:rgba(255,80,80,.3)}
+
+  /* ── Speed slider ── */
+  input[type=range]{-webkit-appearance:none;height:4px;border-radius:2px;background:rgba(255,255,255,.15);outline:none;cursor:pointer;width:100%}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#adc6ff;cursor:pointer}
+
+  /* ── Select ── */
+  select{background:#fff;border:1px solid #c0c8d8;border-radius:8px;color:#111;padding:5px 8px;font-size:12px;cursor:pointer;outline:none;width:100%}
+  select option{background:#fff;color:#111}
+
+  /* ── Action buttons ── */
+  .action-btn{width:100%;padding:8px;border-radius:9px;border:1px solid;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;margin-bottom:8px}
+  .btn-danger{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#f87171}
+  .btn-danger:hover{background:rgba(239,68,68,.2)}
+  .btn-warning{background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.3);color:#fbbf24}
+  .btn-warning:hover{background:rgba(251,191,36,.15)}
+  .btn-primary{background:rgba(173,198,255,.1);border-color:rgba(173,198,255,.3);color:#adc6ff}
+  .btn-primary:hover{background:rgba(173,198,255,.2)}
+  .btn-green{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.3);color:#4ade80}
+  .btn-green:hover{background:rgba(34,197,94,.2)}
+
+  /* ── Queue item ── */
+  .queue-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:11px}
+  .queue-badge{display:inline-flex;align-items:center;padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace}
+  .badge-run{background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3)}
+  .badge-q{background:rgba(129,140,248,.15);color:#a5b4fc;border:1px solid rgba(129,140,248,.3)}
+
+  /* ── Status feedback ── */
+  #manual-status{font-size:11px;text-align:center;min-height:18px;font-family:'JetBrains Mono',monospace;color:#555;margin-top:6px}
+
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spinning{animation:spin .6s linear infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .pulsing{animation:pulse 1.5s ease-in-out infinite}
+</style>
+</head>
+<body style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+
+<!-- ── Header ── -->
+<div style="padding:10px 16px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(11,19,38,.9);display:flex;align-items:center;gap:10px">
+  <span class="material-symbols-outlined" style="color:#adc6ff;font-size:20px">conveyor_belt</span>
+  <div>
+    <div style="font-size:15px;font-weight:700">Quản lý AGV</div>
+    <div style="font-size:10px;color:#8c909f">Trạng thái thực tế · Điều khiển · Cấu hình</div>
+  </div>
+  <div id="online-badge" style="margin-left:auto;font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.2);color:#4ade80;font-family:'JetBrains Mono',monospace"></div>
+  <button onclick="loadAgvs()" style="padding:5px 11px;border-radius:8px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.4);color:#c2c6d6;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px">
+    <span class="material-symbols-outlined" id="refresh-icon" style="font-size:14px">refresh</span>Làm mới
+  </button>
+</div>
+
+<!-- ── AGV Grid ── -->
+<div style="flex:1;overflow-y:auto">
+  <div id="agv-grid">
+    <div style="color:#555;text-align:center;padding:40px;font-size:12px;grid-column:1/-1">Đang tải danh sách AGV…</div>
+  </div>
+</div>
+
+<!-- ══ CONTROL PANEL BACKDROP ══ -->
+<div id="panel-backdrop" onclick="closePanel()"></div>
+
+<!-- ══ CONTROL PANEL DRAWER ══ -->
+<div id="ctrl-panel">
+  <!-- Header -->
+  <div id="panel-header">
+    <div id="panel-dot" class="status-dot dot-offline"></div>
+    <div>
+      <div id="panel-agv-name" style="font-size:15px;font-weight:700;font-family:'JetBrains Mono',monospace">—</div>
+      <div id="panel-agv-status" style="font-size:11px;color:#8c909f">—</div>
+    </div>
+    <button id="panel-close" onclick="closePanel()">
+      <span class="material-symbols-outlined" style="font-size:16px">close</span>
+    </button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="ptab-bar">
+    <button class="ptab active" onclick="switchTab('manual')">
+      <span class="material-symbols-outlined" style="font-size:14px">gamepad</span>Điều khiển
+    </button>
+    <button class="ptab" onclick="switchTab('config')">
+      <span class="material-symbols-outlined" style="font-size:14px">settings</span>Cấu hình
+    </button>
+    <button class="ptab" onclick="switchTab('queue')">
+      <span class="material-symbols-outlined" style="font-size:14px">queue</span>Hàng chờ
+    </button>
+  </div>
+
+  <!-- Body -->
+  <div id="panel-body">
+
+    <!-- ══ TAB: ĐIỀU KHIỂN THỦ CÔNG ══ -->
+    <div id="tab-manual" class="tab-content">
+
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">gamepad</span>Điều khiển thủ công</div>
+
+        <!-- Enable toggle -->
+        <button id="manual-toggle-btn" onclick="toggleManual()"
+          style="width:100%;margin-bottom:14px;padding:6px;border-radius:8px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);color:#8c909f;font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .2s">
+          <span class="material-symbols-outlined" style="font-size:14px">gamepad</span>
+          <span id="manual-toggle-label">BẬT điều khiển thủ công</span>
+        </button>
+
+        <!-- D-pad -->
+        <div id="dpad-grid">
+          <div></div>
+          <button class="dpad-btn" id="btn-up"    onmousedown="startManual('up')"    onmouseup="stopManual()" ontouchstart="startManual('up')"    ontouchend="stopManual()">↑</button>
+          <div></div>
+          <button class="dpad-btn" id="btn-left"  onmousedown="startManual('left')"  onmouseup="stopManual()" ontouchstart="startManual('left')"  ontouchend="stopManual()">←</button>
+          <button class="dpad-btn dpad-stop"       onclick="sendManualAction('stop')">■</button>
+          <button class="dpad-btn" id="btn-right" onmousedown="startManual('right')" onmouseup="stopManual()" ontouchstart="startManual('right')" ontouchend="stopManual()">→</button>
+          <div></div>
+          <button class="dpad-btn" id="btn-down"  onmousedown="startManual('down')"  onmouseup="stopManual()" ontouchstart="startManual('down')"  ontouchend="stopManual()">↓</button>
+          <div></div>
+        </div>
+
+        <div style="font-size:9px;color:#555;text-align:center;margin-top:4px;font-family:'JetBrains Mono',monospace">
+          ↑ Tiến · ↓ Lùi · ← Rẽ trái · → Rẽ phải · ■ Dừng
+        </div>
+
+        <div id="manual-status"></div>
+      </div>
+
+      <!-- Speed -->
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">speed</span>Tốc độ</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="range" id="manual-speed" min="50" max="255" value="150" step="10"
+            oninput="document.getElementById('speed-val').textContent=this.value" style="flex:1"/>
+          <span id="speed-val" style="font-family:'JetBrains Mono',monospace;color:#adc6ff;min-width:28px;text-align:right;font-size:12px">150</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:#555;margin-top:3px">
+          <span>Chậm (50)</span><span>Nhanh (255)</span>
+        </div>
+      </div>
+
+      <!-- Phím tắt hint -->
+      <div style="background:rgba(173,198,255,.05);border:1px solid rgba(173,198,255,.1);border-radius:8px;padding:8px 10px;font-size:10px;color:#8c909f">
+        <span class="material-symbols-outlined" style="font-size:12px;color:#adc6ff">keyboard</span>
+        Khi bật điều khiển, dùng phím <b style="color:#adc6ff">↑ ↓ ← →</b> để điều khiển nhanh
+      </div>
+
+    <!-- ── Âm thanh / Đèn ── -->
+    <div class="section">
+      <div class="section-title"><span class="material-symbols-outlined">volume_up</span>Âm thanh / Đèn</div>
+
+      <div style="margin-bottom:8px">
+        <div style="font-size:10px;color:#8c909f;margin-bottom:5px;font-weight:600">🔊 Âm thanh</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+          <button class="action-btn btn-primary" onclick="sendLineAction(22)" style="margin:0;padding:6px;font-size:11px">
+            <span class="material-symbols-outlined" style="font-size:13px">play_circle</span>Bắt đầu
+          </button>
+          <button class="action-btn btn-primary" onclick="sendLineAction(23)" style="margin:0;padding:6px;font-size:11px">
+            <span class="material-symbols-outlined" style="font-size:13px">stop_circle</span>Dừng nhạc
+          </button>
+          <button class="action-btn btn-primary" onclick="sendLineAction(24)" style="margin:0;padding:6px;font-size:11px">
+            <span class="material-symbols-outlined" style="font-size:13px">notifications</span>Xin liễu
+          </button>
+          <button class="action-btn btn-primary" onclick="sendLineAction(25)" style="margin:0;padding:6px;font-size:11px">
+            <span class="material-symbols-outlined" style="font-size:13px">door_open</span>Mở cửa
+          </button>
+          <button class="action-btn btn-primary" onclick="sendLineAction(26)" style="margin:0;padding:6px;font-size:11px">
+            <span class="material-symbols-outlined" style="font-size:13px">turn_right</span>Xin rẽ
+          </button>
+          <button class="action-btn btn-danger" onclick="sendLineAction(27)" style="margin:0;padding:6px;font-size:11px">
+            <span class="material-symbols-outlined" style="font-size:13px">volume_off</span>Tắt nhạc
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:10px;color:#8c909f;margin-bottom:5px;font-weight:600">💡 Đèn</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px">
+          <button class="action-btn" onclick="sendLineAction(32)"
+            style="margin:0;padding:6px;font-size:11px;background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.35);color:#fde047">
+            <span class="material-symbols-outlined" style="font-size:13px">warning</span>Vàng
+          </button>
+          <button class="action-btn" onclick="sendLineAction(33)"
+            style="margin:0;padding:6px;font-size:11px;background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.35);color:#4ade80">
+            <span class="material-symbols-outlined" style="font-size:13px">check_circle</span>Xanh
+          </button>
+          <button class="action-btn btn-danger" onclick="sendLineAction(34)"
+            style="margin:0;padding:6px;font-size:11px">
+            <span class="material-symbols-outlined" style="font-size:13px">highlight_off</span>Tắt
+          </button>
+        </div>
+      </div>
+
+      <div id="sound-light-status" style="font-size:11px;color:#555;text-align:center;margin-top:6px;min-height:16px"></div>
+    </div>
+
+    <!-- ── Móc hàng ── -->
+    <div class="section" id="hook-section">
+      <div class="section-title"><span class="material-symbols-outlined">conveyor_belt</span>Móc hàng</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="action-btn btn-green" onclick="sendLineAction(30)" style="margin:0;padding:10px;font-size:12px;font-weight:700">
+          <span class="material-symbols-outlined" style="font-size:18px">arrow_upward</span>
+          <div>NÂNG móc</div>
+          <div style="font-size:10px;opacity:.7">HOOK_RAISE</div>
+        </button>
+        <button class="action-btn btn-warning" onclick="sendLineAction(31)" style="margin:0;padding:10px;font-size:12px;font-weight:700">
+          <span class="material-symbols-outlined" style="font-size:18px">arrow_downward</span>
+          <div>HẠ móc</div>
+          <div style="font-size:10px;opacity:.7">HOOK_LOWER</div>
+        </button>
+      </div>
+      <div id="hook-status" style="font-size:11px;color:#555;text-align:center;margin-top:6px;min-height:16px"></div>
+    </div>
+
+    </div><!-- /tab-manual -->
+
+    <!-- ══ TAB: CẤU HÌNH ══ -->
+    <div id="tab-config" class="tab-content" style="display:none">
+
+      <!-- Chọn bản đồ cho AGV -->
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">map</span>Bản đồ hoạt động</div>
+        <div style="font-size:10px;color:#8c909f;margin-bottom:8px">
+          AGV cần có bản đồ để tính đường và nhận lệnh điều hướng.
+        </div>
+        <div style="position:relative;margin-bottom:10px">
+          <select id="cfg-map-select" style="width:100%;padding-right:28px">
+            <option value="">-- Chưa chọn bản đồ --</option>
+          </select>
+          <span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#555">▼</span>
+        </div>
+        <button onclick="saveAgvMap()" class="action-btn btn-green" style="margin-bottom:4px">
+          <span class="material-symbols-outlined" style="font-size:15px">save</span>Lưu bản đồ
+        </button>
+        <div id="map-assign-status" style="font-size:11px;color:#555;text-align:center;min-height:16px"></div>
+      </div>
+
+      <!-- Tên AGV + Nhà máy (dùng để cấu hình MQTT topic) -->
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">badge</span>Danh tính MQTT</div>
+        <div style="font-size:10px;color:#8c909f;margin-bottom:10px;line-height:1.6">
+          Dùng để tạo MQTT topic khi gửi lệnh cấu hình.<br/>
+          Nếu AGV bị config nhầm factory, sửa tại đây rồi nhấn <b style="color:#fbbf24">Cấu hình WiFi/MQTT</b>.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Tên AGV (AGV ID)</div>
+            <input type="text" id="identity-agv-id" placeholder="AGV01, AGV02…"
+              style="width:100%;padding:6px 10px;background:rgba(34,42,61,.8);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fff;font-size:13px;outline:none;font-family:'JetBrains Mono',monospace;letter-spacing:.04em"/>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Tên nhà máy (Factory)</div>
+            <input type="text" id="identity-factory" placeholder="TOT, VietDuc…" list="factory-list"
+              style="width:100%;padding:6px 10px;background:rgba(34,42,61,.8);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fff;font-size:13px;outline:none;font-family:'JetBrains Mono',monospace"/>
+            <datalist id="factory-list">
+              <option value="TOT"/>
+              <option value="VietDuc"/>
+              <option value="Vietduc"/>
+            </datalist>
+          </div>
+        </div>
+        <div style="background:rgba(173,198,255,.06);border:1px solid rgba(173,198,255,.15);border-radius:8px;padding:7px 10px;font-size:10px;color:#8c909f;margin-bottom:10px">
+          Topic sẽ dùng: <span id="identity-topic-preview" style="color:#adc6ff;font-family:'JetBrains Mono',monospace">uagv/v2/<b>?</b>/<b>?</b>/instantActions</span>
+        </div>
+        <button onclick="saveIdentity()" class="action-btn btn-primary" style="margin-bottom:4px">
+          <span class="material-symbols-outlined" style="font-size:15px">save</span>Lưu vào hệ thống
+        </button>
+        <div id="identity-status" style="font-size:11px;color:#555;text-align:center;min-height:16px"></div>
+      </div>
+
+      <!-- Gán vị trí -->
+      <div class="section" id="pos-section" style="display:none">
+        <div class="section-title"><span class="material-symbols-outlined">pin_drop</span>Gán vị trí hiện tại</div>
+        <div style="display:flex;gap:8px">
+          <select id="override-node-select" style="flex:1">
+            <option value="">-- Chọn node --</option>
+          </select>
+          <button onclick="overridePosition()"
+            style="padding:5px 12px;border-radius:8px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.5);color:#a5b4fc;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px">
+            <span class="material-symbols-outlined" style="font-size:13px">pin_drop</span>Gán
+          </button>
+        </div>
+        <div id="pos-status" style="font-size:11px;color:#555;margin-top:6px;text-align:center"></div>
+      </div>
+
+      <!-- Cấu hình WiFi/MQTT (chỉ Line AGV) -->
+      <div class="section" id="wifi-section" style="display:none">
+        <div class="section-title"><span class="material-symbols-outlined">wifi_tethering</span>Cấu hình WiFi / MQTT</div>
+        <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:9px;padding:10px 12px;font-size:11px;color:#fbbf24;margin-bottom:10px;line-height:1.6">
+          AGV sẽ <b>khởi động lại</b> vào chế độ AP.<br/>
+          Kết nối WiFi <b>"configAGV"</b> → vào <b>192.168.4.1</b> để cấu hình.
+        </div>
+        <button onclick="enterConfigMode()" class="action-btn btn-warning">
+          <span class="material-symbols-outlined" style="font-size:15px">wifi_tethering</span>
+          Vào chế độ cấu hình WiFi/MQTT
+        </button>
+        <div id="cfg-status" style="font-size:11px;color:#555;margin-top:4px;text-align:center"></div>
+      </div>
+
+      <!-- Thông tin mạng (chỉnh sửa thủ công) -->
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">lan</span>Thông tin mạng</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">IP Address</div>
+            <input type="text" id="net-ip"      placeholder="192.168.1.100"  style="width:100%;padding:5px 8px;background:rgba(34,42,61,.8);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;font-size:12px;outline:none;font-family:'JetBrains Mono',monospace"/>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Subnet Mask</div>
+            <input type="text" id="net-subnet"  placeholder="255.255.255.0"  style="width:100%;padding:5px 8px;background:rgba(34,42,61,.8);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;font-size:12px;outline:none;font-family:'JetBrains Mono',monospace"/>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Gateway</div>
+            <input type="text" id="net-gateway" placeholder="192.168.1.1"    style="width:100%;padding:5px 8px;background:rgba(34,42,61,.8);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;font-size:12px;outline:none;font-family:'JetBrains Mono',monospace"/>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">DNS</div>
+            <input type="text" id="net-dns"     placeholder="8.8.8.8"        style="width:100%;padding:5px 8px;background:rgba(34,42,61,.8);border:1px solid rgba(255,255,255,.15);border-radius:7px;color:#fff;font-size:12px;outline:none;font-family:'JetBrains Mono',monospace"/>
+          </div>
+        </div>
+        <button onclick="saveNetworkInfo()" class="action-btn btn-primary" style="margin-bottom:4px">
+          <span class="material-symbols-outlined" style="font-size:15px">save</span>Lưu thông tin mạng
+        </button>
+        <div id="net-status" style="font-size:11px;color:#555;text-align:center;min-height:16px"></div>
+      </div>
+
+      <!-- Thông tin AGV -->
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">info</span>Thông tin AGV</div>
+        <div id="agv-info-rows" style="display:flex;flex-direction:column;gap:5px;font-size:12px;color:#c2c6d6"></div>
+      </div>
+    </div>
+
+    <!-- ══ TAB: HÀNG CHỜ ══ -->
+    <div id="tab-queue" class="tab-content" style="display:none">
+
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">queue</span>Lệnh hiện tại & hàng chờ</div>
+        <div id="queue-list">
+          <div style="color:#555;text-align:center;padding:20px;font-size:11px">Đang tải…</div>
+        </div>
+      </div>
+
+      <div class="section" style="display:flex;flex-direction:column;gap:8px">
+        <button onclick="cancelRunning()" class="action-btn btn-warning">
+          <span class="material-symbols-outlined" style="font-size:15px">stop_circle</span>
+          Hủy lệnh đang chạy
+        </button>
+        <button onclick="cancelQueue()" class="action-btn btn-danger">
+          <span class="material-symbols-outlined" style="font-size:15px">clear_all</span>
+          Hủy toàn bộ hàng chờ
+        </button>
+        <button onclick="loadQueue()" class="action-btn btn-primary">
+          <span class="material-symbols-outlined" style="font-size:15px">refresh</span>
+          Làm mới hàng chờ
+        </button>
+      </div>
+
+      <div id="queue-action-status" style="font-size:11px;color:#555;text-align:center;min-height:16px"></div>
+    </div>
+
+  </div><!-- /panel-body -->
+</div><!-- /ctrl-panel -->
+
+<script>
+const API = 'http://' + (window.location.hostname || '192.168.0.56') + ':8000';
+
+let agvList   = [];
+let curAgv    = null;    // AGV đang mở panel
+let curTab    = 'manual';
+let manualOn  = false;
+let manualCd  = false;   // cooldown giữa các lệnh
+let mapNodes  = [];
+let mapList   = [];      // danh sách bản đồ từ server
+let refreshTimer = null;
+
+// ════════════════════════════════════════════════════════════════
+// LOAD AGV LIST
+// ════════════════════════════════════════════════════════════════
+async function loadAgvs() {
+  const icon = document.getElementById('refresh-icon');
+  icon.classList.add('spinning');
+  try {
+    const r = await fetch(`${API}/api/execute/agv-list`);
+    const d = await r.json();
+    agvList = d.agvs || [];
+    renderGrid();
+    updateOnlineBadge();
+    // Rafresh panel nếu đang mở
+    if (curAgv) {
+      const fresh = agvList.find(a => a.agv_id === curAgv.agv_id);
+      if (fresh) { curAgv = fresh; updatePanelHeader(); }
+    }
+  } catch(e) {
+    console.error('[AGV]', e);
+  }
+  icon.classList.remove('spinning');
+}
+
+function updateOnlineBadge() {
+  const n = agvList.filter(a => a.connection === 'ONLINE').length;
+  document.getElementById('online-badge').textContent = `${n}/${agvList.length} online`;
+}
+
+function renderGrid() {
+  const grid = document.getElementById('agv-grid');
+  if (!agvList.length) {
+    grid.innerHTML = `<div style="color:#555;text-align:center;padding:40px;font-size:12px;grid-column:1/-1">
+      <span class="material-symbols-outlined" style="font-size:36px;display:block;margin-bottom:8px;opacity:.3">conveyor_belt</span>
+      Chưa có AGV nào được đăng ký
+    </div>`;
+    return;
+  }
+  grid.innerHTML = agvList.map(a => agvCardHTML(a)).join('');
+}
+
+function agvCardHTML(a) {
+  const online    = a.connection === 'ONLINE';
+  const batt      = a.battery;
+  const battW     = batt != null ? Math.max(4, batt) + '%' : '0%';
+  const battCol   = batt > 50 ? '#4ade80' : batt > 20 ? '#fde047' : '#f87171';
+  const isLine    = a.agv_type === 'LINE';
+  const canCfg    = online;
+
+  const statusLabel = online
+    ? (a.driving ? 'Đang di chuyển' : (a.paused ? 'Tạm dừng' : (a.is_busy ? 'Đang thực hiện' : 'Sẵn sàng')))
+    : 'Ngoại tuyến';
+  const statusColor = online
+    ? (a.driving ? '#4ade80' : (a.paused ? '#fde047' : (a.is_busy ? '#c4b5fd' : '#4ade80')))
+    : '#64748b';
+
+  return `<div class="agv-card ${online ? 'online' : 'offline'}">
+    <div style="display:flex;align-items:flex-start;gap:8px">
+      <div>
+        <div class="agv-name">${esc(a.agv_id)}</div>
+        <div class="agv-type">${esc(a.agv_type || 'LINE')}</div>
+      </div>
+      <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <div style="display:flex;align-items:center;gap:5px">
+          <div class="status-dot ${online ? 'dot-online' : 'dot-offline'}"></div>
+          <span style="font-size:11px;color:${statusColor};font-weight:600">${statusLabel}</span>
+        </div>
+        ${a.queue_size > 0 ? `<span style="font-size:9px;padding:1px 6px;border-radius:10px;background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.2)">+${a.queue_size} chờ</span>` : ''}
+      </div>
+    </div>
+
+    ${batt != null ? `
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="material-symbols-outlined" style="font-size:13px;color:${battCol}">battery_4_bar</span>
+      <div class="batt-bar"><div class="batt-fill" style="width:${battW};background:${battCol}"></div></div>
+      <span style="font-size:11px;color:${battCol};font-family:'JetBrains Mono',monospace;min-width:28px">${Math.round(batt)}%</span>
+    </div>` : ''}
+
+    ${a.current_node ? `
+    <div class="info-row">
+      <span class="material-symbols-outlined">location_on</span>
+      <span>Node: <b style="color:#adc6ff;font-family:'JetBrains Mono',monospace">${esc(String(a.current_node))}</b></span>
+    </div>` : ''}
+
+    ${a.running_cmd ? `
+    <div class="info-row" style="font-size:10px;color:#8c909f;background:rgba(255,255,255,.03);border-radius:6px;padding:4px 8px">
+      <span class="material-symbols-outlined" style="font-size:12px;color:#fde047">play_arrow</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.running_cmd.command_label || '')}${a.running_cmd.dest_node ? ' → ' + a.running_cmd.dest_node : ''}</span>
+    </div>` : ''}
+
+    <button class="btn-cfg" onclick="openPanel('${esc(a.agv_id)}')" ${!canCfg ? 'disabled' : ''}>
+      <span class="material-symbols-outlined" style="font-size:15px">settings</span>
+      ${canCfg ? 'Cấu hình' : 'Ngoại tuyến'}
+    </button>
+  </div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// CONTROL PANEL
+// ════════════════════════════════════════════════════════════════
+async function openPanel(agv_id) {
+  curAgv = agvList.find(a => a.agv_id === agv_id);
+  if (!curAgv) return;
+
+  manualOn = false;
+  updateManualToggleUI();
+  switchTab('manual');
+  updatePanelHeader();
+  populateConfigTab();
+  loadQueue();
+
+  // Trong iframe: panel chiếm toàn bộ, không cần backdrop/animation
+  if (_inIframe) {
+    const panel = document.getElementById('ctrl-panel');
+    panel.style.transform = 'translateX(0)';
+    panel.style.position  = 'static';
+    panel.style.width     = '100%';
+    panel.style.height    = '100vh';
+    panel.style.borderLeft= 'none';
+    document.body.style.overflow = 'hidden';
+    return;
+  }
+
+  // Load map nodes
+  try {
+    const r = await fetch(`${API}/api/execute/map-nodes`);
+    const d = await r.json();
+    mapNodes = d.nodes || [];
+    const sel = document.getElementById('override-node-select');
+    sel.innerHTML = '<option value="">-- Chọn node --</option>' +
+      mapNodes.map(n => `<option value="${esc(String(n.node_id))}"${String(n.node_id)===String(curAgv.current_node)?' selected':''}>${n.name || n.node_id}</option>`).join('');
+  } catch(e) { console.warn('[NODES]', e); }
+
+  document.getElementById('panel-backdrop').classList.add('open');
+  document.getElementById('ctrl-panel').classList.add('open');
+}
+
+function closePanel() {
+  document.getElementById('panel-backdrop').classList.remove('open');
+  document.getElementById('ctrl-panel').classList.remove('open');
+  manualOn = false;
+  updateManualToggleUI();
+  curAgv = null;
+}
+
+function updatePanelHeader() {
+  if (!curAgv) return;
+  const online = curAgv.connection === 'ONLINE';
+  document.getElementById('panel-agv-name').textContent = curAgv.agv_id;
+  document.getElementById('panel-agv-status').textContent = online
+    ? (curAgv.driving ? 'Đang di chuyển' : (curAgv.paused ? 'Tạm dừng' : 'Sẵn sàng'))
+    : 'Ngoại tuyến';
+  const dot = document.getElementById('panel-dot');
+  dot.className = 'status-dot ' + (online ? 'dot-online' : 'dot-offline');
+}
+
+function populateConfigTab() {
+  if (!curAgv) return;
+  const isLine = curAgv.agv_type === 'LINE';
+
+  // Điền dropdown bản đồ
+  const mapSel = document.getElementById('cfg-map-select');
+  if (mapSel) {
+    mapSel.innerHTML = '<option value="">-- Chưa chọn bản đồ --</option>' +
+      mapList.map(m =>
+        `<option value="${esc(String(m.id))}"${String(m.id) === String(curAgv.map_id || '') ? ' selected' : ''}>${esc(m.name || 'Map ' + m.id)}</option>`
+      ).join('');
+    document.getElementById('map-assign-status').textContent = '';
+  }
+
+  // Điền danh tính hiện tại
+  const agvIdEl  = document.getElementById('identity-agv-id');
+  const factoryEl = document.getElementById('identity-factory');
+  agvIdEl.value   = curAgv.agv_id  || '';
+  factoryEl.value = curAgv.factory || 'TOT';
+  updateTopicPreview();
+  agvIdEl.addEventListener('input',  updateTopicPreview);
+  factoryEl.addEventListener('input', updateTopicPreview);
+
+  // Position override section (Line AGV only)
+  document.getElementById('pos-section').style.display = isLine ? 'block' : 'none';
+
+  // WiFi config section (Line AGV only)
+  document.getElementById('wifi-section').style.display = isLine ? 'block' : 'none';
+
+  // Info rows
+  const a = curAgv;
+  document.getElementById('agv-info-rows').innerHTML = [
+    ['AGV ID', a.agv_id],
+    ['Loại', a.agv_type || '—'],
+    ['IP', a.ip || '—'],
+    ['Factory', a.factory || '—'],
+    ['Kết nối', a.connection || '—'],
+    ['Pin', a.battery != null ? Math.round(a.battery) + '%' : '—'],
+    ['Node hiện tại', a.current_node || '—'],
+  ].map(([k,v]) => `
+    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <span style="color:#8c909f">${k}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px">${esc(String(v))}</span>
+    </div>
+  `).join('');
+}
+
+function switchTab(tab) {
+  curTab = tab;
+  document.querySelectorAll('.ptab').forEach((b,i) =>
+    b.classList.toggle('active', ['manual','config','queue'][i] === tab));
+  document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+  document.getElementById('tab-' + tab).style.display = 'block';
+  if (tab === 'queue')  loadQueue();
+  if (tab === 'config') populateNetworkInputs();
+}
+
+// ════════════════════════════════════════════════════════════════
+// MANUAL CONTROL
+// ════════════════════════════════════════════════════════════════
+let manualHoldTimer = null;
+
+function toggleManual() {
+  manualOn = !manualOn;
+  updateManualToggleUI();
+}
+
+function updateManualToggleUI() {
+  const btn = document.getElementById('manual-toggle-btn');
+  const lbl = document.getElementById('manual-toggle-label');
+  const dpad = document.getElementById('dpad-grid');
+  if (manualOn) {
+    btn.style.background    = 'rgba(77,142,255,.2)';
+    btn.style.borderColor   = '#adc6ff';
+    btn.style.color         = '#adc6ff';
+    lbl.textContent         = 'TẮT điều khiển thủ công';
+    dpad.style.opacity      = '1';
+    dpad.style.pointerEvents= 'auto';
+  } else {
+    btn.style.background    = 'rgba(34,42,61,.8)';
+    btn.style.borderColor   = 'rgba(66,71,84,.5)';
+    btn.style.color         = '#8c909f';
+    lbl.textContent         = 'BẬT điều khiển thủ công';
+    dpad.style.opacity      = '.35';
+    dpad.style.pointerEvents= 'none';
+  }
+}
+
+function startManual(action) {
+  if (!manualOn || !curAgv || curAgv.agv_type !== 'LINE') return;
+  sendManualAction(action);
+  manualHoldTimer = setInterval(() => sendManualAction(action), 500);
+}
+function stopManual() {
+  clearInterval(manualHoldTimer);
+  manualHoldTimer = null;
+}
+
+async function sendManualAction(action) {
+  if (!curAgv) return;
+  if (manualCd && action !== 'stop') return;
+  manualCd = true;
+
+  const speed = parseInt(document.getElementById('manual-speed').value) || 150;
+  const st = document.getElementById('manual-status');
+  const labels = {up:'↑ Tiến',down:'↓ Lùi',left:'← Rẽ trái',right:'→ Rẽ phải',stop:'■ Dừng'};
+  st.textContent = labels[action] || action;
+  st.style.color = '#adc6ff';
+
+  // Flash D-pad button
+  const btnMap = {up:'btn-up',down:'btn-down',left:'btn-left',right:'btn-right'};
+  const b = document.getElementById(btnMap[action]);
+  if (b) { b.classList.add('pressed'); setTimeout(() => b.classList.remove('pressed'), 150); }
+
+  try {
+    const r = await fetch(`${API}/api/execute/manual-control`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agv_id: curAgv.agv_id, action, speed}),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      st.textContent = '✗ ' + (d.detail || 'Lỗi');
+      st.style.color = '#f87171';
+    } else {
+      setTimeout(() => { if (st.textContent !== '■ Dừng') st.style.color = '#555'; }, 800);
+    }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối';
+    st.style.color = '#f87171';
+  }
+
+  setTimeout(() => { manualCd = false; }, 350);
+}
+
+// ════════════════════════════════════════════════════════════════
+// LINE ACTION (âm thanh, đèn, móc hàng)
+// ════════════════════════════════════════════════════════════════
+const ACTION_LABELS = {
+  22: 'Bắt đầu nhạc',  23: 'Dừng nhạc',   24: 'Nhạc xin liễu',
+  25: 'Nhạc mở cửa',   26: 'Nhạc xin rẽ', 27: 'Tắt nhạc',
+  30: 'Nâng móc ↑',    31: 'Hạ móc ↓',
+  32: 'Đèn vàng',       33: 'Đèn xanh',    34: 'Tắt đèn',
+};
+
+async function sendLineAction(actionCode, value = 0) {
+  if (!curAgv) return;
+
+  const isHook  = [30, 31].includes(actionCode);
+  const stEl    = document.getElementById(isHook ? 'hook-status' : 'sound-light-status');
+  const label   = ACTION_LABELS[actionCode] || `Action ${actionCode}`;
+
+  stEl.textContent  = `⟳ ${label}…`;
+  stEl.style.color  = '#adc6ff';
+
+  try {
+    const r = await fetch(`${API}/api/execute/line-action`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ agv_id: curAgv.agv_id, action_code: actionCode, value }),
+    });
+    const d = await r.json();
+    if (r.ok && d.ok) {
+      stEl.textContent = `✓ ${label}`;
+      stEl.style.color = '#4ade80';
+    } else {
+      stEl.textContent = `✗ ${d.detail || 'Lỗi'}`;
+      stEl.style.color = '#f87171';
+    }
+  } catch(e) {
+    stEl.textContent = '✗ Mất kết nối';
+    stEl.style.color = '#f87171';
+  }
+  setTimeout(() => { stEl.textContent = ''; }, 3000);
+}
+
+// Arrow key support
+window.addEventListener('keydown', e => {
+  if (!manualOn || !curAgv || curAgv.agv_type !== 'LINE') return;
+  if (['INPUT','SELECT','TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  const map = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', Escape:'stop'};
+  if (map[e.key]) { e.preventDefault(); sendManualAction(map[e.key]); }
+});
+
+// ════════════════════════════════════════════════════════════════
+// POSITION OVERRIDE
+// ════════════════════════════════════════════════════════════════
+async function overridePosition() {
+  if (!curAgv) return;
+  const node = document.getElementById('override-node-select').value;
+  if (!node) return;
+  const st = document.getElementById('pos-status');
+  try {
+    const r = await fetch(`${API}/api/execute/override-position`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agv_id: curAgv.agv_id, node_id: node}),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      st.textContent = `✓ Đã gán vị trí → Node ${node}`;
+      st.style.color = '#4ade80';
+    } else {
+      st.textContent = '✗ ' + (d.detail || 'Lỗi');
+      st.style.color = '#f87171';
+    }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối';
+    st.style.color = '#f87171';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// MAP ASSIGNMENT
+// ════════════════════════════════════════════════════════════════
+async function saveAgvMap() {
+  if (!curAgv) return;
+  const st     = document.getElementById('map-assign-status');
+  const mapId  = document.getElementById('cfg-map-select').value;
+  try {
+    const r = await fetch(`${API}/api/agv/assign-map`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ agv_id: curAgv.agv_id, map_id: mapId || null }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      st.textContent = mapId ? `✓ Đã gán bản đồ "${d.map_name || mapId}"` : '✓ Đã xóa bản đồ';
+      st.style.color = '#4ade80';
+      curAgv = {...curAgv, map_id: mapId || null};
+      setTimeout(() => loadAgvs(), 500);
+    } else {
+      st.textContent = '✗ ' + (d.detail || 'Lỗi');
+      st.style.color = '#f87171';
+    }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối';
+    st.style.color = '#f87171';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// IDENTITY (Tên AGV + Factory)
+// ════════════════════════════════════════════════════════════════
+function updateTopicPreview() {
+  const agvId   = document.getElementById('identity-agv-id').value.trim()   || '?';
+  const factory = document.getElementById('identity-factory').value.trim()  || '?';
+  document.getElementById('identity-topic-preview').innerHTML =
+    `uagv/v2/<b style="color:#fde047">${esc(factory)}</b>/<b style="color:#4ade80">${esc(agvId)}</b>/instantActions`;
+}
+
+async function saveIdentity() {
+  if (!curAgv) return;
+  const st      = document.getElementById('identity-status');
+  const newAgvId  = document.getElementById('identity-agv-id').value.trim();
+  const newFactory = document.getElementById('identity-factory').value.trim();
+  if (!newAgvId) { st.textContent = '✗ Tên AGV không được để trống'; st.style.color='#f87171'; return; }
+  try {
+    const r = await fetch(`${API}/api/agv/update-identity`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        old_agv_id: curAgv.agv_id,
+        new_agv_id: newAgvId,
+        factory:    newFactory || 'TOT',
+      }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      st.textContent = '✓ Đã lưu — ' + (d.renamed ? `đổi tên ${curAgv.agv_id} → ${newAgvId}` : 'cập nhật factory');
+      st.style.color = '#4ade80';
+      // Cập nhật curAgv cục bộ để enterConfigMode dùng đúng
+      curAgv = {...curAgv, agv_id: newAgvId, factory: newFactory || 'TOT'};
+      updateTopicPreview();
+      setTimeout(() => loadAgvs(), 600);
+    } else {
+      st.textContent = '✗ ' + (d.detail || 'Lỗi');
+      st.style.color = '#f87171';
+    }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối'; st.style.color = '#f87171';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// NETWORK INFO (thủ công)
+// ════════════════════════════════════════════════════════════════
+function populateNetworkInputs() {
+  if (!curAgv) return;
+  document.getElementById('net-ip').value      = curAgv.ip      || '';
+  document.getElementById('net-subnet').value  = curAgv.subnet  || '';
+  document.getElementById('net-gateway').value = curAgv.gateway || '';
+  document.getElementById('net-dns').value     = curAgv.dns     || '';
+}
+
+async function saveNetworkInfo() {
+  if (!curAgv) return;
+  const st = document.getElementById('net-status');
+  const body = {
+    agv_id:  curAgv.agv_id,
+    ip:      document.getElementById('net-ip').value.trim()      || null,
+    subnet:  document.getElementById('net-subnet').value.trim()  || null,
+    gateway: document.getElementById('net-gateway').value.trim() || null,
+    dns:     document.getElementById('net-dns').value.trim()     || null,
+  };
+  try {
+    const r = await fetch(`${API}/api/agv/network-info`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      st.textContent = '✓ Đã lưu thông tin mạng';
+      st.style.color = '#4ade80';
+      setTimeout(() => loadAgvs(), 500);
+    } else {
+      st.textContent = '✗ ' + (d.detail || 'Lỗi');
+      st.style.color = '#f87171';
+    }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối';
+    st.style.color = '#f87171';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// CONFIG MODE (WiFi/MQTT)
+// ════════════════════════════════════════════════════════════════
+async function enterConfigMode() {
+  if (!curAgv) return;
+  const st = document.getElementById('cfg-status');
+
+  // Dùng giá trị từ input (có thể khác curAgv nếu người dùng muốn rescue AGV nhầm factory)
+  const targetAgvId  = (document.getElementById('identity-agv-id')?.value.trim()  || curAgv.agv_id);
+  const targetFactory = (document.getElementById('identity-factory')?.value.trim() || curAgv.factory || 'TOT');
+  const topic = `uagv/v2/${targetFactory}/${targetAgvId}/instantActions`;
+
+  if (!confirm(
+    `Gửi lệnh cấu hình đến AGV?\n\n` +
+    `Topic: ${topic}\n\n` +
+    `• AGV KHỞI ĐỘNG LẠI ngay lập tức\n` +
+    `• Phát WiFi "configAGV" (không mật khẩu)\n` +
+    `• Truy cập http://192.168.4.1 để cấu hình\n` +
+    `• Toàn bộ lệnh đang chờ sẽ bị hủy`
+  )) return;
+
+  try {
+    const r = await fetch(`${API}/api/execute/enter-config-mode/${encodeURIComponent(targetAgvId)}?factory=${encodeURIComponent(targetFactory)}`, {method:'POST'});
+    const d = await r.json();
+    if (r.ok) {
+      st.textContent = '✓ Đã gửi lệnh — AGV đang reboot';
+      st.style.color = '#fbbf24';
+      // Đóng panel sau 2s (AGV sẽ offline)
+      setTimeout(() => { closePanel(); loadAgvs(); }, 2000);
+    } else {
+      st.textContent = '✗ ' + (d.detail || 'Lỗi');
+      st.style.color = '#f87171';
+    }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối';
+    st.style.color = '#f87171';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// QUEUE MANAGEMENT
+// ════════════════════════════════════════════════════════════════
+async function loadQueue() {
+  if (!curAgv) return;
+  try {
+    const r = await fetch(`${API}/api/execute/queue-status/${encodeURIComponent(curAgv.agv_id)}`);
+    const d = await r.json();
+    renderQueue(d);
+  } catch(e) { console.warn('[QUEUE]', e); }
+}
+
+function renderQueue(d) {
+  const el = document.getElementById('queue-list');
+  const CMD_LABELS = {go_to:'Đi đến điểm',go_charge:'Đi sạc pin',go_wait:'Về khu chờ',stop:'Dừng',resume:'Tiếp tục'};
+  let html = '';
+
+  if (d.running) {
+    const c = d.running;
+    html += `<div class="queue-item">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+        <span class="queue-badge badge-run">Đang chạy</span>
+        <span style="font-weight:600">${esc(c.command_label || CMD_LABELS[c.command] || c.command)}</span>
+      </div>
+      ${c.dest_node ? `<div style="color:#adc6ff;font-size:10px;font-family:'JetBrains Mono',monospace">→ Node ${esc(String(c.dest_node))}</div>` : ''}
+    </div>`;
+  }
+
+  if (d.queue && d.queue.length) {
+    d.queue.forEach((c,i) => {
+      html += `<div class="queue-item">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+          <span class="queue-badge badge-q">#${i+1} Chờ</span>
+          <span>${esc(c.command_label || CMD_LABELS[c.command] || c.command)}</span>
+        </div>
+        ${c.dest_node ? `<div style="color:#8c909f;font-size:10px;font-family:'JetBrains Mono',monospace">→ Node ${esc(String(c.dest_node))}</div>` : ''}
+      </div>`;
+    });
+  }
+
+  if (!d.running && (!d.queue || !d.queue.length)) {
+    html = `<div style="color:#555;text-align:center;padding:16px;font-size:11px">Không có lệnh nào</div>`;
+  }
+
+  el.innerHTML = html;
+}
+
+async function cancelRunning() {
+  if (!curAgv) return;
+  const st = document.getElementById('queue-action-status');
+  try {
+    const r = await fetch(`${API}/api/execute/cancel-running/${encodeURIComponent(curAgv.agv_id)}`, {method:'DELETE'});
+    const d = await r.json();
+    st.textContent = r.ok ? '✓ Đã hủy lệnh đang chạy' : '✗ ' + (d.detail||'Lỗi');
+    st.style.color = r.ok ? '#4ade80' : '#f87171';
+    setTimeout(() => loadQueue(), 400);
+  } catch(e) { st.textContent = '✗ Lỗi'; st.style.color='#f87171'; }
+}
+
+async function cancelQueue() {
+  if (!curAgv) return;
+  if (!confirm('Hủy toàn bộ hàng chờ của ' + curAgv.agv_id + '?')) return;
+  const st = document.getElementById('queue-action-status');
+  try {
+    const r = await fetch(`${API}/api/execute/cancel-all/${encodeURIComponent(curAgv.agv_id)}`, {method:'DELETE'});
+    const d = await r.json();
+    st.textContent = r.ok ? '✓ Đã hủy tất cả' : '✗ ' + (d.detail||'Lỗi');
+    st.style.color = r.ok ? '#4ade80' : '#f87171';
+    setTimeout(() => loadQueue(), 400);
+  } catch(e) { st.textContent = '✗ Lỗi'; st.style.color='#f87171'; }
+}
+
+// ════════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════════
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+const _inIframe = window.self !== window.top;
+
+async function loadMapList() {
+  try {
+    const r = await fetch(`${API}/api/maps/list`);
+    const d = await r.json();
+    mapList = Array.isArray(d) ? d : [];
+  } catch(e) { mapList = []; }
+}
+
+async function init() {
+  // Load danh sách bản đồ ngay từ đầu
+  await loadMapList();
+
+  // Khi chạy trong iframe (từ modal Dash), chỉ hiện control panel
+  if (_inIframe) {
+    document.querySelector('body > div:first-child').style.display = 'none'; // ẩn header
+    document.getElementById('agv-grid').style.display = 'none'; // ẩn grid
+    document.getElementById('panel-backdrop').style.display = 'none'; // không cần backdrop
+  }
+
+  await loadAgvs();
+
+  // Auto-open panel nếu có ?auto_open=AGV_ID trong URL
+  const autoOpen = new URLSearchParams(window.location.search).get('auto_open');
+  if (autoOpen) {
+    openPanel(autoOpen);
+  } else {
+    // Không trong iframe → chạy bình thường với auto-refresh
+    if (!_inIframe) {
+      refreshTimer = setInterval(loadAgvs, 5000);
+    }
+  }
+}
+
+init();
+</script>
+</body>
+</html>

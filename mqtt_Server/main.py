@@ -302,7 +302,9 @@ def _line_agv_dispatch_to_charge(agv_id: str) -> None:
             resolve_special_target_node,
             get_agv_runtime_info,
         )
-        from line_agv_plan_builder import build_line_plan, build_edge_speeds, build_edge_lidar
+        from line_agv_plan_builder import (
+            build_line_plan, build_plan_window, build_edge_speeds, build_edge_lidar,
+        )
         from line_agv_handler import line_agv_handler
 
         info = get_agv_runtime_info(agv_id)
@@ -334,12 +336,13 @@ def _line_agv_dispatch_to_charge(agv_id: str) -> None:
         _last_tdir_chg   = getattr(_lstate_chg, 'last_transit_direction', '') if _lstate_chg else ''
         _is_post_chg_c   = (getattr(_lstate_chg, 'task_lifecycle', '') or '') == "charging"
         _initial_prev_chg = _prev_chg if (_last_tdir_chg == 'bwd' and not _is_post_chg_c) else None
-        plan         = build_line_plan(path, points, task_type="return_charge",
-                                       node_actions=node_actions,
-                                       edge_speeds=edge_spd, edge_lidar=edge_lidar,
-                                       agv_id=agv_id, initial_prev_tag=_initial_prev_chg)
-
-        line_agv_handler.set_route(agv_id, path, "return_charge")
+        _rt_chg = line_agv_handler.set_route(agv_id, path, "return_charge")
+        # Gửi cửa sổ đầu (≤LOOKAHEAD node) — rolling gửi tiếp nếu đường dài.
+        plan = build_plan_window(
+            full_path=path, w_start=0, w_end=_rt_chg.window_end, points=points,
+            is_final=_rt_chg.is_complete, task_type="return_charge",
+            node_actions=node_actions, edge_speeds=edge_spd, edge_lidar=edge_lidar,
+            agv_id=agv_id, initial_prev_tag=_initial_prev_chg)
         send_order(agv_id, plan)
         print(f"[LINE_CHARGE] {agv_id}: dispatched to charge {target_node} | path={path}")
 
@@ -775,7 +778,12 @@ async def lifespan(app: FastAPI):
                 await _conn.execute(
                     "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS last_tag TEXT"
                 )
-                print("[DB] Column agv_devices.last_tag ensured")
+                # Thông tin mạng AGV (cập nhật tự động từ MQTT info topic)
+                for _col in ("subnet TEXT", "gateway TEXT", "dns TEXT"):
+                    await _conn.execute(
+                        f"ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS {_col}"
+                    )
+                print("[DB] Columns agv_devices.last_tag / subnet / gateway / dns ensured")
                 # Cột LIDAR cho map roads / benziers
                 await _conn.execute(
                     "ALTER TABLE agv_map_roads ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE"
@@ -790,6 +798,14 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE agv_map_benziers ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'"
                 )
                 print("[DB] Columns agv_map_roads/benziers.lidar_off / lidar_off_dir ensured")
+                # Cột thông tin người gửi lệnh trên bảng agv_tasks
+                await _conn.execute(
+                    "ALTER TABLE agv_tasks ADD COLUMN IF NOT EXISTS operator_name TEXT"
+                )
+                await _conn.execute(
+                    "ALTER TABLE agv_tasks ADD COLUMN IF NOT EXISTS operator_id TEXT"
+                )
+                print("[DB] Columns agv_tasks.operator_name / operator_id ensured")
         except Exception as _te:
             print(f"[DB] Create table error (non-fatal): {_te}")
 
@@ -840,7 +856,8 @@ async def lifespan(app: FastAPI):
                     return True
                 if cmd.command == CMD_GO_TO and cmd.dest_node:
                     return bool(_dispatch_go_to(cmd.agv_id, cmd.dest_node,
-                                                start_node=getattr(cmd, "start_node", None)))
+                                                start_node=getattr(cmd, "start_node", None),
+                                                session_id=getattr(cmd, "session_id", None)))
                 return False
             except Exception as _e:
                 print(f"[QUEUE_DISPATCH] error: {_e}")
@@ -862,6 +879,16 @@ async def lifespan(app: FastAPI):
         print("[WARNING] DB + Dashboard are ready, but MQTT broker is not connected")
     else:
         print("[WARNING] DB CHƯA KẾT NỐI – Chỉ có MQTT + Dashboard")
+
+    # ── Khởi động scheduler lịch tự động ──────────────────────────────────────
+    if app.state.db_pool:
+        try:
+            from schedule_manager import init_scheduler
+            _sched = init_scheduler(app.state.db_pool)
+            await _sched.init_table()
+            _sched.start()
+        except Exception as _se:
+            print(f"[SCHEDULER] init error: {_se}")
 
     yield
     app.state.shutting_down = True
@@ -1046,7 +1073,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.0.56:8050/home")
+    return RedirectResponse(url="http://192.168.1.13:8050/home")
 
 # ==========================
 # DEBUG ROUTES
@@ -1071,6 +1098,18 @@ async def move_agv(cmd: MoveCommand):
         print(f"[API] Nhận lệnh move: {cmd.agv_id} → {cmd.destination}")
         agv = agv_manager.get_agv(cmd.agv_id)
         if not agv:
+            # LINE AGV không nằm trong agv_manager — dùng _dispatch_go_to thay thế
+            from agv_registry import agv_registry
+            if agv_registry.is_line(cmd.agv_id):
+                try:
+                    ok = await asyncio.to_thread(
+                        _dispatch_go_to, cmd.agv_id, cmd.destination,
+                        start_node=None, session_id=None
+                    )
+                    order_id = str(uuid.uuid4())
+                    return {"orderId": order_id, "status": "dispatched", "agv_type": "LINE"}
+                except Exception as _le:
+                    raise HTTPException(status_code=400, detail=f"LINE AGV dispatch lỗi: {_le}")
             raise HTTPException(status_code=404, detail=f"AGV '{cmd.agv_id}' không tồn tại")
 
         # Warn if AGV state is stale but do not block the order — let MQTT handle delivery.
@@ -1647,13 +1686,48 @@ async def save_node_config(payload: MapNodeConfigRequest, request: Request):
 
     config = payload.config or {}
     name = (config.get("name") or "").strip()
-    location_type = (config.get("locationType") or "").strip().upper()
-    default_action = (config.get("defaultAction") or "").strip().upper()
 
-    action_json = {
-        "locationType": location_type,
-        "defaultAction": default_action
-    }
+    # Xây action_json đầy đủ — lưu tất cả fields từ frontend
+    action_json: dict = {}
+
+    def _s(key, upper=False, lower=False):
+        v = (config.get(key) or "").strip()
+        if not v or v.lower() == "none":
+            return
+        action_json[key] = v.upper() if upper else (v.lower() if lower else v)
+
+    _s("locationType",  upper=True)
+    _s("defaultAction", upper=True)
+    _s("agvCompat")
+    _s("arrival_action", lower=True)
+    _s("approach_dir",   lower=True)
+    _s("fwd_turn",       lower=True)
+    _s("bwd_turn",       lower=True)
+    # Block (vùng tới hạn openTCS-style): tên block + loại (single/same_dir)
+    _s("block")                       # tên block (vd 'JX_2', 'corridor_A')
+    _s("block_type", lower=True)      # 'single' (1 xe) | 'same_dir' (cùng chiều)
+    # supply_group: list hoặc string (tương thích cả 2 format cũ/mới)
+    sg_raw = config.get("supply_group")
+    if isinstance(sg_raw, list):
+        sg_list = [s.strip() for s in sg_raw if isinstance(s, str) and s.strip()]
+        if sg_list:
+            action_json["supply_group"] = sg_list
+    elif isinstance(sg_raw, str) and sg_raw.strip():
+        # Backward-compat: chuỗi cũ → chuyển thành list
+        action_json["supply_group"] = [s.strip() for s in sg_raw.split(",") if s.strip()]
+
+    # turn_map (dict)
+    tm = config.get("turn_map")
+    if isinstance(tm, dict) and tm:
+        action_json["turn_map"] = tm
+
+    # team (int, chỉ dùng cho DROPOFF)
+    team_raw = config.get("team")
+    if team_raw is not None:
+        try:
+            action_json["team"] = int(team_raw)
+        except (ValueError, TypeError):
+            pass
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -1683,6 +1757,54 @@ async def save_node_config(payload: MapNodeConfigRequest, request: Request):
                 "action": row["action"],
             },
         }
+
+
+@router.get("/supply-groups")
+async def get_supply_groups(map_id: str, request: Request):
+    """Trả về danh sách các tổ cấp hàng và node tương ứng.
+    Mỗi (node, tổ) là 1 entry riêng — 1 node có thể phục vụ nhiều tổ."""
+    pool = request.app.state.db_pool
+    import json as _json
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT name_id, name, action
+            FROM public.agv_map_points
+            WHERE map_id = $1
+              AND action IS NOT NULL
+              AND action->'supply_group' IS NOT NULL
+            ORDER BY name_id
+            """,
+            map_id,
+        )
+    result = []
+    for row in rows:
+        act = row["action"] or {}
+        if isinstance(act, str):
+            try:
+                act = _json.loads(act)
+            except Exception:
+                act = {}
+        sg = act.get("supply_group")
+        if not sg:
+            continue
+        # Chuẩn hóa: cả array lẫn string cũ đều xử lý được
+        if isinstance(sg, list):
+            groups = [s.strip() for s in sg if isinstance(s, str) and s.strip()]
+        elif isinstance(sg, str):
+            groups = [s.strip() for s in sg.split(",") if s.strip()]
+        else:
+            continue
+        for g in groups:
+            result.append({
+                "node_id":        str(row["name_id"]),
+                "node_name":      row["name"] or str(row["name_id"]),
+                "supply_group":   g,
+                "arrival_action": act.get("arrival_action", ""),
+            })
+    result.sort(key=lambda x: (x["supply_group"], int(x["node_id"]) if x["node_id"].isdigit() else x["node_id"]))
+    return {"supply_groups": result, "map_id": map_id}
+
 
 @app.options("/api/agv/map/upload-full")
 async def upload_full_preflight():
@@ -1751,6 +1873,12 @@ async def _do_upload_map(payload: dict):
                 available BOOLEAN DEFAULT FALSE,
                 accuracy  INT DEFAULT 0
             )
+        """)
+        # Index hỗ trợ query nhanh team mapping (action->>'team')
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_map_points_team
+            ON agv_map_points ((action->>'team'))
+            WHERE action->>'locationType' = 'DROPOFF'
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS agv_map_roads (
@@ -2070,11 +2198,28 @@ async def api_cancel_order(req: AgvActionRequest):
     """
     Hủy lệnh hiện tại của AGV bằng instant action.
     Đồng thời xóa pending drop trong mqtt_client nếu có.
+    Cập nhật tất cả task pending/running của AGV thành cancelled trong DB.
     """
     try:
         print(f"[API] Nhận lệnh hủy order: AGV={req.agv_id}")
 
         result = await asyncio.to_thread(cancel_agv_order, req.agv_id)
+
+        # Xóa in-memory task queue (queue_size về 0 ngay lập tức)
+        from task_queue import agv_task_queue as _tq
+        _tq.cancel_all(req.agv_id)
+
+        # Cập nhật DB: đánh dấu tất cả task pending/running của AGV thành cancelled
+        if pool:
+            async with pool.acquire() as conn:
+                status_str = await conn.execute(
+                    """UPDATE agv_tasks
+                       SET status = 'cancelled', updated_at = NOW()
+                       WHERE agv_id = $1 AND status IN ('pending', 'running')""",
+                    req.agv_id,
+                )
+                # status_str dạng "UPDATE N"
+                print(f"[CANCEL] DB update: {status_str} task → cancelled cho AGV {req.agv_id}")
 
         # broadcast realtime cho dashboard
         asyncio.create_task(broadcast_update({
@@ -2126,6 +2271,32 @@ async def api_set_tag(req: SetTagRequest):
 
 
 # ==========================
+# MOBILE APP AUTH (no real auth — local network only)
+# ==========================
+
+@app.post("/api/auth/login")
+async def mobile_auth_login(request: Request):
+    """Login endpoint cho mobile app. Hệ thống local network không cần auth thật.
+    Nhận bất kỳ username nào và trả token giả để mobile tiếp tục."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    username = str(data.get("username", "operator")).strip() or "operator"
+    return {
+        "success": True,
+        "token": f"acs-mobile-{username}",
+        "user": {
+            "name": username,
+            "maNS": username,
+            "tenDonVi": "TOT ACS",
+            "tenPhongBan": "AGV Control",
+            "maChiNhanh": "1",
+        }
+    }
+
+
+# ==========================
 # TASK MANAGER API
 # ==========================
 
@@ -2153,14 +2324,18 @@ async def create_task(request: Request):
         raise HTTPException(503, "Database chưa sẵn sàng")
 
     data = await request.json()
-    agv_id      = (data.get("agv_id") or "").strip()
-    destination = (data.get("destination") or "").strip()
-    map_id      = (data.get("map_id") or "").strip() or None
-    notes       = (data.get("notes") or "").strip()
-    send_order  = data.get("send_order", True)   # False = chỉ lưu, không gửi lệnh
+    agv_id        = (data.get("agv_id") or "").strip()
+    destination   = (data.get("destination") or "").strip()
+    map_id        = (data.get("map_id") or "").strip() or None
+    notes         = (data.get("notes") or "").strip()
+    operator_name = (data.get("operator_name") or "").strip() or None
+    operator_id   = (data.get("operator_id") or "").strip() or None
+    send_order    = data.get("send_order", True)   # False = chỉ lưu, không gửi lệnh
 
     if not agv_id or not destination:
         raise HTTPException(400, "agv_id và destination là bắt buộc")
+
+    print(f"[TASK] {agv_id}→{destination} | operator={operator_name!r} id={operator_id!r} | raw_keys={list(data.keys())}")
 
     import uuid as _uuid
     task_id = str(_uuid.uuid4())
@@ -2169,9 +2344,9 @@ async def create_task(request: Request):
     try:
         async with pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO agv_tasks (task_id, agv_id, destination, map_id, status, notes) "
-                "VALUES ($1,$2,$3,$4,'pending',$5)",
-                task_id, agv_id, destination, map_id, notes,
+                "INSERT INTO agv_tasks (task_id, agv_id, destination, map_id, status, notes, operator_name, operator_id) "
+                "VALUES ($1,$2,$3,$4,'pending',$5,$6,$7)",
+                task_id, agv_id, destination, map_id, notes, operator_name, operator_id,
             )
     except Exception as e:
         print(f"[TASK] INSERT thất bại: {e}")
@@ -2383,33 +2558,117 @@ async def get_agv_registry():
 # EXECUTE TASK — AGV điều phối tức thì / hàng chờ
 # ════════════════════════════════════════════════════════════════════════════
 
+# Tracking staging/transit dispatches: khi dispatch đến staging node, đánh dấu
+# để lần dispatch TIẾP THEO đến đúng staging node đó dùng task_type='transit'.
+# Format: {(agv_id, staging_node_id)}
+_pending_staging_transits: set = set()
+
+# Gom lệnh cả lượt cấp hàng (Line AGV): chờ ~1s thu thập đủ các lệnh cùng session
+# rồi sinh lệnh lấy hàng tại TẤT CẢ điểm cấp TRƯỚC, mới tới các lệnh giao + sạc.
+# Format: {(agv_id, session_id): {"commands": [(cmd,dest,start)], "task": asyncio.Task, "session_label": str}}
+_supply_batch: dict = {}
+_SUPPLY_BATCH_DELAY_SEC = 1.0
+
 def _line_agv_occupied_nodes(exclude_agv: str) -> dict[str, str]:
     """
-    Trả về {node_id: agv_id} — các node đang bị Line AGV khác chiếm giữ hoặc đang heading đến.
-    Dùng để tránh xung đột khi plan path và khi check destination.
+    Trả về {node_id: agv_id} — nodes bị AGV khác chiếm.
+    Bao gồm 2 trường hợp:
+      1. AGV đang trong lifecycle state (picking/delivering/charging) tại node đó.
+      2. AGV đang trong route với node đó là FINAL DESTINATION (đang trên đường đến).
+         → Tránh "same-destination conflict": 2 xe cùng đến 1 điểm.
     """
     occupied: dict[str, str] = {}
     try:
         from line_agv_handler import line_agv_handler as _lah
+        # Case 1: lifecycle state tại node hiện tại (picking/delivering/charging)
         for _oid, _st in _lah.state_store._states.items():
             if _oid == exclude_agv or _st is None:
                 continue
-            # node đang đứng
-            _cur = str(_st.current_tag or "").strip()
-            if _cur:
-                occupied[_cur] = _oid
-            # node đích (cuối route)
-            if _st.route and _st.route.full_path:
-                _dest = str(_st.route.full_path[-1]).strip()
-                if _dest and _dest != _cur:
-                    occupied.setdefault(_dest, _oid)
+            if _st.task_lifecycle in ('picking', 'delivering', 'charging'):
+                _cur = str(_st.current_tag or "").strip()
+                if _cur:
+                    occupied[_cur] = _oid
+        # Case 2: final destination của route đang chạy (xe đang trên đường đến)
+        for _oid, _route in _lah._routes.items():
+            if _oid == exclude_agv or not _route or not _route.full_path:
+                continue
+            if _route.task_type in ('transit',):
+                continue
+            _dest = str(_route.full_path[-1]).strip()
+            if _dest and _dest not in occupied:
+                occupied.setdefault(_dest, _oid)
+        # Case 3: xe đang dừng im tại node (no active route, no lifecycle) — trạng thái
+        # bounce/between-commands. Xe VẪN ĐANG CHIẾM node đó về mặt vật lý.
+        # Dùng setdefault để không override Case 1/2 đã có.
+        for _oid, _st in _lah.state_store._states.items():
+            if _oid == exclude_agv or _st is None:
+                continue
+            if not _st.driving and _st.current_tag and not _st.task_lifecycle:
+                # Chỉ mark occupied nếu không có route active (đang giữa 2 lệnh)
+                if not _lah._routes.get(_oid):
+                    _cur = str(_st.current_tag).strip()
+                    if _cur:
+                        occupied.setdefault(_cur, _oid)
     except Exception:
         pass
     return occupied
 
 
-def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) -> bool:
-    """Tính đường + gửi order (LINE hoặc VDA5050) từ vị trí hiện tại đến dest_node."""
+def _required_supply_node(node_actions: dict, dest_node) -> str | None:
+    """Supply node phục vụ team của dest_node (giống Phase 0 của planner).
+
+    Trả về node_id (str) của điểm cấp hàng cho tổ của dest_node, hoặc None nếu
+    dest_node không phải dropoff có team / không có điểm cấp tương ứng.
+    """
+    end_na = node_actions.get(str(dest_node)) or {}
+    team = end_na.get('team')
+    if not team:
+        return None
+    team_str = str(team)
+    for snid, sncfg in (node_actions or {}).items():
+        sncfg = sncfg or {}
+        if str(sncfg.get('arrival_action', '') or '').lower() == 'wait_sys':
+            sg = sncfg.get('supply_group') or []
+            if isinstance(sg, str):
+                sg = [s.strip() for s in sg.split(',')]
+            if team_str in [str(g) for g in sg]:
+                return str(snid)
+    return None
+
+
+def _sort_supplies_by_distance(supplies: list[str], current_node) -> list[str]:
+    """Sắp xếp các điểm cấp theo khoảng cách path từ current_node (gần → xa).
+
+    Dùng để xe lấy hàng theo một lượt quét xuôi (điểm gần trạm trước), tránh đi
+    tới-lui. Nếu không tính được khoảng cách → giữ nguyên thứ tự.
+    """
+    if not supplies or not current_node:
+        return list(supplies)
+    try:
+        import networkx as _nx
+        g = getattr(map_manager, 'line_graph', None) or getattr(map_manager, 'graph', None)
+        if g is None:
+            return list(supplies)
+
+        def _d(s):
+            try:
+                return _nx.shortest_path_length(g, str(current_node), str(s), weight='weight')
+            except Exception:
+                return float('inf')
+
+        return sorted(supplies, key=_d)
+    except Exception:
+        return list(supplies)
+
+
+def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
+                    session_id: str | None = None) -> bool:
+    """Tính đường + gửi order (LINE hoặc VDA5050) từ vị trí hiện tại đến dest_node.
+
+    session_id: lượt cấp hàng hiện tại — dùng để chỉ lấy hàng MỘT lần mỗi supply
+    node trong một lượt. Các lệnh giao hàng sau trong cùng session sẽ đi một mạch
+    qua supply node đã lấy mà không dừng lại chờ xác nhận.
+    """
     from mqtt_client import (
         get_agv_runtime_info, plan_path_for_order,
         send_agv_to_special_target, send_order,
@@ -2435,31 +2694,425 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
             f"hãy chọn 'Vị trí xuất phát' trên bản đồ trước khi gửi lệnh"
         )
     if str(current_node) == str(dest_node):
-        raise ValueError(f"{agv_id}: đã ở tại {dest_node}")
+        # AGV đã ở đích rồi — coi như hoàn thành, trigger auto-dispatch lệnh tiếp
+        # Thay vì raise error, notify queue để chạy lệnh kế tiếp
+        print(f"[DISPATCH] {agv_id}: đã ở tại {dest_node} — auto-complete, dispatch tiếp")
+        try:
+            from task_queue import agv_task_queue as _atq_done
+            _atq_done.on_agv_completed(agv_id, notes="already_at_dest")
+        except Exception:
+            pass
+        return True
 
-    # ── Kiểm tra destination node đang bị AGV khác chiếm ─────────────────────
+    _is_staging_dispatch = False   # sẽ được set True nếu staging redirect xảy ra
+
+    # ── Bỏ qua lệnh lấy hàng đã hoàn tất trong lượt (no-op) ───────────────────
+    # Khi finalize sinh lệnh go_to(điểm cấp) nhưng điểm đó đã được lấy hàng (vd do
+    # split cơ hội trên đường tới điểm cấp khác) → auto-complete, không quay lại.
+    if session_id and agv_registry.is_line(agv_id):
+        _dest_na_skip = (getattr(map_manager, 'node_actions', {}) or {}).get(str(dest_node)) or {}
+        _dest_is_supply_skip = (
+            str(_dest_na_skip.get('arrival_action', '') or '').lower() == 'wait_sys'
+            and bool(_dest_na_skip.get('supply_group'))
+        )
+        if _dest_is_supply_skip:
+            from task_queue import agv_task_queue as _atq_skip
+            if _atq_skip.session_has_pickup(session_id, dest_node):
+                print(f"[DISPATCH] {agv_id}: điểm cấp {dest_node} đã lấy hàng trong lượt "
+                      f"→ bỏ qua (auto-complete)")
+                try:
+                    _atq_skip.on_agv_completed(agv_id, notes="pickup_already_done")
+                except Exception:
+                    pass
+                return True
+
+    # ── Kiểm tra destination node đang bị AGV khác chiếm (lifecycle) ────────────
+    # Thay vì đứng yên ở vị trí hiện tại (có thể rất xa), tiến gần đến đích và chờ
+    # tại một "staging node" 1-3 node trước đích — giảm thời gian chờ khi đích trống.
     if agv_registry.is_line(agv_id):
         _occ = _line_agv_occupied_nodes(exclude_agv=agv_id)
         _claimer = _occ.get(str(dest_node).strip())
-        if _claimer:
-            raise ValueError(
-                f"{agv_id}: node đích {dest_node} đang bị {_claimer} chiếm hoặc heading đến — "
-                f"chờ {_claimer} rời khỏi node trước"
-            )
+        # CLAIM-TỪ-XA: node đích bị coi "occupied" có thể CHỈ vì xe khác ĐANG TRÊN ĐƯỜNG
+        # tới đó (Case 2 destination-claim) — xe đó CHƯA ở vật lý tại đích. Nếu xe YÊU CẦU
+        # lại GẦN đích hơn xe claim → cho xe gần ĐI TRƯỚC, KHÔNG bắt chờ (đúng ý user: "chưa
+        # có xe nào ở node 19 mà báo occupied"). Quan trọng hơn: nếu requester đang đứng
+        # NGAY TRÊN đường tới đích của claimer (vd AGV01 ở 64 chặn AGV02 lên 19) thì bắt
+        # requester chờ = DEADLOCK (claimer không tới đích được). CHỈ áp dụng khi claimer
+        # CHƯA ở đích; nếu claimer ĐANG Ở đích (picking) thì vẫn phải chờ thật.
+        if _claimer and str(current_node) != str(dest_node):
+            try:
+                from line_agv_handler import line_agv_handler as _lah_cl
+                _cl_st  = _lah_cl.state_store.get(_claimer)
+                _cl_cur = (str(_cl_st.current_tag)
+                           if (_cl_st and _cl_st.current_tag is not None) else None)
+            except Exception:
+                _cl_cur = None
+            if _cl_cur is not None and _cl_cur != str(dest_node):
+                try:
+                    from line_agv_handler import requester_closer_than_claimer as _rcc
+                    _g_cl = map_manager.line_graph if map_manager.line_graph else map_manager.graph
+                    if _rcc(_g_cl, current_node, _cl_cur, dest_node):
+                        print(f"[DISPATCH] {agv_id}: dest {dest_node} mới chỉ 'claim từ xa' "
+                              f"bởi {_claimer} (ở {_cl_cur}) — TÔI gần hơn → ĐI TRƯỚC "
+                              f"lấy/giao, không chờ")
+                        _claimer = None
+                except Exception:
+                    pass
+        if _claimer and str(current_node) != str(dest_node):
+            # Kiểm tra xem AGV chiếm dest có đang ở trạng thái stationary không
+            # (bounce/between-commands: không driving, không lifecycle, không route).
+            # Nếu stationary → KHÔNG stage (staging node nằm trên return path của nó → deadlock).
+            # Thay vào đó: đứng yên tại chỗ chờ.
+            _claimer_stationary = False
+            try:
+                from line_agv_handler import line_agv_handler as _lah_cs
+                _occ_cs_st = _lah_cs.state_store.get(_claimer)
+                _occ_cs_rt = _lah_cs._routes.get(_claimer)
+                _claimer_stationary = (
+                    _occ_cs_st is not None
+                    and not _occ_cs_st.driving
+                    and not _occ_cs_st.task_lifecycle
+                    and not _occ_cs_rt
+                )
+            except Exception:
+                pass
+            if _claimer_stationary:
+                # AGV chiếm dest đang trong trạng thái stationary (bounce state).
+                # Không stage để tránh chặn đường về của nó → deadlock.
+                print(f"[DISPATCH] {agv_id}: dest {dest_node} occupied by stationary "
+                      f"{_claimer} (bounce) — đứng yên tại {current_node}, chờ xe rời")
+                try:
+                    from line_agv_handler import line_agv_handler as _lah_csw
+                    _st_csw = _lah_csw.state_store.get(agv_id)
+                    if _st_csw:
+                        _st_csw.pending_retry_cmd     = 'go_to'
+                        _st_csw.pending_retry_dest    = str(dest_node)
+                        _st_csw.pending_retry_session = session_id
+                    from task_queue import agv_task_queue as _atq_csw
+                    # auto_dispatch=False: giải phóng xe để pending_retry dispatch LẠI
+                    # go_to khi đích trống, KHÔNG chạy lệnh kế (go_charge) → không bỏ
+                    # giao hàng đi sạc.
+                    _atq_csw.on_agv_completed(agv_id, notes='dest_wait_bounce',
+                                              auto_dispatch=False)
+                except Exception:
+                    from task_queue import agv_task_queue as _atq_csw2, CMD_GO_TO as _CGT_csw2
+                    _atq_csw2.insert_next(agv_id, _CGT_csw2, dest_node=str(dest_node))
+                return True
+            # Tính đường đến đích để tìm staging node gần đích nhất còn trống
+            _staging_node = None
+            _orig_dest = str(dest_node)
+            try:
+                _st_route, _ = plan_path_for_order(agv_id, current_node, dest_node,
+                                                   session_id=session_id)
+                _st_path = [str(n.get("nodeId") or n) for n in _st_route]
+                # Thu thập tất cả nodes trên path của xe khác (tránh đỗ cản đường về)
+                _other_paths: set[str] = set()
+                try:
+                    from line_agv_handler import line_agv_handler as _lah_st
+                    for _oid, _r in _lah_st._routes.items():
+                        if _oid == agv_id or not _r or not _r.full_path:
+                            continue
+                        _other_paths.update(str(n) for n in _r.full_path)
+                except Exception:
+                    pass
+                # Tìm node 2-4 bước trước đích, không bị chiếm, không trên đường xe khác,
+                # không là vị trí hiện tại. Bắt đầu từ 4 bước trước để đảm bảo ≥2 node gap.
+                for _si in range(max(1, len(_st_path) - 5), len(_st_path) - 1):
+                    _cand = str(_st_path[_si])
+                    if (_cand not in _occ
+                            and _cand != str(current_node)
+                            and _cand not in _other_paths):
+                        _staging_node = _cand
+                        break
+                # Fallback: nếu không tìm được node tránh đường xe khác, cho phép dùng
+                # bất kỳ node trống nhưng phải cách đích ít nhất 2 node (≥2 node từ dest).
+                if not _staging_node:
+                    for _si in range(max(1, len(_st_path) - 4), len(_st_path) - 2):
+                        _cand = str(_st_path[_si])
+                        if _cand not in _occ and _cand != str(current_node):
+                            _staging_node = _cand
+                            break
+            except Exception:
+                pass
+
+            if _staging_node:
+                print(f"[DISPATCH] {agv_id}: dest {_orig_dest} occupied by {_claimer} "
+                      f"→ staging at {_staging_node} (sẽ tiến gần hơn, queue lại đích)")
+                from task_queue import agv_task_queue as _atq_st, CMD_GO_TO as _CGT_st
+                _atq_st.insert_next(agv_id, _CGT_st, dest_node=_orig_dest)
+                dest_node = _staging_node   # override → dispatch đến staging, fall-through
+                _is_staging_dispatch = True
+            else:
+                # Đã ở ngay trước đích (hoặc toàn path bị chiếm) → reactive wait:
+                # pending_retry_cmd='go_to' để _check_waiting_agvs trigger khi xe cản rời.
+                print(f"[DISPATCH] {agv_id}: dest {_orig_dest} occupied by {_claimer} "
+                      f"— đứng yên tại {current_node}, chờ xe rời rồi retry")
+                try:
+                    from line_agv_handler import line_agv_handler as _lah_dw
+                    _st_dw = _lah_dw.state_store.get(agv_id)
+                    if _st_dw:
+                        _st_dw.pending_retry_cmd     = 'go_to'
+                        _st_dw.pending_retry_dest    = _orig_dest
+                        _st_dw.pending_retry_session = session_id
+                    # Ghi INTENT ROUTE = đường tới đích DÙ đang đứng chờ → xe khác (vd
+                    # AGV01 đi sạc) thấy ý định "18→5→17" của xe chờ → né node 5, đi lối
+                    # khác (17→6), KHÔNG đâm đầu vào. Xe đang chờ deregistered nên nếu
+                    # không set intent thì xe khác "không thấy" nó → đi xuyên qua.
+                    try:
+                        from line_agv_handler import traffic_coordinator as _tc_dw
+                        _intent_dw = locals().get('_st_path')
+                        if _intent_dw and len(_intent_dw) >= 2:
+                            _tc_dw.set_intent_route(agv_id, _intent_dw)
+                    except Exception:
+                        pass
+                    from task_queue import agv_task_queue as _atq_wn2c
+                    # auto_dispatch=False: giải phóng xe để pending_retry dispatch LẠI
+                    # go_to 17 khi đích trống, KHÔNG chạy lệnh kế (go_charge) đứng sau
+                    # trong hàng đợi → KHÔNG bỏ giao hàng để đi sạc.
+                    _atq_wn2c.on_agv_completed(agv_id, notes='dest_wait',
+                                               auto_dispatch=False)
+                except Exception:
+                    from task_queue import agv_task_queue as _atq_wn2, CMD_GO_TO as _CGT_wn2
+                    _atq_wn2.insert_next(agv_id, _CGT_wn2, dest_node=_orig_dest)
+                return True
 
     # Xóa map cache để đảm bảo node_actions (arrival_action) luôn được đọc mới từ DB
     map_manager.current_map_id = None
-    route_nodes, route_edges = plan_path_for_order(agv_id, current_node, dest_node)
+    route_nodes, route_edges = plan_path_for_order(agv_id, current_node, dest_node,
+                                                   session_id=session_id)
 
     if agv_registry.is_line(agv_id):
-        from line_agv_plan_builder import build_line_plan, build_edge_speeds, build_edge_lidar
-        from line_agv_handler import line_agv_handler
+        from line_agv_plan_builder import (
+            build_line_plan, build_plan_window, build_edge_speeds, build_edge_lidar,
+        )
+        from line_agv_handler import line_agv_handler, traffic_coordinator as _tc_dispatch
         path         = [str(n.get("nodeId") or n) for n in route_nodes]
         points       = getattr(map_manager, "points",       {}) or {}
         node_actions = getattr(map_manager, "node_actions", {}) or {}
         roads        = getattr(map_manager, "roads",        []) or []
         edge_spd     = build_edge_speeds(roads)
         edge_lidar   = build_edge_lidar(roads)
+
+        # Ghi TUYẾN ĐẦY ĐỦ (intent) tới đích — dù bên dưới chia đoạn (supply/lùi),
+        # xe KHÁC vẫn né được cả tuyến đầy đủ này (penalty routing).
+        # KHI STAGING (đỗ gần đích vì đích bị chiếm): intent phải là đường tới ĐÍCH THẬT
+        # (_st_path), KHÔNG phải đường tới node staging — nếu không, xe khác KHÔNG thấy
+        # đoạn còn lại (vd AGV02 staging→18 nhưng sẽ đi 18→5→17; AGV01 sạc phải né node 5).
+        _intent_path = path
+        if _is_staging_dispatch:
+            _sp = locals().get('_st_path')
+            if _sp and len(_sp) >= 2:
+                _intent_path = [str(n) for n in _sp]
+        _tc_dispatch.set_intent_route(agv_id, _intent_path)
+
+        # ── Xử lý head-on conflict còn sót sau phase plan ───────────────────
+        # near_only=True: chỉ check DISPATCH_HORIZON edges đầu tiên.
+        # near_only=False: check TOÀN BỘ path tại dispatch time.
+        _head_on_dispatch = _tc_dispatch.find_head_on(agv_id, path, near_only=False)
+        # find_head_on trả về (idx, agv_id) cho head-on, hoặc negative int cho following.
+        # Negative int (following) → không cần xử lý head-on, bỏ qua.
+        if not isinstance(_head_on_dispatch, tuple):
+            _head_on_dispatch = None
+        # BẤT ĐỐI XỨNG: chỉ xe YẾU hơn mới nhường (đỗ side/chờ). Xe MẠNH hơn đi đường
+        # ngắn, KHÔNG nhường — xe yếu sẽ né. Tránh CẢ HAI cùng nhường → dao động/kẹt.
+        # ƯU TIÊN THẬT theo đích (KHÔNG để rank mặc định 2 khi chưa registered → winner
+        # delivery vừa picking xong né nhầm → cả 2 cùng né, đâm — đúng lỗi user thấy).
+        from mqtt_client import _planner_dest_priority as _pdp_ho
+        _my_prio_ho = _pdp_ho(node_actions or {}, dest_node)
+        _my_prio_ho = _tc_dispatch._registered.get(agv_id, {}).get('priority', _my_prio_ho)
+        if (_head_on_dispatch is not None
+                and not _tc_dispatch.should_avoid_path_of(agv_id, _head_on_dispatch[1],
+                                                          my_priority=_my_prio_ho)):
+            print(f"[DISPATCH] {agv_id}: HEAD-ON với {_head_on_dispatch[1]} — TÔI ưu tiên "
+                  f"(mạnh hơn) → đi tiếp, để {_head_on_dispatch[1]} né")
+            _head_on_dispatch = None
+        if _head_on_dispatch is not None:
+            _ho_idx, _ho_other = _head_on_dispatch
+            _lstate_ho = line_agv_handler.state_store.get(agv_id)
+            _cur_tag_ho = str(_lstate_ho.current_tag) if (_lstate_ho and _lstate_ho.current_tag) else None
+
+            # Dùng last_plan_direction làm hướng transit, nhưng nếu đang ở CHARGER
+            # thì phải dùng 'fwd' (ra khỏi trạm phải tiến, không phải lùi thêm).
+            # Tổng quát: mọi trạm sạc đều không có đường phía sau.
+            _ho_dir_raw = (getattr(_lstate_ho, 'last_plan_direction', 'fwd') or 'fwd') if _lstate_ho else 'fwd'
+            # Kiểm tra lifecycle charging thêm ngoài locationType
+            if (getattr(_lstate_ho, 'task_lifecycle', '') or '') == 'charging':
+                _ho_dir_raw = 'fwd'
+            from line_agv_handler import _charger_exit_direction as _ced
+            _ho_dir = _ced(_cur_tag_ho or '', _ho_dir_raw)
+
+            # Thử tìm nhánh phụ (parking node) để tránh ra không cản đường chính
+            _parking = _tc_dispatch.find_parking_node(agv_id, path, _ho_idx, _ho_other)
+
+            # initial_prev_tag cho plan đỗ-né/dừng-chờ: cú RẼ tại node ĐẦU (vị trí xe) phụ
+            # thuộc node TRƯỚC (prev_tag THẬT). Thiếu nó (=None) → plan KHÔNG có TURN tại
+            # node đầu → xe đi THẲNG thay vì rẽ → off_route (vd đỗ ['4','9'] từ node 4: cần
+            # rẽ 19→4→9=left nhưng initial_prev_tag=None → đi thẳng 4→18, dừng bất ngờ tại
+            # 18). BỎ tính turn CHỈ khi xe đang Ở TRẠM SẠC (heading thực ≠ prev_tag).
+            _init_prev_park = None
+            if (_lstate_ho is not None
+                    and getattr(_lstate_ho, 'prev_tag', None) is not None and path):
+                _cur_cfg_park = node_actions.get(str(path[0])) or {}
+                _is_charger_park = (
+                    str(_cur_cfg_park.get('locationType', '')).upper() == 'CHARGER'
+                    or str(_cur_cfg_park.get('arrival_action', '')).lower() == 'wait_charge')
+                if not _is_charger_park:
+                    _init_prev_park = str(_lstate_ho.prev_tag)
+
+            if _parking and _parking[0] != _cur_tag_ho:
+                _park_node, _entry_node = _parking
+                _entry_idx = path.index(_entry_node) if _entry_node in path else (_ho_idx - 1)
+                _transit_path = path[:_entry_idx + 1] + [_park_node]
+                print(f"[DISPATCH] {agv_id}: HEAD-ON với {_ho_other} → "
+                      f"đỗ tại {_park_node} (qua {_entry_node}, dir={_ho_dir}), queue tiếp→{dest_node}")
+                _park_plan = build_line_plan(
+                    _transit_path, points, task_type="transit",
+                    node_actions=node_actions, direction=_ho_dir,
+                    edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                    agv_id=agv_id, initial_prev_tag=_init_prev_park,
+                )
+                _rt_park = line_agv_handler.set_route(agv_id, _transit_path, "transit", direction=_ho_dir)
+                _rt_park.window_end  = len(_transit_path) - 1
+                _rt_park.is_complete = True
+                send_order(agv_id, _park_plan)
+                from task_queue import agv_task_queue as _atq_ho, CMD_GO_TO as _CGT_ho
+                _atq_ho.insert_next(agv_id, _CGT_ho, dest_node=str(dest_node))
+                return True
+
+            # Không có nhánh phụ: dừng tại node cuối trước conflict trên đường chính.
+            # Quan trọng: safe_wait node KHÔNG được nằm trong future path của xe kia
+            # (nếu nằm trong đó thì sẽ gây conflict mới tại chính safe_wait node đó)
+            _safe_wait = _tc_dispatch.find_safe_wait_node(path, _ho_idx)
+            _other_reg_sw  = _tc_dispatch._registered.get(_ho_other, {})
+            _other_fut_sw  = set(_other_reg_sw.get('path', [])[_other_reg_sw.get('current_idx', 0):])
+            if _safe_wait and _safe_wait != path[0] and _safe_wait != path[-1] \
+                    and _safe_wait != _cur_tag_ho \
+                    and _safe_wait not in _other_fut_sw:
+                print(f"[DISPATCH] {agv_id}: HEAD-ON với {_ho_other} (không có nhánh phụ) — "
+                      f"dừng tại {_safe_wait} (dir={_ho_dir}), queue tiếp→{dest_node}")
+                _wait_path  = path[:path.index(_safe_wait) + 1]
+                _wait_plan  = build_line_plan(
+                    _wait_path, points, task_type="transit",
+                    node_actions=node_actions, direction=_ho_dir,
+                    edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                    agv_id=agv_id, initial_prev_tag=_init_prev_park,
+                )
+                _rt_wait = line_agv_handler.set_route(agv_id, _wait_path, "transit", direction=_ho_dir)
+                _rt_wait.window_end  = len(_wait_path) - 1
+                _rt_wait.is_complete = True
+                send_order(agv_id, _wait_plan)
+                from task_queue import agv_task_queue as _atq_ho2, CMD_GO_TO as _CGT_ho2
+                _atq_ho2.insert_next(agv_id, _CGT_ho2, dest_node=str(dest_node))
+                return True
+
+            # Không tìm được parking/safe_wait → thử tìm side node của vị trí hiện tại
+            # (conflict_idx=0 nghĩa là xe đang đứng ngay tại điểm xung đột)
+            _side_found = False
+            if _cur_tag_ho:
+                try:
+                    from mqtt_client import map_manager as _mm_side
+                    _g_side = _mm_side.line_graph if _mm_side.line_graph else _mm_side.graph
+                    if _g_side and _cur_tag_ho in _g_side:
+                        _other_reg = _tc_dispatch._registered.get(_ho_other, {})
+                        _other_cur_idx = _other_reg.get('current_idx', 0)
+                        _other_full = _other_reg.get('path', [])
+                        _other_future = set(_other_full[_other_cur_idx:])
+                        _path_set = set(path)
+
+                        # Ưu tiên 1: side node không trên bất kỳ đường nào của xe kia
+                        _side_candidates = [
+                            str(n) for n in _g_side.neighbors(_cur_tag_ho)
+                            if str(n) not in _path_set and str(n) not in _other_future
+                        ]
+
+                        # Ưu tiên 2 (bottleneck): không có side node thuần → cho phép đi theo
+                        # chiều cùng với xe kia (FOLLOWING = không đâm nhau) để nhường đường.
+                        # Ví dụ: AGV02 tại node 19 (bottleneck), AGV01 đi 4→19→3 (bwd).
+                        # AGV02 đi 19→3 = cùng chiều (following), cho phép nhường chỗ.
+                        if not _side_candidates and _other_full:
+                            _following_candidates = []
+                            for _nb in _g_side.neighbors(_cur_tag_ho):
+                                _nb_str = str(_nb)
+                                if _nb_str in _path_set:
+                                    continue  # vẫn trên đường mình đang đi → skip
+                                # Kiểm tra cùng chiều (following) với xe kia
+                                try:
+                                    _idx_cur = _other_full.index(_cur_tag_ho)
+                                    _idx_nb  = _other_full.index(_nb_str)
+                                    if _idx_nb > _idx_cur:
+                                        # xe kia đi cur→nb = cùng chiều → following, an toàn
+                                        _following_candidates.append(_nb_str)
+                                except ValueError:
+                                    pass
+                            if _following_candidates:
+                                _side_candidates = _following_candidates
+                                print(f"[DISPATCH] {agv_id}: bottleneck yield — "
+                                      f"di theo chiều xe kia (following) để nhường")
+
+                        if _side_candidates:
+                            _side_candidates.sort(key=lambda n: _g_side.degree(str(n)))
+                            _side_node = _side_candidates[0]
+                            print(f"[DISPATCH] {agv_id}: HEAD-ON idx=0 → đỗ tại side node={_side_node}, queue→{dest_node}")
+                            _side_path = [_cur_tag_ho, _side_node]
+                            _side_plan = build_line_plan(
+                                _side_path, points, task_type="transit",
+                                node_actions=node_actions, direction="fwd",
+                                edge_speeds=edge_spd, edge_lidar=edge_lidar,
+                                agv_id=agv_id, initial_prev_tag=None,
+                            )
+                            _rt_side = line_agv_handler.set_route(agv_id, _side_path, "transit", direction="fwd")
+                            _rt_side.window_end  = 1
+                            _rt_side.is_complete = True
+                            send_order(agv_id, _side_plan)
+                            from task_queue import agv_task_queue as _atq_side, CMD_GO_TO as _CGT_side
+                            _atq_side.insert_next(agv_id, _CGT_side, dest_node=str(dest_node))
+                            _side_found = True
+                except Exception as _se:
+                    print(f"[DISPATCH] {agv_id}: side-node fallback error: {_se}")
+
+            if not _side_found:
+                print(f"[DISPATCH] {agv_id}: HEAD-ON với {_ho_other} — "
+                      f"không có side node, dừng tại {_cur_tag_ho} chờ xe kia clear")
+                from task_queue import agv_task_queue as _atq_wait, CMD_GO_TO as _CGT_wait
+                _atq_wait.insert_next(agv_id, _CGT_wait, dest_node=str(dest_node))
+            return True
+
+        # Kiểm tra AGV có đang trong simulation mode không (cần trước node_actions override)
+        _is_sim_agv = False
+        try:
+            from simulation_manager import _sim_active_agvs as _sim_set
+            _is_sim_agv = agv_id in _sim_set
+        except Exception:
+            pass
+
+        # ── Simulation: clear approach_dir='bwd' cho tất cả node TRỪ trạm sạc ─
+        # Trạm sạc (path[0] với locationType=CHARGER/wait_charge) cần giữ 'bwd'
+        # để backward-transit detection hoạt động đúng khi thoát trạm.
+        # Node thường có approach_dir='bwd' → clear để tránh bwd_arrival sai.
+        def _is_charger_node(cfg):
+            if not isinstance(cfg, dict): return False
+            return (str(cfg.get('locationType', '')).upper() == 'CHARGER' or
+                    str(cfg.get('arrival_action', '')).lower() == 'wait_charge')
+
+        if _is_sim_agv and path:
+            _orig_na_sim = getattr(map_manager, 'node_actions', {}) or {}
+
+            _bwd_to_clear = []
+            for _i, _n in enumerate(path):
+                _k = str(_n)
+                _cfg = node_actions.get(_k) or {}
+                if not isinstance(_cfg, dict) or _cfg.get('approach_dir') != 'bwd':
+                    continue
+                # path[0] = trạm sạc thật → giữ 'bwd' cho backward-transit exit
+                if _i == 0 and _is_charger_node(_orig_na_sim.get(_k, {})):
+                    continue
+                _bwd_to_clear.append(_k)
+
+            if _bwd_to_clear:
+                node_actions = dict(node_actions)
+                for _k in _bwd_to_clear:
+                    node_actions[_k] = dict(node_actions[_k])
+                    node_actions[_k]['approach_dir'] = 'none'
 
         # Đọc prev_tag để xác định hướng xe đang nhìn
         _lstate      = line_agv_handler.state_store.get(agv_id)
@@ -2470,6 +3123,10 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
         # ── Phát hiện đoạn lùi đầu đường ──────────────────────────────────────
         # Khi directional planner quyết định xe phải lùi trước (path[1] == prev_tag),
         # tách đoạn lùi và gửi trước; phần còn lại queue tiếp theo.
+        # Backward transit detection: chạy bình thường cho cả simulation.
+        # - Trạm sạc (charger): _at_charge_bwd=True → "post-backward fwd exit" ✓
+        # - Pingpong reversal (path[1]==prev): backward transit thật → AGV lùi đúng ✓
+        # - Node thường đi tiếp: path[1] != prev_tag → không vào block này ✓
         if _prev_tag and len(path) >= 2 and str(path[1]) == _prev_tag:
             _last_tdir_bwd = getattr(_lstate, 'last_transit_direction', '') if _lstate else ''
             # Kiểm tra xe có đang ở trạm sạc không (approach_dir=bwd HOẶC arrival_action=wait_charge).
@@ -2501,17 +3158,71 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
 
                 bwd_seg = path[:bwd_end + 1]
                 print(f"[DISPATCH] {agv_id}: backward start → bwd_seg={bwd_seg}, tiếp→{dest_node}")
-                bwd_plan = build_line_plan(bwd_seg, points, task_type="transit",
-                                           node_actions=node_actions, direction="bwd",
-                                           edge_speeds=edge_spd, edge_lidar=edge_lidar,
-                                           agv_id=agv_id, initial_prev_tag=None)
-                line_agv_handler.set_route(agv_id, bwd_seg, "transit", direction="bwd")
+                # set_route TRƯỚC để tính window CẮT theo RESERVATION (node kế của đoạn lùi
+                # có thể đang bị xe khác giữ). Build plan THEO window đó — GIỐNG nhánh forward —
+                # KHÔNG build full bwd_seg rồi gửi bất kể reservation. Nếu node kế bị giữ →
+                # window=[0→0] → plan CHỈ giữ tại node hiện tại, KHÔNG lái vào node tranh chấp
+                # (tránh 2 xe cùng lao vào 1 node = ĐÂM, đúng log AGV01 17→5 trong khi AGV02
+                # giữ node 5). Node kế trống → window đầy đủ → plan y hệt build_line_plan cũ.
+                _rt_bwd  = line_agv_handler.set_route(agv_id, bwd_seg, "transit", direction="bwd")
+                bwd_plan = build_plan_window(
+                    full_path=bwd_seg, w_start=0, w_end=_rt_bwd.window_end, points=points,
+                    is_final=_rt_bwd.is_complete, task_type="transit",
+                    node_actions=node_actions, direction="bwd",
+                    edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
+                    initial_prev_tag=None)
                 send_order(agv_id, bwd_plan)
                 from task_queue import agv_task_queue as _atq, CMD_GO_TO as _CGT
                 _atq.insert_next(agv_id, _CGT, dest_node=str(dest_node))
                 return True
 
         # ── Tìm intermediate node đầu tiên có arrival_action → split route ────
+        # Nếu đích là CHARGER → bỏ qua split tại wait_sys/wait_user trên đường đi.
+        # Nếu đích là DROPOFF có team → chỉ dừng tại supply node phục vụ đúng team đó.
+        from task_queue import agv_task_queue as _atq_pick
+        _dest_cfg_split = node_actions.get(str(dest_node)) or {}
+        _dest_is_charger_split = (
+            str(_dest_cfg_split.get('locationType', '')).upper() == 'CHARGER'
+            or str(_dest_cfg_split.get('arrival_action', '')).lower() == 'wait_charge'
+        )
+        # Tìm team của đích (nếu có) để lọc supply node phù hợp
+        _dest_team_raw = _dest_cfg_split.get('team')
+        _dest_team_str = str(_dest_team_raw) if _dest_team_raw is not None else None
+
+        # Nếu ĐÍCH chính là một supply node (lệnh lấy hàng tường minh từ multi-team
+        # panel) → đánh dấu đã lấy hàng tại đó cho session này. Các lệnh giao hàng
+        # sau trong cùng lượt sẽ đi một mạch qua node này, không dừng lấy lại.
+        _dest_supply_raw = _dest_cfg_split.get('supply_group') or []
+        if isinstance(_dest_supply_raw, str):
+            _dest_supply_raw = [s.strip() for s in _dest_supply_raw.split(',') if s.strip()]
+        _dest_is_supply = (
+            str(_dest_cfg_split.get('arrival_action', '')).lower() == 'wait_sys'
+            and bool(_dest_supply_raw)
+        )
+        if _dest_is_supply:
+            # KHÔNG đánh dấu pickup tại đây (lúc DISPATCH). Nếu xe off-route TRƯỚC khi tới
+            # supply node thì pickup CHƯA xảy ra; đánh dấu sớm → re-dispatch bị auto-complete
+            # bỏ qua → xe KHÔNG BAO GIỜ lấy hàng (lỗi: AGV02 đi lạc 2→10 rồi bỏ qua 19, giao
+            # thẳng). Đánh dấu khi xe THỰC SỰ tới supply node (lifecycle 'picking' trong
+            # line_agv_handler._handle_event).
+            print(f"[DISPATCH] {agv_id}: pickup node {dest_node} (session={session_id}) → "
+                  f"sẽ đánh dấu khi xe TỚI; giao hàng sau không dừng lại tại đây")
+
+        # ── Tập điểm cấp CẦN cho cả lượt (session) ────────────────────────────
+        # = supply node của tổ đang xử lý (nếu là delivery) + tất cả tổ đang chờ
+        # trong queue cùng session. Khi đang đi LẤY HÀNG (dest là supply node, không
+        # có team) → split logic dùng tập này để chỉ dừng tại điểm cấp THỰC SỰ cần,
+        # tránh dừng nhầm tại supply node khác trên đường (phục vụ tổ ngoài lượt).
+        _batch_required_supplies: set[str] = set()
+        if session_id:
+            _batch_dests = list(_atq_pick.session_queued_dests(agv_id, session_id, "go_to"))
+            if _required_supply_node(node_actions, dest_node):
+                _batch_dests.append(str(dest_node))
+            for _bd in _batch_dests:
+                _bs = _required_supply_node(node_actions, _bd)
+                if _bs:
+                    _batch_required_supplies.add(str(_bs))
+
         split_idx = None
         for _si in range(1, len(path) - 1):
             _node_cfg = node_actions.get(str(path[_si])) or {}
@@ -2519,7 +3230,41 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
             print(f"[DISPATCH] check intermediate node={path[_si]} "
                   f"arrival_action={_acfg!r} cfg={_node_cfg}")
             if _acfg in ("wait_user", "wait_sys", "wait_charge"):
+                # Đã lấy hàng tại supply node này trong session hiện tại → đi một mạch qua,
+                # KHÔNG dừng lại chờ xác nhận nữa (fix: lùi về điểm lấy hàng / dừng lặp lại).
+                if _acfg == 'wait_sys' and _atq_pick.session_has_pickup(session_id, path[_si]):
+                    print(f"[DISPATCH] {agv_id}: bỏ qua supply node {path[_si]} "
+                          f"(đã lấy hàng trong session {session_id}) — đi thẳng")
+                    continue
+                if _dest_is_charger_split and _acfg in ("wait_sys", "wait_user"):
+                    # Đang về trạm sạc → không dừng tại điểm cấp hàng giữa đường
+                    continue
+                if _is_staging_dispatch and _acfg in ("wait_sys", "wait_user"):
+                    # Staging transit: đi đến vị trí chờ tạm, không dừng lấy hàng giữa đường.
+                    # Việc lấy hàng sẽ xảy ra khi dispatch delivery thực sự sau staging.
+                    continue
+                if _acfg == 'wait_sys' and session_id:
+                    # Lượt cấp hàng: chỉ dừng tại điểm cấp THỰC SỰ cần cho lượt này
+                    # (tổ đang giao + các tổ đang chờ). Tránh dừng nhầm tại supply node
+                    # phục vụ tổ ngoài lượt — kể cả khi đang trên đường đi lấy hàng.
+                    if str(path[_si]) not in _batch_required_supplies:
+                        print(f"[DISPATCH] {agv_id}: bỏ qua supply node {path[_si]} "
+                              f"(không thuộc lượt cấp hiện tại)")
+                        continue
+                elif _acfg == 'wait_sys' and _dest_team_str:
+                    # Không có session → lọc theo team của đích (hành vi cũ).
+                    # Chỉ dừng tại supply node NẾU nó phục vụ đúng team của đích.
+                    _sg_raw = _node_cfg.get('supply_group') or []
+                    if isinstance(_sg_raw, str):
+                        _sg_raw = [s.strip() for s in _sg_raw.split(',') if s.strip()]
+                    _sg_strs = [str(g) for g in _sg_raw]
+                    if _sg_strs and _dest_team_str not in _sg_strs:
+                        # Supply node này không phục vụ team đang giao → bỏ qua
+                        continue
                 split_idx = _si
+                # KHÔNG đánh dấu pickup tại đây — đánh dấu khi xe THỰC SỰ tới supply node
+                # (lifecycle 'picking'). Tránh: split tại S, off-route trước khi tới S →
+                # re-dispatch bỏ qua S → giao hàng mà chưa lấy.
                 break
 
         # Đọc last_transit_direction TRƯỚC khi clear (để detect post-backward-transit)
@@ -2527,9 +3272,67 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
         # Phân biệt: 'bwd' từ transit thường vs từ trạm sạc (return_charge)
         _is_post_charge = (getattr(_lstate, 'task_lifecycle', '') or '') == "charging"
 
-        # initial_prev_tag chỉ hợp lệ khi xe vừa đến start node theo chiều lùi
-        # (mũi xe ngược chiều đi tiếp). Nếu đến theo chiều tiến thì mũi đã đúng hướng.
-        _initial_prev = _prev_tag if (_last_tdir_pre == 'bwd' and not _is_post_charge) else None
+        # initial_prev_tag: truyền để plan builder tính góc rẽ tại start node DỰA VÀO
+        # hướng xe đến từ prev_tag. Điều này CHỈ ĐÚNG khi xe đang đi xuyên qua node
+        # (heading = hướng từ prev_tag tới node).
+        #
+        # NGOẠI LỆ — xe XUẤT PHÁT TỪ TRẠM SẠC (node hiện tại là CHARGER): trạm sạc có
+        # approach_dir=bwd → xe LÙI VÀO, mặt quay RA NGOÀI. Khi xuất phát, xe đi THẲNG
+        # theo hướng đang quay (ra khỏi trạm), KHÔNG theo hướng prev_tag (prev_tag chỉ là
+        # node trước đó, không phải heading thực của xe đang đỗ). Vậy phải BỎ tính turn
+        # tại node đầu (_initial_prev=None) → xe đi thẳng ra, rẽ tại ngã rẽ kế tiếp.
+        # TỔNG QUÁT: áp dụng cho MỌI node có locationType=CHARGER (không hardcode node nào)
+        # và cho mọi lần xuất phát, không chỉ khi lifecycle='charging' (_is_post_charge).
+        _cur_node_cfg_exit = node_actions.get(str(path[0])) or {} if path else {}
+        _exit_from_charger = (
+            str(_cur_node_cfg_exit.get('locationType', '')).upper() == 'CHARGER'
+            or str(_cur_node_cfg_exit.get('arrival_action', '')).lower() == 'wait_charge'
+        )
+        # CHỈ bỏ tính turn khi xe ĐANG Ở TRẠM SẠC (path[0]=CHARGER) — đó mới là lúc
+        # heading thực ≠ prev_tag. KHÔNG dùng _is_post_charge (lifecycle='charging'):
+        # cờ này CÒN SÓT sau khi xe đã rời trạm → ở node thường (vd node 1) vẫn bị bỏ
+        # rẽ → xe đi THẲNG (1→12) thay vì rẽ (1→2). Khi đã ra node thường, prev_tag là
+        # heading đúng nên phải tính turn bình thường.
+        _suppress_initial_turn = _exit_from_charger
+        if _exit_from_charger:
+            print(f"[DISPATCH] {agv_id}: xuất phát từ trạm sạc {path[0]} "
+                  f"(locationType=CHARGER) → đi thẳng ra, không tính turn theo prev_tag={_prev_tag}")
+        _initial_prev = _prev_tag if not _suppress_initial_turn else None
+        _initial_arrived_bwd = (_last_tdir_pre == 'bwd' and not _suppress_initial_turn)
+
+        # ── Simulation: inject turn_map entry còn thiếu ─────────────────────
+        # Khi simulation dispatch (13→1→2), node 1 turn_map thường chỉ có entries
+        # cho chiều ngược (2_13_fwd) chứ không có 13_2_fwd.
+        # Suy ra entry thiếu từ entry đối xứng: nếu `{next}_{prev}_{dir}=X` thì thử
+        # dùng X cho `{prev}_{next}_{dir}` (hợp lý cho ngã 3/4 đối xứng).
+        # Đồng thời truyền initial_prev_tag để plan builder tra được turn_map.
+        if _is_sim_agv and _prev_tag and path and len(path) >= 2:
+            _sim_start = str(path[0])
+            _sim_next  = str(path[1])
+            _start_na  = node_actions.get(_sim_start) or {}
+            if isinstance(_start_na, dict):
+                _tm = _start_na.get('turn_map') or {}
+                _need_fwd = f"{_prev_tag}_{_sim_next}_fwd"
+                _need_bwd = f"{_prev_tag}_{_sim_next}_bwd"
+                if _need_fwd not in _tm or _need_bwd not in _tm:
+                    # Tìm entry đối xứng: {next}_{prev}_{dir}
+                    _sym_fwd = f"{_sim_next}_{_prev_tag}_fwd"
+                    _sym_bwd = f"{_sim_next}_{_prev_tag}_bwd"
+                    if _sym_fwd in _tm or _sym_bwd in _tm:
+                        # Có entry đối xứng → inject entry thiếu
+                        node_actions = dict(node_actions)
+                        _start_na = dict(_start_na)
+                        _tm = dict(_tm)
+                        if _need_fwd not in _tm and _sym_fwd in _tm:
+                            _tm[_need_fwd] = _tm[_sym_fwd]
+                        if _need_bwd not in _tm and _sym_bwd in _tm:
+                            _tm[_need_bwd] = _tm[_sym_bwd]
+                        _start_na['turn_map'] = _tm
+                        node_actions[_sim_start] = _start_na
+                        print(f"[SIM] {agv_id}: injected turn_map "
+                              f"{_need_fwd}={_tm.get(_need_fwd)} at node {_sim_start}")
+            # Truyền initial_prev_tag để plan builder tra được turn_map vừa inject
+            _initial_prev = _prev_tag
 
         # Khi AGV vừa xong bwd transit → tiếp tục direction=bwd (rẽ + lùi tiếp).
         # KHÔNG dùng direction=fwd vì firmware có thể chạy tiến trước khi rẽ.
@@ -2540,31 +3343,62 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None) 
         print(f"[DISPATCH] {agv_id}: direction={_line_dir} "
               f"(last_tdir={_last_tdir_pre!r}, post_charge={_is_post_charge})")
 
+        # ── Xác định task_type đúng cho dispatch này ─────────────────────────
+        # Staging transit: khi dispatch đến staging node được đánh dấu từ lần trước
+        _staging_transit_key = (agv_id, str(dest_node))
+        _dest_na_tt = node_actions.get(str(dest_node)) or {}
+        _dest_arrival_tt = str(_dest_na_tt.get('arrival_action') or '').lower()
+        _dest_loc_tt     = str(_dest_na_tt.get('locationType') or '').upper()
+        global _pending_staging_transits
+        if _staging_transit_key in _pending_staging_transits:
+            _eff_task_type = 'transit'
+            _pending_staging_transits.discard(_staging_transit_key)
+            print(f"[DISPATCH] {agv_id}: staging transit → task_type=transit (node {dest_node})")
+        elif _dest_arrival_tt == 'wait_charge' or _dest_loc_tt == 'CHARGER':
+            _eff_task_type = 'return_charge'
+        else:
+            _eff_task_type = 'delivery'
+
         if split_idx is not None:
             first_seg = path[:split_idx + 1]
-            plan = build_line_plan(first_seg, points, task_type="delivery",
-                                   node_actions=node_actions, direction=_line_dir,
-                                   edge_speeds=edge_spd, edge_lidar=edge_lidar,
-                                   agv_id=agv_id, initial_prev_tag=_initial_prev)
-            _rt = line_agv_handler.set_route(agv_id, first_seg, "delivery", direction=_line_dir)
+            # First segment (pickup/supply stop): luôn dùng 'delivery' kể cả khi transit
+            # Chỉ segment TIẾP THEO đến staging node mới là transit
+            _first_seg_task = 'delivery'
+            # set_route tính cửa sổ rolling (window_end=first_window_end, is_complete).
+            # Chỉ gửi CỬA SỔ ĐẦU (≤LOOKAHEAD node) — tránh tràn UART buffer Arduino khi
+            # đoạn dài. Phần còn lại do rolling (arrived_wait_sys → _send_window) gửi tiếp.
+            _rt = line_agv_handler.set_route(agv_id, first_seg, _first_seg_task, direction=_line_dir)
+            plan = build_plan_window(
+                full_path=first_seg, w_start=0, w_end=_rt.window_end, points=points,
+                is_final=_rt.is_complete, task_type=_first_seg_task,
+                node_actions=node_actions, direction=_line_dir,
+                edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
+                initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd)
             send_order(agv_id, plan)
-            # Full plan đã gửi → mark complete để event handler xử lý đúng
-            _rt.window_end = len(first_seg) - 1
-            _rt.is_complete = True
             from task_queue import agv_task_queue as _atq, CMD_GO_TO as _CGT
+            # Nếu staging, đánh dấu để dispatch tiếp theo đến staging dùng transit
+            if _is_staging_dispatch:
+                _pending_staging_transits.add((agv_id, str(dest_node)))
             _atq.insert_next(agv_id, _CGT, dest_node=str(dest_node))
             print(f"[DISPATCH] {agv_id}: route split tại node {path[split_idx]}, "
-                  f"first_seg={first_seg}, tiếp→{dest_node}")
+                  f"first_seg={first_seg}, window=[0→{_rt.window_end}] final={_rt.is_complete}, tiếp→{dest_node}")
         else:
-            plan = build_line_plan(path, points, task_type="delivery",
-                                   node_actions=node_actions, direction=_line_dir,
-                                   edge_speeds=edge_spd, edge_lidar=edge_lidar,
-                                   agv_id=agv_id, initial_prev_tag=_initial_prev)
-            _rt = line_agv_handler.set_route(agv_id, path, "delivery", direction=_line_dir)
+            # No split: nếu là staging dispatch trực tiếp (không qua supply node trên đường),
+            # dùng 'transit' ngay để tránh lifecycle 'picking' tại staging node.
+            _no_split_task = _eff_task_type
+            if _is_staging_dispatch and _no_split_task == 'delivery':
+                _no_split_task = 'transit'
+            _rt = line_agv_handler.set_route(agv_id, path, _no_split_task, direction=_line_dir)
+            # Chỉ gửi CỬA SỔ ĐẦU — rolling sẽ gửi tiếp khi path dài (tránh tràn buffer).
+            plan = build_plan_window(
+                full_path=path, w_start=0, w_end=_rt.window_end, points=points,
+                is_final=_rt.is_complete, task_type=_no_split_task,
+                node_actions=node_actions, direction=_line_dir,
+                edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
+                initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd)
             send_order(agv_id, plan)
-            # Full plan đã gửi → mark complete
-            _rt.window_end = len(path) - 1
-            _rt.is_complete = True
+            print(f"[DISPATCH] {agv_id}: no-split window=[0→{_rt.window_end}] final={_rt.is_complete} "
+                  f"(len={len(path)})")
         print(f"[DISPATCH] {agv_id}: node_actions keys={list(node_actions.keys())[:10]}")
     else:
         # ── VDA5050: ưu tiên traffic-engine-aware planning ─────────────────────
@@ -2630,7 +3464,8 @@ async def execute_agv_list():
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT name, agv_type, CAST(ip AS TEXT), port, factory, last_seen "
+                    "SELECT name, agv_type, CAST(ip AS TEXT), port, factory, last_seen, "
+                    "subnet, gateway, dns, map_id "
                     "FROM agv_devices ORDER BY name"
                 )
                 return cur.fetchall()
@@ -2642,9 +3477,9 @@ async def execute_agv_list():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"DB error: {e}")
 
-    # psycopg2 trả về tuple: (name, agv_type, ip_text, port, factory, last_seen)
+    # psycopg2 trả về tuple: (name, agv_type, ip_text, port, factory, last_seen, subnet, gateway, dns, map_id)
     result = []
-    for (name, agv_type_raw, ip_text, port, factory_val, last_seen) in db_rows:
+    for (name, agv_type_raw, ip_text, port, factory_val, last_seen, subnet_val, gateway_val, dns_val, map_id_val) in db_rows:
         agv_id       = str(name)
         agv_type_raw = str(agv_type_raw or "")
         is_line      = not agv_type_raw.lower().startswith("slam")
@@ -2682,6 +3517,10 @@ async def execute_agv_list():
                 "is_busy":          agv_task_queue.is_busy(agv_id),
                 "queue_size":       agv_task_queue.queue_size(agv_id),
                 "running_cmd":      agv_task_queue.get_running(agv_id),
+                "subnet":           subnet_val  or None,
+                "gateway":          gateway_val or None,
+                "dns":              dns_val     or None,
+                "map_id":           str(map_id_val) if map_id_val else None,
             })
         else:
             st   = agv_manager.get_agv(agv_id) or {}
@@ -2705,9 +3544,156 @@ async def execute_agv_list():
                 "is_busy":          agv_task_queue.is_busy(agv_id),
                 "queue_size":       agv_task_queue.queue_size(agv_id),
                 "running_cmd":      agv_task_queue.get_running(agv_id),
+                "subnet":           subnet_val  or None,
+                "gateway":          gateway_val or None,
+                "dns":              dns_val     or None,
+                "map_id":           str(map_id_val) if map_id_val else None,
             })
 
     return {"agvs": result, "total": len(result)}
+
+
+@app.post("/api/simulation/start")
+async def simulation_start(request: Request):
+    """Bắt đầu phiên chạy mô phỏng cho 1 AGV."""
+    import simulation_manager as _sm
+    body = await request.json()
+    agv_id       = str(body.get("agv_id", "")).strip()
+    route        = [str(n) for n in (body.get("route") or []) if n]
+    route_type   = str(body.get("route_type", "loop"))
+    total_cycles = int(body.get("total_cycles", 10))
+    delay_s      = float(body.get("delay_s", 1.0))
+
+    if not agv_id:
+        raise HTTPException(400, "agv_id required")
+    if len(route) < 2:
+        raise HTTPException(400, "Lộ trình cần ít nhất 2 node")
+    if total_cycles < 1 or total_cycles > 9999:
+        raise HTTPException(400, "total_cycles: 1–9999")
+
+    # Hủy lệnh cũ đang chờ
+    from task_queue import agv_task_queue
+    agv_task_queue.cancel_all(agv_id)
+
+    sess = _sm.create_session(agv_id, route, route_type, total_cycles, delay_s)
+    task = asyncio.create_task(_sm.run_session(sess))
+    sess._task = task
+    return {"success": True, "session": sess.to_dict()}
+
+
+@app.post("/api/simulation/pause/{session_id}")
+async def simulation_pause(session_id: str):
+    import simulation_manager as _sm
+    sess = _sm.get_session(session_id)
+    if not sess:
+        raise HTTPException(404, "Session không tồn tại")
+    if sess.status == "running":
+        sess.status = "paused"
+    return {"success": True, "session": sess.to_dict()}
+
+
+@app.post("/api/simulation/resume/{session_id}")
+async def simulation_resume(session_id: str):
+    import simulation_manager as _sm
+    sess = _sm.get_session(session_id)
+    if not sess:
+        raise HTTPException(404, "Session không tồn tại")
+    if sess.status == "paused":
+        sess.status = "running"
+    return {"success": True, "session": sess.to_dict()}
+
+
+@app.post("/api/simulation/stop/{session_id}")
+async def simulation_stop(session_id: str):
+    import simulation_manager as _sm
+    from task_queue import agv_task_queue
+    sess = _sm.get_session(session_id)
+    if not sess:
+        raise HTTPException(404, "Session không tồn tại")
+    sess.status = "stopped"
+    if sess._task and not sess._task.done():
+        sess._task.cancel()
+    agv_task_queue.cancel_all(sess.agv_id)
+    _sm.remove_session(session_id)
+    return {"success": True, "stopped": session_id}
+
+
+@app.get("/api/simulation/status/{agv_id}")
+async def simulation_status(agv_id: str):
+    import simulation_manager as _sm
+    sess = _sm.get_session_by_agv(agv_id)
+    if not sess:
+        return {"active": False, "session": None}
+    return {"active": sess.status in ("running", "paused"), "session": sess.to_dict()}
+
+
+@app.get("/api/simulation/list")
+async def simulation_list():
+    import simulation_manager as _sm
+    return {"sessions": _sm.list_sessions()}
+
+
+@app.get("/api/simulation/route/{agv_id}")
+async def simulation_route(agv_id: str):
+    """Trả về lộ trình mô phỏng để vẽ trên bản đồ."""
+    import simulation_manager as _sm
+    sess = _sm.get_session_by_agv(agv_id)
+    if not sess or sess.status not in ("running", "paused"):
+        return {"active": False, "route": [], "current_dest": None}
+    return {
+        "active":       True,
+        "route":        sess.full_sequence,
+        "current_dest": sess.current_dest,
+        "current_step": sess.current_step,
+        "route_type":   sess.route_type,
+        "total_cycles": sess.total_cycles,
+        "current_cycle":sess.current_cycle,
+    }
+
+
+@app.get("/api/execute/team-nodes")
+async def execute_team_nodes(map_id: str | None = None):
+    """
+    Trả về danh sách các node DROPOFF có gán số Tổ (action.team).
+    Dùng để người dùng chọn 'Tổ X' thay vì phải biết số node cụ thể.
+    """
+    async with app.state.db_pool.acquire() as conn:
+        if map_id:
+            rows = await conn.fetch(
+                """SELECT name_id, name, action
+                   FROM agv_map_points
+                   WHERE CAST(map_id AS TEXT) = $1
+                     AND action->>'locationType' = 'DROPOFF'
+                     AND (action->>'team') IS NOT NULL
+                   ORDER BY (action->>'team')::int""",
+                str(map_id),
+            )
+        else:
+            mid = str(map_manager.current_map_id or "")
+            rows = await conn.fetch(
+                """SELECT name_id, name, action
+                   FROM agv_map_points
+                   WHERE CAST(map_id AS TEXT) = $1
+                     AND action->>'locationType' = 'DROPOFF'
+                     AND (action->>'team') IS NOT NULL
+                   ORDER BY (action->>'team')::int""",
+                mid,
+            )
+    result = []
+    for r in rows:
+        act = r["action"] or {}
+        if isinstance(act, str):
+            import json as _j; act = _j.loads(act)
+        team_num = act.get("team")
+        if team_num is not None:
+            result.append({
+                "node_id":  str(r["name_id"]),
+                "name":     r["name"] or str(r["name_id"]),
+                "team":     int(team_num),
+                "label":    f"Tổ {team_num}",
+                "action":   act,
+            })
+    return {"teams": result, "total": len(result)}
 
 
 @app.get("/api/execute/map-nodes")
@@ -2892,6 +3878,44 @@ async def execute_agv_routes(map_id: str):
     return {"routes": routes, "map_id": map_id}
 
 
+@app.get("/api/execute/traffic-status")
+async def execute_traffic_status():
+    """Trạng thái TrafficCoordinator: đường đi đã đăng ký + head-on warnings."""
+    from line_agv_handler import traffic_coordinator as _tc, _line_blocked_edges
+    return {
+        "registered": _tc.get_status(),
+        "blocked_edges": list(_line_blocked_edges.keys()),
+    }
+
+
+@app.get("/api/execute/traffic-log")
+async def execute_traffic_log(n: int = 200):
+    """
+    Lọc log buffer lấy ra các dòng liên quan đến điều phối giao thông.
+    Hữu ích để debug traffic mà không bị chìm trong HTTP access log.
+    Tham số ?n=200 để lấy N dòng gần nhất (mặc định 200).
+    """
+    from log_buffer import get_logs
+    _KEYWORDS = (
+        "[TRAFFIC]", "[PLAN]", "[DISPATCH]",
+        "[LINE_AGV]", "[STATION]", "[QUEUE]",
+        "HEAD-ON", "head-on", "parking", "conflict",
+        "reserve edge", "release edge", "released all",
+        "set_route", "off_route", "obstacle",
+        "lifecycle", "wait_sys", "wait_charge",
+    )
+    all_lines = get_logs()
+    filtered = [
+        ln for ln in all_lines
+        if any(kw in ln for kw in _KEYWORDS)
+    ]
+    # Trả n dòng cuối
+    return {
+        "total_filtered": len(filtered),
+        "lines": filtered[-n:],
+    }
+
+
 class ExecuteDispatchRequest(BaseModel):
     agv_id:        str
     command:       str              # go_to | go_charge | go_wait | stop | resume
@@ -2901,12 +3925,90 @@ class ExecuteDispatchRequest(BaseModel):
     session_label: str | None = None    # tên workflow / nhãn hiển thị
 
 
+async def _finalize_supply_batch(key: tuple) -> None:
+    """Sau khi gom đủ lệnh cùng lượt cấp hàng: sinh lệnh lấy hàng tại TẤT CẢ điểm
+    cấp (sắp theo khoảng cách, gần trạm trước) TRƯỚC, rồi mới tới các lệnh giao +
+    sạc — enqueue theo đúng thứ tự đó. Mỗi điểm cấp dừng + chờ xác nhận như nhau."""
+    batch = _supply_batch.pop(key, None)
+    if not batch or not batch.get("commands"):
+        return
+    agv_id, session_id = key
+    session_label = batch.get("session_label")
+    cmds = batch["commands"]   # [(command, dest_node, start_node), ...] theo thứ tự nhận
+
+    from task_queue import agv_task_queue, CMD_GO_TO
+    from mqtt_client import get_agv_runtime_info
+
+    # Lấy current_node + load node_actions của map AGV
+    na = {}
+    current_node = None
+    try:
+        info = get_agv_runtime_info(agv_id)
+        current_node = info.get("current_node")
+        if not current_node:
+            for (_c, _d, _s) in cmds:
+                if _s:
+                    current_node = str(_s)
+                    break
+        _rid = info.get("resolved_map_id") or info.get("raw_map")
+        pool = getattr(app.state, "db_pool", None)
+        if _rid and pool is not None:
+            try:
+                await map_manager.load_from_db(pool, str(_rid))
+            except Exception as _le:
+                print(f"[BATCH] {agv_id}: load_from_db lỗi ({_le}) — dùng node_actions hiện có")
+        na = getattr(map_manager, "node_actions", {}) or {}
+    except Exception as _e:
+        print(f"[BATCH] {agv_id}: finalize chuẩn bị lỗi: {_e}")
+        na = getattr(map_manager, "node_actions", {}) or {}
+
+    # Điểm cấp cần (union theo các tổ giao hàng), giữ thứ tự xuất hiện rồi sắp theo khoảng cách
+    required: list[str] = []
+    for (c, d, s) in cmds:
+        if c == CMD_GO_TO and d:
+            sup = _required_supply_node(na, d)
+            if sup and sup not in required:
+                required.append(str(sup))
+    required = _sort_supplies_by_distance(required, current_node)
+
+    # Lệnh cuối: [lấy hàng tại các điểm cấp] + [lệnh gốc, bỏ pickup tường minh trùng]
+    final: list = [(CMD_GO_TO, str(sup), None) for sup in required]
+    for (c, d, s) in cmds:
+        if c == CMD_GO_TO and d and str(d) in required:
+            continue   # đã sinh lệnh lấy hàng ở trên
+        final.append((c, d, s))
+
+    print(f"[BATCH] {agv_id}: lượt {session_id} → lấy hàng {required} TRƯỚC, "
+          f"rồi giao {[d for (c, d, s) in final if c == CMD_GO_TO and str(d) not in required]}")
+
+    for (c, d, s) in final:
+        try:
+            await asyncio.to_thread(
+                agv_task_queue.dispatch_or_queue,
+                agv_id, c, d, s, session_id, session_label,
+            )
+        except Exception as _de:
+            print(f"[BATCH] {agv_id}: enqueue lỗi cmd={c} dest={d}: {_de}")
+
+
+async def _supply_batch_timer(key: tuple, delay: float) -> None:
+    try:
+        await asyncio.sleep(delay)
+    except asyncio.CancelledError:
+        return
+    try:
+        await _finalize_supply_batch(key)
+    except Exception as _e:
+        print(f"[BATCH] finalize lỗi: {_e}")
+
+
 @app.post("/api/execute/dispatch")
 async def execute_dispatch(req: ExecuteDispatchRequest):
     """
     Gửi lệnh cho AGV.
     - Nếu AGV rảnh  → dispatch ngay, trả về status=dispatched
     - Nếu AGV đang bận → xếp hàng chờ, trả về status=queued
+    - Line AGV + session_id → gom lệnh ~1s rồi lập kế hoạch lấy hàng cả lượt
     """
     from task_queue import agv_task_queue, CMD_GO_TO
     from agv_registry import agv_registry
@@ -2931,6 +4033,29 @@ async def execute_dispatch(req: ExecuteDispatchRequest):
             status_code=409,
             detail=f"AGV {agv_id} đang bị khóa do pin yếu — chỉ cho phép lệnh 'go_charge'",
         )
+
+    # ── Gom lệnh cả lượt cấp hàng (Line AGV + session_id) ─────────────────────
+    # Chờ ~1s thu thập đủ các lệnh cùng session rồi sinh lệnh lấy hàng tại TẤT CẢ
+    # điểm cấp TRƯỚC, mới giao. Tránh xe chạy khi chưa biết đủ lượt → đi tới-lui.
+    # Chỉ gom go_to/go_charge/go_wait; stop/resume vẫn xử lý tức thì.
+    if (agv_registry.is_line(agv_id) and req.session_id
+            and command in (CMD_GO_TO, "go_charge", "go_wait")):
+        key = (agv_id, req.session_id)
+        batch = _supply_batch.setdefault(
+            key, {"commands": [], "task": None, "session_label": req.session_label})
+        batch["commands"].append((command, req.dest_node, req.start_node))
+        _old_task = batch.get("task")
+        if _old_task:
+            _old_task.cancel()
+        batch["task"] = asyncio.create_task(_supply_batch_timer(key, _SUPPLY_BATCH_DELAY_SEC))
+        return {
+            "agv_id":     agv_id,
+            "command":    command,
+            "dest_node":  req.dest_node,
+            "status":     "collecting",
+            "queue_size": agv_task_queue.queue_size(agv_id),
+            "message":    f"Đang gom lệnh cấp hàng cho {agv_id}…",
+        }
 
     # Chạy trong thread pool để tránh deadlock:
     # dispatch_or_queue → _dispatch_go_to → plan_path_for_order dùng
@@ -2997,6 +4122,31 @@ async def manual_control(request: Request):
     return {"ok": ok, "agv_id": agv_id, "action": action}
 
 
+@app.post("/api/execute/line-action")
+async def line_action(request: Request):
+    """
+    Gửi action code tức thì cho Line AGV qua instantActions.
+    Dùng cho: âm thanh (22-27), đèn (32-34), móc hàng (30-31), phanh (28-29).
+    Payload: {"c":"action","a":ACTION_CODE,"v":VALUE}
+    """
+    from agv_registry import agv_registry
+    from mqtt_client import send_line_command
+    body = await request.json()
+    agv_id      = str(body.get("agv_id", "")).strip()
+    action_code = int(body.get("action_code", 0))
+    value       = int(body.get("value", 0))
+
+    if not agv_id:
+        raise HTTPException(400, "agv_id required")
+    if not agv_registry.is_line(agv_id):
+        raise HTTPException(400, "Chỉ hỗ trợ Line AGV")
+    if action_code <= 0:
+        raise HTTPException(400, "action_code không hợp lệ")
+
+    ok = send_line_command(agv_id, "action", a=action_code, v=value)
+    return {"ok": ok, "agv_id": agv_id, "action_code": action_code, "value": value}
+
+
 @app.post("/api/execute/request-position/{agv_id}")
 async def request_agv_position(agv_id: str):
     """Gửi lệnh yêu cầu AGV Line báo vị trí hiện tại (ping firmware)."""
@@ -3022,6 +4172,9 @@ async def queue_status(agv_id: str):
 async def cancel_running_cmd(agv_id: str):
     """Force-cancel lệnh đang stuck, giải phóng AGV."""
     from task_queue import agv_task_queue
+    from line_agv_handler import line_agv_handler, traffic_coordinator as _tc
+    _tc.deregister(agv_id.strip())
+    line_agv_handler.clear_route(agv_id.strip())
     result = agv_task_queue.cancel_running(agv_id.strip())
     if result is None:
         return {"cancelled": False, "message": f"Không có lệnh đang chạy cho {agv_id}"}
@@ -3040,6 +4193,9 @@ async def cancel_queue_cmds(agv_id: str):
 async def cancel_all_cmds(agv_id: str):
     """Hủy lệnh đang chạy + toàn bộ hàng chờ (dùng khi AGV bị stuck)."""
     from task_queue import agv_task_queue
+    from line_agv_handler import line_agv_handler, traffic_coordinator as _tc
+    _tc.deregister(agv_id.strip())
+    line_agv_handler.clear_route(agv_id.strip())
     result = agv_task_queue.cancel_all(agv_id.strip())
     return {"agv_id": agv_id, **result}
 
@@ -3052,6 +4208,52 @@ async def cancel_single_cmd(cmd_id: str):
     if not ok:
         raise HTTPException(404, f"Không tìm thấy lệnh {cmd_id} trong hàng chờ")
     return {"cancelled": True, "cmd_id": cmd_id}
+
+
+@app.post("/api/execute/enter-config-mode/{agv_id}")
+async def enter_config_mode(agv_id: str, factory: str | None = None):
+    """
+    Yêu cầu Line AGV (ESP32-C5) vào AP Config Mode.
+
+    Gửi {"c":"config"} tới uagv/v2/{FACTORY}/{AGV_ID}/instantActions.
+    Tham số `factory` cho phép chỉ định factory name khác (dùng khi AGV bị config nhầm factory).
+
+    ESP tự xử lý: lưu cờ NVS → restart → phát SoftAP "configAGV" (mở).
+    """
+    from mqtt_client import send_line_command, _line_agv_topic, client as _mqtt_client
+    from agv_registry import agv_registry
+    from task_queue import agv_task_queue
+    import json as _json
+
+    agv_id = agv_id.strip()
+
+    # Hủy hàng chờ trước để tránh auto-dispatch sau khi AGV reconnect
+    agv_task_queue.cancel_all(agv_id)
+
+    if factory:
+        # Dùng factory tùy chỉnh — publish thẳng đến topic chỉ định
+        # (bypass agv_registry để có thể rescue AGV bị nhầm factory)
+        _factory   = factory.strip()
+        _line_ver  = __import__("os").getenv("LINE_AGV_MQTT_VERSION", "v2")
+        _iface     = __import__("os").getenv("UAGV_INTERFACE_NAME", "uagv")
+        _topic     = f"{_iface}/{_line_ver}/{_factory}/{agv_id}/instantActions"
+        _payload   = _json.dumps({"c": "config"})
+        result     = _mqtt_client.publish(_topic, _payload, qos=1)
+        ok         = result.rc == 0
+        print(f"[CONFIG] {agv_id}: config → {_topic} | rc={result.rc}")
+    else:
+        # Dùng factory từ registry (bình thường)
+        ok = await asyncio.to_thread(send_line_command, agv_id, "config")
+
+    if not ok:
+        raise HTTPException(503, f"Không thể gửi lệnh đến {agv_id} — kiểm tra kết nối MQTT")
+
+    return {
+        "success": True,
+        "agv_id":  agv_id,
+        "factory": factory or "registry",
+        "message": f"{agv_id} đang vào AP Config Mode. Kết nối WiFi 'configAGV' → http://192.168.4.1",
+    }
 
 
 @app.post("/api/execute/lifecycle-ack/{agv_id}")
@@ -3099,6 +4301,157 @@ async def journal_history(
     return {"history": rows, "total": len(rows)}
 
 
+class AgvMapAssignRequest(BaseModel):
+    agv_id: str
+    map_id: str | None = None   # None = xóa gán bản đồ
+
+
+@app.post("/api/agv/assign-map")
+async def assign_agv_map(req: AgvMapAssignRequest):
+    """Gán hoặc xóa bản đồ cho AGV trong agv_devices."""
+    import psycopg2, os as _os
+    _DB = _os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    def _run():
+        conn = psycopg2.connect(_DB)
+        conn.autocommit = True
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE agv_devices SET map_id = %s WHERE name = %s",
+                    (req.map_id or None, req.agv_id.strip()),
+                )
+                if cur.rowcount == 0:
+                    raise ValueError(f"AGV '{req.agv_id}' không tìm thấy")
+                # Lấy tên bản đồ để trả về
+                map_name = None
+                if req.map_id:
+                    cur.execute("SELECT name FROM agv_maps WHERE CAST(id AS TEXT) = %s", (str(req.map_id),))
+                    row = cur.fetchone()
+                    map_name = row[0] if row else req.map_id
+            return map_name
+        finally:
+            conn.close()
+
+    try:
+        map_name = await asyncio.to_thread(_run)
+        # Reload registry để AGV nhận map mới ngay
+        try:
+            from agv_registry import agv_registry as _reg
+            _reg.load_from_db()
+        except Exception:
+            pass
+        return {"success": True, "agv_id": req.agv_id, "map_id": req.map_id, "map_name": map_name}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class AgvIdentityRequest(BaseModel):
+    old_agv_id: str
+    new_agv_id: str
+    factory:    str = "TOT"
+
+
+@app.post("/api/agv/update-identity")
+async def update_agv_identity(req: AgvIdentityRequest):
+    """
+    Cập nhật Tên AGV và Factory trong agv_devices.
+    Nếu tên thay đổi → đổi primary key (rename = DELETE + INSERT trong transaction).
+    """
+    import psycopg2, os as _os
+    _DB = _os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    old_id = req.old_agv_id.strip()
+    new_id = req.new_agv_id.strip()
+    factory = req.factory.strip() or "TOT"
+
+    def _run():
+        conn = psycopg2.connect(_DB)
+        try:
+            with conn.cursor() as cur:
+                if old_id == new_id:
+                    # Chỉ update factory
+                    cur.execute("UPDATE agv_devices SET factory = %s WHERE name = %s", (factory, old_id))
+                    if cur.rowcount == 0:
+                        raise ValueError(f"AGV '{old_id}' không tìm thấy")
+                    conn.commit()
+                    return False  # không rename
+                else:
+                    # Đổi tên: copy row với tên mới rồi xóa tên cũ (trong transaction)
+                    cur.execute("""
+                        INSERT INTO agv_devices (name, agv_type, ip, port, map_id, factory, last_seen, subnet, gateway, dns)
+                        SELECT %s, agv_type, ip, port, map_id, %s, last_seen, subnet, gateway, dns
+                        FROM agv_devices WHERE name = %s
+                        ON CONFLICT (name) DO NOTHING
+                    """, (new_id, factory, old_id))
+                    if cur.rowcount == 0:
+                        raise ValueError(f"AGV '{old_id}' không tìm thấy hoặc tên '{new_id}' đã tồn tại")
+                    cur.execute("DELETE FROM agv_devices WHERE name = %s", (old_id,))
+                    conn.commit()
+                    return True  # đã rename
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    try:
+        renamed = await asyncio.to_thread(_run)
+        # Reload registry
+        try:
+            from agv_registry import agv_registry as _reg
+            _reg.load_from_db()
+        except Exception:
+            pass
+        return {"success": True, "renamed": renamed, "agv_id": new_id, "factory": factory}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class AgvNetworkInfoRequest(BaseModel):
+    agv_id:  str
+    ip:      str | None = None
+    subnet:  str | None = None
+    gateway: str | None = None
+    dns:     str | None = None
+
+
+@app.post("/api/agv/network-info")
+async def save_agv_network_info(req: AgvNetworkInfoRequest):
+    """Lưu thủ công thông tin mạng AGV (IP, subnet, gateway, DNS) vào agv_devices."""
+    import psycopg2, os as _os
+    _DB = _os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+    def _run():
+        conn = psycopg2.connect(_DB)
+        conn.autocommit = True
+        try:
+            with conn.cursor() as cur:
+                fields, vals = [], []
+                if req.ip:
+                    fields.append("ip = %s::inet"); vals.append(req.ip)
+                if req.subnet:
+                    fields.append("subnet = %s");  vals.append(req.subnet)
+                if req.gateway:
+                    fields.append("gateway = %s"); vals.append(req.gateway)
+                if req.dns:
+                    fields.append("dns = %s");     vals.append(req.dns)
+                if fields:
+                    vals.append(req.agv_id)
+                    cur.execute(
+                        f"UPDATE agv_devices SET {', '.join(fields)} WHERE name = %s",
+                        vals,
+                    )
+                    if cur.rowcount == 0:
+                        raise ValueError(f"AGV '{req.agv_id}' không tìm thấy")
+        finally:
+            conn.close()
+    try:
+        await asyncio.to_thread(_run)
+        return {"success": True, "agv_id": req.agv_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/journal/missions")
 async def journal_missions(agv_id: str | None = None, limit: int = 200):
     """Lịch sử theo mission/workflow — mỗi lượt giao việc 1 dòng, gom tất cả điểm đến."""
@@ -3110,6 +4463,363 @@ async def journal_missions(agv_id: str | None = None, limit: int = 200):
 async def journal_logs(limit: int = 500):
     """Trả về log server gần nhất (in-memory buffer)."""
     return {"logs": log_buffer.get_logs(limit)}
+
+
+@app.get("/api/statistics/tasks")
+async def statistics_tasks(
+    period: str = "month",          # week | month | quarter | year | custom
+    date_from: str | None = None,   # ISO date: 2026-05-01
+    date_to:   str | None = None,   # ISO date: 2026-05-31
+    agv_id:    str | None = None,
+):
+    """
+    Thống kê nhiệm vụ theo khoảng thời gian.
+    Trả về:
+      - summary: tổng số, hoàn thành, thất bại, hủy, đang chạy
+      - by_status: phân bổ theo trạng thái (cho pie chart)
+      - by_day: số nhiệm vụ theo ngày (cho bar/line chart)
+      - by_agv: số nhiệm vụ theo từng AGV
+      - top_destinations: top 10 điểm đến
+      - avg_duration_s: thời gian trung bình (giây) cho lệnh completed
+    """
+    import psycopg2, os
+    from datetime import datetime, timedelta, date
+
+    DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    # ── Tính khoảng thời gian ──────────────────────────────────────────────────
+    today = date.today()
+    if period == "week":
+        d_from = today - timedelta(days=today.weekday())   # thứ Hai đầu tuần
+        d_to   = today
+    elif period == "month":
+        d_from = today.replace(day=1)
+        d_to   = today
+    elif period == "quarter":
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        d_from = today.replace(month=q_start_month, day=1)
+        d_to   = today
+    elif period == "year":
+        d_from = today.replace(month=1, day=1)
+        d_to   = today
+    elif period == "custom" and date_from and date_to:
+        d_from = datetime.fromisoformat(date_from).date()
+        d_to   = datetime.fromisoformat(date_to).date()
+    else:
+        d_from = today.replace(day=1)
+        d_to   = today
+
+    def _run():
+        conn = psycopg2.connect(DB_URL)
+        try:
+            with conn.cursor() as cur:
+                agv_clause = "AND agv_id = %s" if agv_id else ""
+                base_params = [str(d_from), str(d_to)]
+                if agv_id:
+                    base_params.append(agv_id)
+
+                # ── 1. Summary ─────────────────────────────────────────────────
+                cur.execute(f"""
+                    SELECT
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+                        SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) AS failed,
+                        SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END) AS cancelled,
+                        SUM(CASE WHEN status='running'   THEN 1 ELSE 0 END) AS running,
+                        SUM(CASE WHEN status='queued'    THEN 1 ELSE 0 END) AS queued,
+                        ROUND(AVG(
+                            CASE WHEN status='completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL
+                            THEN EXTRACT(EPOCH FROM (completed_at - started_at)) END
+                        )::numeric, 1) AS avg_duration_s
+                    FROM agv_task_executions
+                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause}
+                """, base_params)
+                row = cur.fetchone()
+                summary = {
+                    "total": int(row[0] or 0),
+                    "completed": int(row[1] or 0),
+                    "failed":    int(row[2] or 0),
+                    "cancelled": int(row[3] or 0),
+                    "running":   int(row[4] or 0),
+                    "queued":    int(row[5] or 0),
+                    "avg_duration_s": float(row[6]) if row[6] else None,
+                }
+
+                # ── 2. By status (pie) ─────────────────────────────────────────
+                cur.execute(f"""
+                    SELECT status, COUNT(*) FROM agv_task_executions
+                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause}
+                    GROUP BY status ORDER BY COUNT(*) DESC
+                """, base_params)
+                by_status = [{"status": r[0], "count": int(r[1])} for r in cur.fetchall()]
+
+                # ── 3. By day (bar chart) ──────────────────────────────────────
+                cur.execute(f"""
+                    SELECT
+                        DATE(queued_at) AS day,
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+                        SUM(CASE WHEN status='failed' OR status='cancelled' THEN 1 ELSE 0 END) AS failed
+                    FROM agv_task_executions
+                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause}
+                    GROUP BY DATE(queued_at) ORDER BY day
+                """, base_params)
+                by_day = [
+                    {"day": str(r[0]), "total": int(r[1]),
+                     "completed": int(r[2]), "failed": int(r[3])}
+                    for r in cur.fetchall()
+                ]
+
+                # ── 4. By AGV ──────────────────────────────────────────────────
+                cur.execute(f"""
+                    SELECT agv_id, COUNT(*) AS total,
+                        SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+                        SUM(CASE WHEN status='failed' OR status='cancelled' THEN 1 ELSE 0 END) AS failed
+                    FROM agv_task_executions
+                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause}
+                    GROUP BY agv_id ORDER BY total DESC
+                """, base_params)
+                by_agv = [
+                    {"agv_id": r[0], "total": int(r[1]),
+                     "completed": int(r[2]), "failed": int(r[3])}
+                    for r in cur.fetchall()
+                ]
+
+                # ── 5. Top destinations ────────────────────────────────────────
+                cur.execute(f"""
+                    SELECT dest_node, COUNT(*) AS cnt
+                    FROM agv_task_executions
+                    WHERE DATE(queued_at) BETWEEN %s AND %s
+                      AND dest_node IS NOT NULL AND dest_node <> '' {agv_clause}
+                    GROUP BY dest_node ORDER BY cnt DESC LIMIT 10
+                """, base_params)
+                top_destinations = [{"node": r[0], "count": int(r[1])} for r in cur.fetchall()]
+
+                return {
+                    "period": period,
+                    "date_from": str(d_from),
+                    "date_to":   str(d_to),
+                    "summary":   summary,
+                    "by_status": by_status,
+                    "by_day":    by_day,
+                    "by_agv":    by_agv,
+                    "top_destinations": top_destinations,
+                }
+        finally:
+            conn.close()
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Statistics query error: {e}")
+
+
+@app.get("/api/statistics/trips")
+async def statistics_trips(
+    period: str = "month",
+    date_from: str | None = None,
+    date_to:   str | None = None,
+    agv_id:    str | None = None,
+):
+    """
+    Thống kê chuyến đi (mission = nhóm session_id).
+    Dữ liệu cùng nguồn với Lịch sử hoạt động AGV.
+
+    Trả về:
+      - summary : tổng chuyến, hoàn thành, thất bại, hủy, đang chạy
+      - total_active_time_s : tổng thời gian xe đang thực sự di chuyển (giây)
+      - avg_trip_duration_s  : thời gian trung bình 1 chuyến (giây)
+      - avg_steps_per_trip   : số lệnh trung bình mỗi chuyến
+      - by_day   : chuyến theo ngày
+      - by_agv   : chuyến theo từng xe
+      - by_status: phân bổ trạng thái chuyến
+      - by_label : top 8 loại workflow
+    """
+    import psycopg2, os
+    from datetime import datetime, timedelta, date
+
+    DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    today = date.today()
+    if period == "week":
+        d_from = today - timedelta(days=today.weekday())
+        d_to   = today
+    elif period == "month":
+        d_from = today.replace(day=1)
+        d_to   = today
+    elif period == "quarter":
+        q_start_month = ((today.month - 1) // 3) * 3 + 1
+        d_from = today.replace(month=q_start_month, day=1)
+        d_to   = today
+    elif period == "year":
+        d_from = today.replace(month=1, day=1)
+        d_to   = today
+    elif period == "custom" and date_from and date_to:
+        d_from = datetime.fromisoformat(date_from).date()
+        d_to   = datetime.fromisoformat(date_to).date()
+    else:
+        d_from = today.replace(day=1)
+        d_to   = today
+
+    def _run():
+        conn = psycopg2.connect(DB_URL)
+        try:
+            with conn.cursor() as cur:
+
+                agv_clause = "AND agv_id = %s" if agv_id else ""
+                base_params = [str(d_from), str(d_to)] + ([agv_id] if agv_id else [])
+
+                # ── Kiểm tra cột session_id ────────────────────────────────────
+                cur.execute("""
+                    SELECT EXISTS(
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name='agv_task_executions' AND column_name='session_id'
+                    )
+                """)
+                has_session = cur.fetchone()[0]
+                null_filter = "AND session_id IS NOT NULL" if has_session else ""
+
+                # ── CTE: gom theo session ──────────────────────────────────────
+                # Với rows không có session_id → mỗi cmd là 1 chuyến (backward compat)
+                trip_cte = f"""
+                WITH trips AS (
+                    -- Chuyến có session_id: gom lại
+                    {"SELECT session_id AS trip_id, agv_id, session_label AS label," if has_session else "SELECT NULL AS trip_id, agv_id, command AS label,"}
+                        MIN(queued_at)     AS trip_start,
+                        MAX(completed_at)  AS trip_end,
+                        COUNT(*)           AS step_count,
+                        COALESCE(SUM(
+                            CASE WHEN status='completed'
+                                  AND started_at IS NOT NULL
+                                  AND completed_at IS NOT NULL
+                            THEN EXTRACT(EPOCH FROM (completed_at - started_at))
+                            ELSE 0 END
+                        ), 0)              AS active_s,
+                        CASE
+                            WHEN SUM(CASE WHEN status IN ('running','queued') THEN 1 ELSE 0 END) > 0 THEN 'running'
+                            WHEN SUM(CASE WHEN status='failed'    THEN 1 ELSE 0 END) > 0 THEN 'failed'
+                            WHEN SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END) > 0 THEN 'cancelled'
+                            WHEN SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) = COUNT(*) THEN 'completed'
+                            ELSE 'running'
+                        END AS status
+                    FROM agv_task_executions
+                    WHERE DATE(queued_at) BETWEEN %s AND %s
+                      {null_filter} {agv_clause}
+                    {"GROUP BY session_id, agv_id, session_label" if has_session else "GROUP BY cmd_id, agv_id, command"}
+                )
+                """
+
+                # ── 1. Summary ──────────────────────────────────────────────────
+                cur.execute(trip_cte + """
+                    SELECT
+                        COUNT(*)                                            AS total,
+                        SUM(CASE WHEN status='completed'  THEN 1 ELSE 0 END) AS completed,
+                        SUM(CASE WHEN status='failed'     THEN 1 ELSE 0 END) AS failed,
+                        SUM(CASE WHEN status='cancelled'  THEN 1 ELSE 0 END) AS cancelled,
+                        SUM(CASE WHEN status='running'    THEN 1 ELSE 0 END) AS running,
+                        ROUND(SUM(active_s)::numeric, 0)                    AS total_active_s,
+                        ROUND(AVG(
+                            CASE WHEN status='completed'
+                                  AND trip_end IS NOT NULL AND trip_start IS NOT NULL
+                            THEN EXTRACT(EPOCH FROM (trip_end - trip_start)) END
+                        )::numeric, 1)                                      AS avg_trip_s,
+                        ROUND(AVG(step_count)::numeric, 1)                  AS avg_steps
+                    FROM trips
+                """, base_params)
+                r = cur.fetchone()
+                summary = {
+                    "total":     int(r[0] or 0),
+                    "completed": int(r[1] or 0),
+                    "failed":    int(r[2] or 0),
+                    "cancelled": int(r[3] or 0),
+                    "running":   int(r[4] or 0),
+                }
+                total_active_s   = float(r[5]) if r[5] else 0.0
+                avg_trip_s       = float(r[6]) if r[6] else None
+                avg_steps        = float(r[7]) if r[7] else None
+
+                # ── 2. By day ───────────────────────────────────────────────────
+                cur.execute(trip_cte + """
+                    SELECT
+                        DATE(trip_start)  AS day,
+                        COUNT(*)          AS total,
+                        SUM(CASE WHEN status='completed'  THEN 1 ELSE 0 END) AS completed,
+                        SUM(CASE WHEN status IN ('failed','cancelled') THEN 1 ELSE 0 END) AS failed,
+                        ROUND(SUM(active_s)::numeric, 0) AS active_s
+                    FROM trips
+                    GROUP BY DATE(trip_start)
+                    ORDER BY day
+                """, base_params)
+                by_day = [
+                    {"day": str(r[0]), "total": int(r[1]),
+                     "completed": int(r[2]), "failed": int(r[3]),
+                     "active_s": float(r[4] or 0)}
+                    for r in cur.fetchall()
+                ]
+
+                # ── 3. By AGV ───────────────────────────────────────────────────
+                cur.execute(trip_cte + """
+                    SELECT agv_id,
+                        COUNT(*) AS total,
+                        SUM(CASE WHEN status='completed'  THEN 1 ELSE 0 END) AS completed,
+                        SUM(CASE WHEN status IN ('failed','cancelled') THEN 1 ELSE 0 END) AS failed,
+                        ROUND(SUM(active_s)::numeric, 0) AS active_s,
+                        ROUND(AVG(
+                            CASE WHEN status='completed' AND trip_end IS NOT NULL AND trip_start IS NOT NULL
+                            THEN EXTRACT(EPOCH FROM (trip_end - trip_start)) END
+                        )::numeric, 1) AS avg_trip_s
+                    FROM trips
+                    GROUP BY agv_id ORDER BY total DESC
+                """, base_params)
+                by_agv = [
+                    {"agv_id": r[0], "total": int(r[1]),
+                     "completed": int(r[2]), "failed": int(r[3]),
+                     "active_s": float(r[4] or 0),
+                     "avg_trip_s": float(r[5]) if r[5] else None}
+                    for r in cur.fetchall()
+                ]
+
+                # ── 4. By status ────────────────────────────────────────────────
+                cur.execute(trip_cte + """
+                    SELECT status, COUNT(*) AS cnt FROM trips
+                    GROUP BY status ORDER BY cnt DESC
+                """, base_params)
+                by_status = [{"status": r[0], "count": int(r[1])} for r in cur.fetchall()]
+
+                # ── 5. By workflow label (top 8) ────────────────────────────────
+                cur.execute(trip_cte + """
+                    SELECT label, COUNT(*) AS cnt FROM trips
+                    WHERE label IS NOT NULL AND label <> ''
+                    GROUP BY label ORDER BY cnt DESC LIMIT 8
+                """, base_params)
+                by_label = [{"label": r[0], "count": int(r[1])} for r in cur.fetchall()]
+
+                return {
+                    "period": period,
+                    "date_from": str(d_from),
+                    "date_to":   str(d_to),
+                    "summary":   summary,
+                    "total_active_time_s": total_active_s,
+                    "avg_trip_duration_s": avg_trip_s,
+                    "avg_steps_per_trip":  avg_steps,
+                    "by_day":    by_day,
+                    "by_agv":    by_agv,
+                    "by_status": by_status,
+                    "by_label":  by_label,
+                }
+        finally:
+            conn.close()
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Trip statistics error: {e}")
+
+
+@app.get("/statistics")
+async def serve_statistics():
+    """Trang Thống kê."""
+    return FileResponse(WEB_UI_DIR / "statistics.html")
 
 
 @app.get("/api/execute/queue-status")
@@ -3162,6 +4872,98 @@ async def api_set_mqtt_mode(req: MqttModeRequest):
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return result
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SCHEDULE — Lập lịch tự động cho AGV
+# ════════════════════════════════════════════════════════════════════════════
+
+class ScheduleCreateRequest(BaseModel):
+    agv_id:           str
+    command:          str                   # go_to | wf:<id> | ...
+    map_id:           str | None  = None    # bản đồ để resolve tổ đích
+    team_id:          int | None  = None    # số tổ đích
+    priority:         int         = 3       # 1=khẩn cấp … 5=rất thấp
+    schedule_type:    str         = "once"  # once | daily | interval
+    scheduled_at:     str | None  = None    # ISO string (once)
+    time_of_day:      str | None  = None    # HH:MM (daily)
+    days_of_week:     list[int] | None = None  # [1..7] (daily)
+    interval_minutes: int | None  = None    # (interval)
+    label:            str         = ""
+
+
+@app.get("/api/schedule/upcoming")
+async def schedule_upcoming():
+    """Danh sách lịch đang active, sắp xếp gần → xa."""
+    from schedule_manager import get_scheduler
+    sched = get_scheduler()
+    if not sched:
+        raise HTTPException(503, "Scheduler chưa sẵn sàng")
+    return {"schedules": await sched.get_upcoming()}
+
+
+@app.post("/api/schedule/create")
+async def schedule_create(req: ScheduleCreateRequest):
+    from schedule_manager import get_scheduler
+    import datetime as _dt
+    sched = get_scheduler()
+    if not sched:
+        raise HTTPException(503, "Scheduler chưa sẵn sàng")
+
+    data = req.model_dump()
+    # Parse scheduled_at string → datetime nếu có
+    if data.get('scheduled_at'):
+        try:
+            sat = _dt.datetime.fromisoformat(data['scheduled_at'])
+            if sat.tzinfo is None:
+                sat = sat.replace(tzinfo=_dt.timezone(
+                    _dt.timedelta(hours=7)))
+            data['scheduled_at'] = sat
+        except Exception:
+            data['scheduled_at'] = None
+
+    result = await sched.create(data)
+    return result
+
+
+@app.put("/api/schedule/{sid}/toggle")
+async def schedule_toggle(sid: str):
+    from schedule_manager import get_scheduler
+    sched = get_scheduler()
+    if not sched:
+        raise HTTPException(503, "Scheduler chưa sẵn sàng")
+    row = await sched.toggle(sid)
+    if not row:
+        raise HTTPException(404, "Không tìm thấy lịch")
+    return row
+
+
+@app.delete("/api/schedule/{sid}")
+async def schedule_delete(sid: str):
+    from schedule_manager import get_scheduler
+    sched = get_scheduler()
+    if not sched:
+        raise HTTPException(503, "Scheduler chưa sẵn sàng")
+    ok = await sched.delete(sid)
+    if not ok:
+        raise HTTPException(404, "Không tìm thấy lịch")
+    return {"deleted": True, "id": sid}
+
+
+@app.get("/api/schedule/teams")
+async def schedule_teams():
+    """Danh sách các tổ (team) từ DROPOFF nodes của map đang dùng."""
+    if not pool:
+        raise HTTPException(503, "DB chưa sẵn sàng")
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT DISTINCT (action->>'team')::integer AS team_id "
+            "FROM agv_map_points "
+            "WHERE type=3 AND action->>'team' IS NOT NULL "
+            "ORDER BY 1"
+        )
+    return {"teams": [{"team_id": r['team_id'],
+                       "label": f"Tổ {r['team_id']}"} for r in rows if r['team_id']]}
 
 
 if __name__ == "__main__":
