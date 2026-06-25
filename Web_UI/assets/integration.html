@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Tích hợp hệ thống</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  :root{--bg:#0b1326;--card:rgba(16,26,50,.9);--border:rgba(255,255,255,.09)}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:#fff;font-family:Inter,system-ui,sans-serif}
+  .ms{font-family:'Material Symbols Outlined';font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;font-size:18px;line-height:1;vertical-align:middle;user-select:none}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}
+
+  /* Card */
+  .conn-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:10px;transition:border-color .15s}
+  .conn-card:hover{border-color:rgba(77,142,255,.35)}
+
+  /* Badge */
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:12px;font-size:10px;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+  .badge-wms  {background:rgba(99,102,241,.18);color:#a5b4fc;border:1px solid rgba(99,102,241,.3)}
+  .badge-erp  {background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3)}
+  .badge-mes  {background:rgba(20,184,166,.15);color:#5eead4;border:1px solid rgba(20,184,166,.3)}
+  .badge-gen  {background:rgba(148,163,184,.12);color:#cbd5e1;border:1px solid rgba(148,163,184,.25)}
+  .badge-on   {background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3)}
+  .badge-off  {background:rgba(100,116,139,.12);color:#94a3b8;border:1px solid rgba(100,116,139,.25)}
+  .badge-in   {background:rgba(59,130,246,.15);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+  .badge-out  {background:rgba(249,115,22,.15);color:#fdba74;border:1px solid rgba(249,115,22,.3)}
+  .badge-both {background:rgba(139,92,246,.15);color:#c4b5fd;border:1px solid rgba(139,92,246,.3)}
+
+  /* Btn */
+  .btn{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid transparent;transition:all .15s}
+  .btn-primary{background:rgba(77,142,255,.15);border-color:rgba(77,142,255,.35);color:#93c5fd}
+  .btn-primary:hover{background:rgba(77,142,255,.25)}
+  .btn-danger{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#f87171}
+  .btn-danger:hover{background:rgba(239,68,68,.2)}
+  .btn-success{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.3);color:#4ade80}
+  .btn-success:hover{background:rgba(34,197,94,.2)}
+  .btn-ghost{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);color:#94a3b8}
+  .btn-ghost:hover{background:rgba(255,255,255,.1)}
+
+  /* Modal */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px}
+  .modal{background:#0f1c36;border:1px solid rgba(255,255,255,.12);border-radius:18px;width:100%;max-width:620px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+  .modal-header{padding:18px 22px 14px;border-bottom:1px solid rgba(255,255,255,.08);flex-shrink:0}
+  .modal-body{flex:1;overflow-y:auto;padding:18px 22px}
+  .modal-footer{padding:14px 22px;border-top:1px solid rgba(255,255,255,.08);display:flex;justify-content:flex-end;gap:8px;flex-shrink:0}
+
+  /* Form — dùng .modal-body để thắng Tailwind forms plugin */
+  .modal-body label{font-size:12px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px}
+  .modal-body input,
+  .modal-body select,
+  .modal-body textarea{width:100%;background:#1a2744 !important;border:1px solid rgba(255,255,255,.18) !important;border-radius:8px;color:#e2e8f0 !important;padding:8px 11px;font-size:13px;outline:none;font-family:inherit;box-shadow:none !important}
+  .modal-body input:focus,
+  .modal-body select:focus,
+  .modal-body textarea:focus{border-color:#4d8eff !important;box-shadow:0 0 0 2px rgba(77,142,255,.2) !important}
+  .modal-body input::placeholder,
+  .modal-body textarea::placeholder{color:#4a5568}
+  .modal-body select option{background:#1a2744;color:#e2e8f0}
+  .modal-body input[readonly]{background:#0d1526 !important;color:#7dd3fc !important;cursor:default}
+  .modal-body textarea{resize:vertical;min-height:60px}
+  label{font-size:12px;color:#94a3b8;font-weight:500;display:block;margin-bottom:4px}
+  .form-row{margin-bottom:14px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+  /* Tab */
+  .tab-bar{display:flex;gap:2px;background:rgba(255,255,255,.05);border-radius:8px;padding:3px;margin-bottom:16px}
+  .tab-btn{flex:1;padding:6px;border-radius:6px;font-size:12px;font-weight:600;color:#64748b;cursor:pointer;text-align:center;border:none;background:transparent;transition:all .15s}
+  .tab-btn.active{background:rgba(77,142,255,.2);color:#93c5fd}
+
+  /* Log table */
+  .log-table{width:100%;border-collapse:collapse;font-size:12px}
+  .log-table th{background:rgba(255,255,255,.05);padding:7px 10px;text-align:left;color:#64748b;font-weight:600;font-size:11px;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,.07)}
+  .log-table td{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:top;color:#e2e8f0}
+
+  /* Code block */
+  .code-block{background:#050d1a;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#7dd3fc;overflow-x:auto;white-space:pre;margin-top:6px}
+
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .spin{animation:spin .7s linear infinite;display:inline-block}
+</style>
+</head>
+<body style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
+
+<!-- ── Toolbar ── -->
+<div style="display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.07);background:rgba(11,19,38,.95);flex-shrink:0">
+  <span class="ms" style="color:#818cf8;font-size:22px">hub</span>
+  <span style="font-weight:700;font-size:15px" data-i18n="page_title">Tích hợp hệ thống ngoài</span>
+  <span style="font-size:11px;color:#475569;margin-left:2px">WMS / ERP / MES</span>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <button class="btn btn-ghost" onclick="loadList()" id="btn-refresh">
+      <span class="ms" id="ic-refresh" style="font-size:15px">refresh</span> <span data-i18n="refresh">Làm mới</span>
+    </button>
+    <button class="btn btn-primary" onclick="openCreateModal()">
+      <span class="ms" style="font-size:15px">add</span> <span data-i18n="add_conn">Thêm kết nối</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── Main list ── -->
+<div style="flex:1;overflow-y:auto;padding:14px 18px" id="list-area">
+  <div style="text-align:center;padding:60px;color:#475569">
+    <span class="ms" style="font-size:40px;display:block;margin-bottom:10px;opacity:.4">hub</span>
+    <span data-i18n="loading">Đang tải…</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     MODAL: TẠO / SỬA KẾT NỐI
+════════════════════════════════════════ -->
+<div class="modal-bg" id="modal-edit" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:16px;font-weight:700" id="modal-title">Thêm kết nối</span>
+        <button onclick="closeModal()" style="background:none;border:none;color:#64748b;cursor:pointer;padding:4px">
+          <span class="ms">close</span>
+        </button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <!-- Tab bar -->
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab(0)" data-i18n="tab_basic">Cơ bản</button>
+        <button class="tab-btn" onclick="switchTab(1)" data-i18n="tab_inbound">Inbound (nhận lệnh)</button>
+        <button class="tab-btn" onclick="switchTab(2)" data-i18n="tab_outbound">Outbound (callback)</button>
+      </div>
+
+      <!-- Tab 0: Cơ bản -->
+      <div id="tab-0">
+        <div class="form-grid">
+          <div class="form-row">
+            <label data-i18n="f_name">Tên kết nối *</label>
+            <input id="f-name" placeholder="VD: WMS Nhà máy A"/>
+          </div>
+          <div class="form-row">
+            <label data-i18n="f_type">Loại hệ thống</label>
+            <select id="f-type">
+              <option value="wms">WMS</option>
+              <option value="erp">ERP</option>
+              <option value="mes">MES</option>
+              <option value="generic">Generic</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label data-i18n="f_dir">Chiều giao tiếp</label>
+            <select id="f-direction">
+              <option value="both" data-i18n-opt="dir_both">Hai chiều</option>
+              <option value="inbound" data-i18n-opt="dir_in">Chỉ nhận lệnh</option>
+              <option value="outbound" data-i18n-opt="dir_out">Chỉ gửi kết quả</option>
+            </select>
+          </div>
+          <div class="form-row" style="display:flex;align-items:center;gap:10px;padding-top:20px">
+            <input type="checkbox" id="f-enabled" checked style="width:auto;accent-color:#4d8eff"/>
+            <label for="f-enabled" style="margin:0;color:#e2e8f0;cursor:pointer" data-i18n="f_enabled">Kích hoạt</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 1: Inbound -->
+      <div id="tab-1" style="display:none">
+        <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#93c5fd">
+          <span class="ms" style="font-size:14px">info</span>
+          <span data-i18n="inbound_info">WMS/ERP gửi lệnh vào AGV qua URL bên dưới. API key được tạo tự động.</span>
+        </div>
+        <div class="form-row" id="webhook-url-row">
+          <label data-i18n="f_endpoint">Endpoint URL (WMS gọi vào đây)</label>
+          <div style="display:flex;gap:6px">
+            <input id="f-webhook-url" readonly style="color:#7dd3fc;background:rgba(7,14,30,.8)"/>
+            <button class="btn btn-ghost" onclick="copyWebhook()" style="white-space:nowrap;flex-shrink:0">
+              <span class="ms" style="font-size:14px">content_copy</span>
+            </button>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label data-i18n="f_apikey">API Key (để xác thực)</label>
+            <div style="display:flex;gap:6px">
+              <input id="f-api-key" data-i18n="f_apikey_ph" data-i18n-attr="placeholder" placeholder="Tự tạo khi lưu"/>
+              <button class="btn btn-ghost" onclick="genApiKey()" style="white-space:nowrap;flex-shrink:0" title="Tạo key mới">
+                <span class="ms" style="font-size:14px">key</span>
+              </button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label data-i18n="f_map">Map ID mặc định</label>
+            <input id="f-map-id" data-i18n="f_map_ph" data-i18n-attr="placeholder" placeholder="VD: 1779790224391"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <label data-i18n="f_agv">AGV mặc định (nếu WMS không chỉ định)</label>
+          <input id="f-default-agv" data-i18n="f_agv_ph" data-i18n-attr="placeholder" placeholder="VD: AGV01"/>
+        </div>
+        <div class="form-row">
+          <label data-i18n="f_fieldmap">Field mapping (JSON) — ánh xạ tên field WMS → AGV</label>
+          <textarea id="f-field-map" rows="4" placeholder='{"destination": "drop_location", "agv_id": "robot_code"}'></textarea>
+        </div>
+        <div style="background:rgba(15,28,50,.8);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:12px;margin-top:4px">
+          <div style="font-size:11px;color:#64748b;margin-bottom:6px;font-weight:600" data-i18n="example_req">VÍ DỤ REQUEST TỪ WMS:</div>
+          <div class="code-block">POST {endpoint_url}
+Authorization: Bearer {api_key}
+Content-Type: application/json
+
+{
+  "agv_id":            "AGV01",
+  "destination":       "96",
+  "map_id":            "1779790224391",
+  "external_order_id": "WMS-2026-00123",
+  "notes":             "Giao hàng Tổ 3",
+
+  // Thông tin đơn hàng — tuỳ chọn, lưu vào DB để xuất báo cáo
+  "order_info": {
+    "product_code":  "SP-001",
+    "product_name":  "Thùng linh kiện A",
+    "size":          "L",
+    "quantity":      12,
+    "unit":          "thùng",
+    "batch_no":      "BATCH-20260623"
+  }
+}</div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Outbound -->
+      <div id="tab-2" style="display:none">
+        <div style="background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#fdba74">
+          <span class="ms" style="font-size:14px">info</span>
+          <span data-i18n="outbound_info">AGV tự động gọi callback URL khi task hoàn thành / thất bại / bị hủy.</span>
+        </div>
+        <div class="form-row">
+          <label data-i18n="f_callback">Callback URL *</label>
+          <input id="f-callback-url" placeholder="https://wms.factory.com/api/agv/result"/>
+        </div>
+        <div class="form-grid">
+          <div class="form-row">
+            <label data-i18n="f_auth">Kiểu xác thực</label>
+            <select id="f-auth-type" onchange="updateAuthPlaceholder()">
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic Auth (user:pass)</option>
+              <option value="apikey">API Key Header</option>
+              <option value="none" data-i18n-opt="auth_none">Không cần xác thực</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label id="auth-val-label" data-i18n="f_auth_val">Token / Mật khẩu</label>
+            <input id="f-auth-value" data-i18n="f_auth_ph" data-i18n-attr="placeholder" placeholder="Bearer token hoặc password" type="password"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <label data-i18n="f_events">Kích hoạt callback khi</label>
+          <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;font-size:13px;cursor:pointer;margin:0">
+              <input type="checkbox" id="ev-completed" checked style="width:auto;accent-color:#4ade80"/> <span data-i18n="ev_completed">Hoàn thành</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;font-size:13px;cursor:pointer;margin:0">
+              <input type="checkbox" id="ev-failed" checked style="width:auto;accent-color:#f87171"/> <span data-i18n="ev_failed">Thất bại</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;color:#e2e8f0;font-size:13px;cursor:pointer;margin:0">
+              <input type="checkbox" id="ev-cancelled" style="width:auto;accent-color:#94a3b8"/> <span data-i18n="ev_cancelled">Đã hủy</span>
+            </label>
+          </div>
+        </div>
+        <div style="background:rgba(15,28,50,.8);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:12px;margin-top:4px">
+          <div style="font-size:11px;color:#64748b;margin-bottom:6px;font-weight:600" data-i18n="payload_lbl">PAYLOAD AGV GỬI VỀ WMS:</div>
+          <div class="code-block">POST {callback_url}
+Authorization: Bearer {token}
+
+{
+  "event":        "completed",
+  "task_id":      "uuid...",
+  "agv_id":       "AGV01",
+  "destination":  "96",
+  "status":       "completed",
+  "operator_name":"Nguyễn Văn A",
+  "operator_id":  "NS001",
+  "order_info": {
+    "product_code": "SP-001",
+    "product_name": "Thùng linh kiện A",
+    "quantity":     12
+  },
+  "timestamp":    "2026-06-22T14:30:00"
+}</div>
+        </div>
+      </div>
+
+      <div id="modal-error" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px;margin-top:12px;color:#f87171;font-size:13px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()" data-i18n="cancel">Hủy</button>
+      <button class="btn btn-primary" onclick="saveIntegration()" id="btn-save">
+        <span class="ms" style="font-size:14px">save</span> <span data-i18n="save">Lưu</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     MODAL: LOG
+════════════════════════════════════════ -->
+<div class="modal-bg" id="modal-log" style="display:none" onclick="if(event.target===this)closeLogModal()">
+  <div class="modal" style="max-width:780px">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:15px;font-weight:700" id="log-modal-title" data-i18n="log_title">Lịch sử gọi API</span>
+        <button onclick="closeLogModal()" style="background:none;border:none;color:#64748b;cursor:pointer"><span class="ms">close</span></button>
+      </div>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <div style="overflow-x:auto">
+        <table class="log-table" id="log-table-inner">
+          <thead><tr>
+            <th data-i18n="log_col_time">Thời gian</th><th data-i18n="log_col_dir">Chiều</th><th data-i18n="log_col_event">Event</th><th data-i18n="log_col_http">HTTP</th><th data-i18n="log_col_detail">Chi tiết</th>
+          </tr></thead>
+          <tbody id="log-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeLogModal()" data-i18n="close">Đóng</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── I18N ──────────────────────────────────────────────────────────────────
+const _lang = new URLSearchParams(location.search).get('lang') || 'vi';
+const _I = {
+  vi:{
+    page_title:'Tích hợp hệ thống ngoài',
+    refresh:'Làm mới', add_conn:'Thêm kết nối',
+    loading:'Đang tải…', no_conn:'Chưa có kết nối nào.',
+    add_first:'Thêm kết nối đầu tiên',
+    created_at:'Tạo lúc: ',
+    on:'● Bật', off:'○ Tắt',
+    edit_btn:'Sửa',
+    modal_create:'Thêm kết nối mới', modal_edit:'Chỉnh sửa kết nối',
+    tab_basic:'Cơ bản', tab_inbound:'Inbound (nhận lệnh)', tab_outbound:'Outbound (callback)',
+    f_name:'Tên kết nối *', f_type:'Loại hệ thống',
+    f_dir:'Chiều giao tiếp', f_enabled:'Kích hoạt',
+    f_endpoint:'Endpoint URL (WMS gọi vào đây)',
+    f_apikey:'API Key (để xác thực)', f_apikey_ph:'Tự tạo khi lưu',
+    gen_key:'Tạo key mới',
+    f_map:'Map ID mặc định', f_map_ph:'VD: 1779790224391',
+    f_agv:'AGV mặc định (nếu WMS không chỉ định)', f_agv_ph:'VD: AGV01',
+    f_fieldmap:'Field mapping (JSON) — ánh xạ tên field WMS → AGV',
+    f_callback:'Callback URL *',
+    f_auth:'Kiểu xác thực',
+    f_auth_val:'Token / Mật khẩu', f_auth_ph:'Bearer token hoặc password',
+    auth_bearer:'Bearer Token', auth_basic:'Basic Auth (user:pass)',
+    auth_apikey:'API Key Header', auth_none:'Không cần xác thực',
+    f_events:'Kích hoạt callback khi',
+    ev_completed:'Hoàn thành', ev_failed:'Thất bại', ev_cancelled:'Đã hủy',
+    dir_both:'Hai chiều', dir_in:'Chỉ nhận lệnh', dir_out:'Chỉ gửi kết quả',
+    dir_lbl_inbound:'Nhận lệnh', dir_lbl_outbound:'Callback', dir_lbl_both:'Hai chiều',
+    cancel:'Hủy', save:'Lưu', saving:'Đang lưu…',
+    log_title:'Lịch sử gọi API',
+    log_col_time:'Thời gian', log_col_dir:'Chiều', log_col_event:'Event',
+    log_col_http:'HTTP', log_col_detail:'Chi tiết',
+    log_loading:'Đang tải…', log_empty:'Chưa có log',
+    close:'Đóng',
+    confirm_del:'Xóa kết nối "{name}"?\nHành động này không thể hoàn tác.',
+    err_no_name:'Vui lòng nhập tên kết nối',
+    err_json:'Field mapping JSON không hợp lệ',
+    err_prefix:'Lỗi: ',
+    test_ok:'OK', test_fail:'Lỗi', testing:'Đang test…',
+    test_fail_msg:'Test thất bại: ',
+    copied:'Đã copy!',
+    inbound_info:'WMS/ERP gửi lệnh vào AGV qua URL bên dưới. API key được tạo tự động.',
+    outbound_info:'AGV tự động gọi callback URL khi task hoàn thành / thất bại / bị hủy.',
+    example_req:'VÍ DỤ REQUEST TỪ WMS:',
+    payload_lbl:'PAYLOAD AGV GỬI VỀ WMS:',
+  },
+  en:{
+    page_title:'System Integration',
+    refresh:'Refresh', add_conn:'Add Connection',
+    loading:'Loading…', no_conn:'No connections yet.',
+    add_first:'Add first connection',
+    created_at:'Created: ',
+    on:'● On', off:'○ Off',
+    edit_btn:'Edit',
+    modal_create:'Add New Connection', modal_edit:'Edit Connection',
+    tab_basic:'Basic', tab_inbound:'Inbound (receive commands)', tab_outbound:'Outbound (callback)',
+    f_name:'Connection Name *', f_type:'System Type',
+    f_dir:'Direction', f_enabled:'Enabled',
+    f_endpoint:'Endpoint URL (WMS calls here)',
+    f_apikey:'API Key (for authentication)', f_apikey_ph:'Auto-generated on save',
+    gen_key:'Generate new key',
+    f_map:'Default Map ID', f_map_ph:'E.g.: 1779790224391',
+    f_agv:'Default AGV (if WMS does not specify)', f_agv_ph:'E.g.: AGV01',
+    f_fieldmap:'Field mapping (JSON) — map WMS field names → AGV',
+    f_callback:'Callback URL *',
+    f_auth:'Auth Type',
+    f_auth_val:'Token / Password', f_auth_ph:'Bearer token or password',
+    auth_bearer:'Bearer Token', auth_basic:'Basic Auth (user:pass)',
+    auth_apikey:'API Key Header', auth_none:'No authentication',
+    f_events:'Trigger callback when',
+    ev_completed:'Completed', ev_failed:'Failed', ev_cancelled:'Cancelled',
+    dir_both:'Both ways', dir_in:'Receive only', dir_out:'Send results only',
+    dir_lbl_inbound:'Inbound', dir_lbl_outbound:'Callback', dir_lbl_both:'Both',
+    cancel:'Cancel', save:'Save', saving:'Saving…',
+    log_title:'API Call History',
+    log_col_time:'Time', log_col_dir:'Direction', log_col_event:'Event',
+    log_col_http:'HTTP', log_col_detail:'Details',
+    log_loading:'Loading…', log_empty:'No logs yet',
+    close:'Close',
+    confirm_del:'Delete connection "{name}"?\nThis action cannot be undone.',
+    err_no_name:'Please enter a connection name',
+    err_json:'Field mapping JSON is invalid',
+    err_prefix:'Error: ',
+    test_ok:'OK', test_fail:'Error', testing:'Testing…',
+    test_fail_msg:'Test failed: ',
+    copied:'Copied!',
+    inbound_info:'WMS/ERP sends commands to AGV via the URL below. API key is auto-generated.',
+    outbound_info:'AGV automatically calls the callback URL when a task completes / fails / is cancelled.',
+    example_req:'EXAMPLE REQUEST FROM WMS:',
+    payload_lbl:'PAYLOAD AGV SENDS TO WMS:',
+  }
+};
+function _t(k){ return ((_I[_lang]||_I.vi)[k]) ?? k; }
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const attr=el.getAttribute('data-i18n-attr');
+    const val=_t(el.getAttribute('data-i18n'));
+    if(attr) el.setAttribute(attr,val); else el.textContent=val;
+  });
+  document.querySelectorAll('[data-i18n-opt]').forEach(el=>{
+    el.textContent=_t(el.getAttribute('data-i18n-opt'));
+  });
+  document.documentElement.lang=_lang;
+});
+
+const API = 'http://' + (window.location.hostname || '192.168.0.109') + ':8000';
+let _editConnId = null;
+let _pendingConnId = null;   // UUID sinh sẵn cho lần tạo mới
+let _currentTab = 0;
+
+// Sinh UUID v4 trên client
+function genUUID(){
+  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function fmtTs(iso){ if(!iso) return '—'; try{ const d=new Date(iso); const p=n=>String(n).padStart(2,'0'); return `${p(d.getDate())}/${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}` }catch{ return iso } }
+
+function typeLabel(t){
+  return {wms:'badge-wms WMS',erp:'badge-erp ERP',mes:'badge-mes MES',generic:'badge-gen Generic'}[t] || 'badge-gen Generic'
+}
+function dirLabel(d){
+  return {
+    inbound:`badge-in ${_t('dir_lbl_inbound')}`,
+    outbound:`badge-out ${_t('dir_lbl_outbound')}`,
+    both:`badge-both ${_t('dir_lbl_both')}`
+  }[d] || 'badge-gen ?'
+}
+
+// ── Load danh sách ────────────────────────────────────────────────────────────
+async function loadList(){
+  const ic = document.getElementById('ic-refresh');
+  ic.classList.add('spin');
+  try{
+    const res  = await fetch(`${API}/api/integrations`);
+    const list = await res.json();
+    renderList(list);
+  }catch(e){
+    document.getElementById('list-area').innerHTML =
+      `<div style="text-align:center;padding:60px;color:#f87171">${esc(e.message)}</div>`;
+  }finally{ ic.classList.remove('spin') }
+}
+
+function renderList(list){
+  const el = document.getElementById('list-area');
+  if(!list.length){
+    el.innerHTML = `<div style="text-align:center;padding:60px;color:#475569">
+      <span class="ms" style="font-size:40px;display:block;margin-bottom:10px;opacity:.4">hub</span>
+      ${_t('no_conn')}<br/>
+      <button class="btn btn-primary" onclick="openCreateModal()" style="margin-top:16px">
+        <span class="ms" style="font-size:14px">add</span> ${_t('add_first')}
+      </button>
+    </div>`;
+    return;
+  }
+  el.innerHTML = list.map(r => {
+    const [tcls, tlbl] = typeLabel(r.system_type).split(' ');
+    const [dcls, dlbl] = dirLabel(r.direction).split(' ');
+    const webhookUrl = `${API}/api/agv/tot/${r.conn_id}`;
+    return `<div class="conn-card">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="ms" style="color:#818cf8;font-size:20px">hub</span>
+        <span style="font-size:15px;font-weight:700;color:#e2e8f0">${esc(r.name)}</span>
+        <span class="badge ${tcls}">${tlbl}</span>
+        <span class="badge ${dcls}">${dlbl}</span>
+        <span class="badge ${r.enabled ? 'badge-on' : 'badge-off'}">${r.enabled ? _t('on') : _t('off')}</span>
+        <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+          ${r.direction!=='inbound'?`<button class="btn btn-success" onclick="testConn('${r.conn_id}',this)"><span class="ms" style="font-size:13px">wifi_tethering</span>Test</button>`:''}
+          <button class="btn btn-ghost" onclick="openLogModal('${r.conn_id}','${esc(r.name)}')"><span class="ms" style="font-size:13px">history</span>Log</button>
+          <button class="btn btn-primary" onclick="openEditModal('${r.conn_id}')"><span class="ms" style="font-size:13px">edit</span>${_t('edit_btn')}</button>
+          <button class="btn btn-danger" onclick="deleteConn('${r.conn_id}','${esc(r.name)}')"><span class="ms" style="font-size:13px">delete</span></button>
+        </div>
+      </div>
+      ${(r.direction==='inbound'||r.direction==='both') ? `
+      <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+        <span class="ms" style="font-size:13px;color:#475569">link</span>
+        <code style="font-size:11px;color:#7dd3fc;background:rgba(7,14,30,.8);padding:3px 8px;border-radius:5px;border:1px solid rgba(125,211,252,.15);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(webhookUrl)}</code>
+        <button onclick="copyText('${esc(webhookUrl)}')" class="btn btn-ghost" style="padding:4px 8px;flex-shrink:0"><span class="ms" style="font-size:13px">content_copy</span></button>
+      </div>` : ''}
+      ${r.callback_url ? `
+      <div style="margin-top:6px;display:flex;align-items:center;gap:8px">
+        <span class="ms" style="font-size:13px;color:#475569">send</span>
+        <span style="font-size:11px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(r.callback_url)}</span>
+      </div>` : ''}
+      <div style="margin-top:8px;font-size:11px;color:#334155">${_t('created_at')}${fmtTs(r.created_at)}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(i){
+  _currentTab = i;
+  [0,1,2].forEach(j => {
+    document.getElementById(`tab-${j}`).style.display = j===i ? '' : 'none';
+    document.querySelectorAll('.tab-btn')[j].classList.toggle('active', j===i);
+  });
+}
+
+// ── Modal tạo/sửa ────────────────────────────────────────────────────────────
+function openCreateModal(){
+  _editConnId = null;
+  _pendingConnId = genUUID();   // sinh sẵn UUID cho kết nối này
+
+  document.getElementById('modal-title').textContent = _t('modal_create');
+  document.getElementById('f-name').value = '';
+  document.getElementById('f-type').value = 'wms';
+  document.getElementById('f-direction').value = 'both';
+  document.getElementById('f-enabled').checked = true;
+  document.getElementById('f-api-key').value = '';
+  // Hiển thị webhook URL ngay — dùng UUID vừa sinh
+  document.getElementById('f-webhook-url').value = `${API}/api/agv/tot/${_pendingConnId}`;
+  document.getElementById('f-map-id').value = '';
+  document.getElementById('f-default-agv').value = '';
+  document.getElementById('f-field-map').value = '';
+  document.getElementById('f-callback-url').value = '';
+  document.getElementById('f-auth-type').value = 'bearer';
+  document.getElementById('f-auth-value').value = '';
+  document.getElementById('ev-completed').checked = true;
+  document.getElementById('ev-failed').checked = true;
+  document.getElementById('ev-cancelled').checked = false;
+  document.getElementById('modal-error').style.display = 'none';
+  switchTab(1);   // mở thẳng tab Inbound để thấy URL ngay
+  document.getElementById('modal-edit').style.display = 'flex';
+}
+
+async function openEditModal(connId){
+  _editConnId = connId;
+  document.getElementById('modal-title').textContent = _t('modal_edit');
+  document.getElementById('modal-error').style.display = 'none';
+  try{
+    const res = await fetch(`${API}/api/integrations/${connId}`);
+    const r   = await res.json();
+    document.getElementById('f-name').value     = r.name || '';
+    document.getElementById('f-type').value     = r.system_type || 'generic';
+    document.getElementById('f-direction').value= r.direction || 'both';
+    document.getElementById('f-enabled').checked= !!r.enabled;
+    document.getElementById('f-api-key').value  = ''; // không hiển thị key thật
+    document.getElementById('f-webhook-url').value = `${API}/api/agv/tot/${connId}`;
+    document.getElementById('f-map-id').value   = r.map_id || '';
+    document.getElementById('f-default-agv').value = r.default_agv || '';
+    try{ document.getElementById('f-field-map').value = JSON.stringify(r.field_map||{}, null, 2) }catch{}
+    document.getElementById('f-callback-url').value = r.callback_url || '';
+    document.getElementById('f-auth-type').value    = r.callback_auth_type || 'bearer';
+    document.getElementById('f-auth-value').value   = ''; // không hiển thị
+    const evts = (r.callback_events || '').split(',');
+    document.getElementById('ev-completed').checked = evts.includes('completed');
+    document.getElementById('ev-failed').checked    = evts.includes('failed');
+    document.getElementById('ev-cancelled').checked = evts.includes('cancelled');
+    switchTab(0);
+    document.getElementById('modal-edit').style.display = 'flex';
+  }catch(e){
+    alert(_t('err_prefix') + e.message);
+  }
+}
+
+function closeModal(){ document.getElementById('modal-edit').style.display = 'none' }
+
+async function saveIntegration(){
+  const name = document.getElementById('f-name').value.trim();
+  if(!name){ showModalErr(_t('err_no_name')); switchTab(0); return }
+
+  const evts = [];
+  if(document.getElementById('ev-completed').checked) evts.push('completed');
+  if(document.getElementById('ev-failed').checked)    evts.push('failed');
+  if(document.getElementById('ev-cancelled').checked) evts.push('cancelled');
+
+  let fieldMap = {};
+  try{ const v = document.getElementById('f-field-map').value.trim(); if(v) fieldMap = JSON.parse(v) }
+  catch{ showModalErr(_t('err_json')); switchTab(1); return }
+
+  const data = {
+    name:          name,
+    system_type:   document.getElementById('f-type').value,
+    direction:     document.getElementById('f-direction').value,
+    enabled:       document.getElementById('f-enabled').checked,
+    api_key:       document.getElementById('f-api-key').value.trim() || undefined,
+    map_id:        document.getElementById('f-map-id').value.trim() || null,
+    default_agv:   document.getElementById('f-default-agv').value.trim() || null,
+    field_map:     fieldMap,
+    callback_url:  document.getElementById('f-callback-url').value.trim() || null,
+    callback_auth_type:  document.getElementById('f-auth-type').value,
+    callback_auth_value: document.getElementById('f-auth-value').value.trim() || undefined,
+    callback_events: evts.join(','),
+    // Gửi conn_id sinh sẵn khi tạo mới
+    ...(!_editConnId && _pendingConnId ? {conn_id: _pendingConnId} : {}),
+  };
+
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true; btn.textContent = _t('saving');
+  try{
+    const url    = _editConnId ? `${API}/api/integrations/${_editConnId}` : `${API}/api/integrations`;
+    const method = _editConnId ? 'PUT' : 'POST';
+    const res    = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    if(!res.ok){ const e=await res.json(); throw new Error(e.detail||res.statusText) }
+    closeModal();
+    loadList();
+  }catch(e){
+    showModalErr(_t('err_prefix') + e.message);
+  }finally{
+    btn.disabled=false; btn.innerHTML=`<span class="ms" style="font-size:14px">save</span> ${_t('save')}`;
+  }
+}
+
+function showModalErr(msg){
+  const el = document.getElementById('modal-error');
+  el.textContent = msg; el.style.display='block';
+}
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+async function deleteConn(connId, name){
+  if(!confirm(_t('confirm_del').replace('{name}', name))) return;
+  await fetch(`${API}/api/integrations/${connId}`, {method:'DELETE'});
+  loadList();
+}
+
+// ── Test callback ─────────────────────────────────────────────────────────────
+async function testConn(connId, btn){
+  btn.disabled=true; btn.innerHTML=`<span class="ms spin" style="font-size:13px">refresh</span> ${_t('testing')}`;
+  try{
+    const res  = await fetch(`${API}/api/integrations/${connId}/test`, {method:'POST'});
+    const data = await res.json();
+    if(data.ok){
+      btn.innerHTML='<span class="ms" style="font-size:13px;color:#4ade80">check_circle</span> OK ' + (data.status_code||'');
+      btn.style.borderColor='rgba(34,197,94,.4)'; btn.style.color='#4ade80';
+    }else{
+      btn.innerHTML=`<span class="ms" style="font-size:13px;color:#f87171">error</span> ${_t('test_fail')}`;
+      btn.style.borderColor='rgba(239,68,68,.4)'; btn.style.color='#f87171';
+      alert(_t('test_fail_msg') + (data.error || data.status_code));
+    }
+  }catch(e){
+    btn.innerHTML='<span class="ms" style="font-size:13px">wifi_tethering</span>Test';
+    alert(_t('err_prefix')+e.message);
+  }finally{
+    setTimeout(()=>{btn.disabled=false; btn.innerHTML='<span class="ms" style="font-size:13px">wifi_tethering</span>Test'; btn.style=''},3000);
+  }
+}
+
+// ── Log modal ─────────────────────────────────────────────────────────────────
+async function openLogModal(connId, name){
+  document.getElementById('log-modal-title').textContent = `Log — ${name}`;
+  document.getElementById('log-tbody').innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#475569">${_t('log_loading')}</td></tr>`;
+  document.getElementById('modal-log').style.display = 'flex';
+  try{
+    const res  = await fetch(`${API}/api/integrations/${connId}/logs?limit=100`);
+    const rows = await res.json();
+    if(!rows.length){
+      document.getElementById('log-tbody').innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#475569">${_t('log_empty')}</td></tr>`;
+      return;
+    }
+    document.getElementById('log-tbody').innerHTML = rows.map(r => {
+      const sc = r.status_code;
+      const scColor = !sc ? '#64748b' : sc<300 ? '#4ade80' : sc<500 ? '#fde047' : '#f87171';
+      const dirIcon = r.direction==='in' ? '↓ IN' : '↑ OUT';
+      const dirColor = r.direction==='in' ? '#93c5fd' : '#fdba74';
+      return `<tr>
+        <td style="white-space:nowrap;color:#64748b">${fmtTs(r.created_at)}</td>
+        <td><span style="color:${dirColor};font-weight:600;font-size:11px">${dirIcon}</span></td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px">${esc(r.event)}</td>
+        <td style="color:${scColor};font-family:'JetBrains Mono',monospace">${sc||'—'}</td>
+        <td style="max-width:300px">
+          ${r.error_msg ? `<span style="color:#f87171;font-size:11px">${esc(r.error_msg)}</span>` : ''}
+          ${r.response_body ? `<span style="color:#64748b;font-size:10px">${esc(r.response_body.substring(0,80))}${r.response_body.length>80?'…':''}</span>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+  }catch(e){
+    document.getElementById('log-tbody').innerHTML = `<tr><td colspan="5" style="color:#f87171;padding:16px">${esc(e.message)}</td></tr>`;
+  }
+}
+function closeLogModal(){ document.getElementById('modal-log').style.display='none' }
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function copyText(t){ navigator.clipboard.writeText(t).then(()=>alert(_t('copied'))) }
+function copyWebhook(){ copyText(document.getElementById('f-webhook-url').value) }
+function genApiKey(){
+  const key = Array.from(crypto.getRandomValues(new Uint8Array(24)))
+    .map(b=>b.toString(16).padStart(2,'0')).join('');
+  document.getElementById('f-api-key').value = key;
+}
+function updateAuthPlaceholder(){
+  const t = document.getElementById('f-auth-type').value;
+  const lbl = {bearer:'Bearer Token',basic:'user:password',apikey:'API Key',none:'(không cần)'}[t]||'Token';
+  document.getElementById('auth-val-label').textContent = lbl;
+  document.getElementById('f-auth-value').placeholder = lbl;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadList();
+</script>
+</body>
+</html>

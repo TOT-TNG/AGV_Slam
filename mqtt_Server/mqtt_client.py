@@ -53,7 +53,7 @@ def _save_mqtt_mode(mode: str) -> None:
 def _resolve_broker_port(mode: str) -> tuple[str, int]:
     if mode == "cloud":
         return _CLOUD_BROKER, _CLOUD_PORT
-    return os.getenv("MQTT_BROKER", "192.168.1.13").strip(), int(os.getenv("MQTT_PORT", "1883"))
+    return os.getenv("MQTT_BROKER", "192.168.0.89").strip(), int(os.getenv("MQTT_PORT", "1883"))
 
 def _configure_client_for_mode(c, mode: str) -> None:
     """Cài TLS + auth cho client theo mode trước khi connect."""
@@ -3328,6 +3328,14 @@ def on_message(client, userdata, msg):
             # CẬP NHẬT AGV
             agv_manager.update_status(agv_id, state_data)
             detect_alerts(agv_id, state_data)
+
+            # Cập nhật last_seen trong DB (giống LINE AGV, để AGVManager + các endpoint
+            # dùng cùng nguồn dữ liệu nhất quán)
+            try:
+                from agv_heartbeat import touch as _hb_touch_vda
+                _hb_touch_vda(agv_id)
+            except Exception:
+                pass
 
             # Parse PEER_STOP info for LIDAR collision resolution
             peer_stop_peer_id = None

@@ -8,6 +8,8 @@ class MoveCommand(BaseModel):
     destination: str
     map_id: Optional[str] = None
     path: Optional[List[str]] = None
+    session_id: Optional[str] = None       # dùng chung cho multi-stop cùng lượt
+    return_to_charge: Optional[bool] = False  # sau lệnh này → tự về sạc
 
 class ActionRequest(BaseModel):
     agv_id: str

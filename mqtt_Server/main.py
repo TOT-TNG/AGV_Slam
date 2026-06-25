@@ -37,6 +37,7 @@ from mqtt_client import (
 )
 from order_builder import build_order
 from map_configure_api import router as map_config_router
+import integration_engine
 from traffic_core import (
     TrafficEngine,
     TopologyMap as TrafficTopologyMap,
@@ -806,8 +807,20 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE agv_tasks ADD COLUMN IF NOT EXISTS operator_id TEXT"
                 )
                 print("[DB] Columns agv_tasks.operator_name / operator_id ensured")
+                await _conn.execute(
+                    "ALTER TABLE agv_tasks ADD COLUMN IF NOT EXISTS order_info JSONB"
+                )
+                print("[DB] Column agv_tasks.order_info ensured")
         except Exception as _te:
             print(f"[DB] Create table error (non-fatal): {_te}")
+
+    # ── Integration engine ────────────────────────────────────────────────────
+    if app.state.db_pool:
+        integration_engine.set_pool(app.state.db_pool)
+        try:
+            await integration_engine.ensure_tables()
+        except Exception as _ie:
+            print(f"[INTEGRATION] ensure_tables error (non-fatal): {_ie}")
 
     # ── Khôi phục vị trí AGV Line từ DB (last_tag) ───────────────────────────
     try:
@@ -1073,7 +1086,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.1.13:8050/home")
+    return RedirectResponse(url="http://192.168.0.89:8050/home")
 
 # ==========================
 # DEBUG ROUTES
@@ -1104,9 +1117,14 @@ async def move_agv(cmd: MoveCommand):
                 try:
                     ok = await asyncio.to_thread(
                         _dispatch_go_to, cmd.agv_id, cmd.destination,
-                        start_node=None, session_id=None
+                        start_node=None, session_id=cmd.session_id or None
                     )
                     order_id = str(uuid.uuid4())
+                    # Sau lệnh cuối của batch → tự về sạc
+                    if cmd.return_to_charge:
+                        from task_queue import agv_task_queue as _tq, CMD_GO_CHARGE
+                        _tq.dispatch_or_queue(cmd.agv_id, CMD_GO_CHARGE, session_id=cmd.session_id or None)
+                        print(f"[API] {cmd.agv_id}: return_to_charge queued sau session={cmd.session_id}")
                     return {"orderId": order_id, "status": "dispatched", "agv_type": "LINE"}
                 except Exception as _le:
                     raise HTTPException(status_code=400, detail=f"LINE AGV dispatch lỗi: {_le}")
@@ -2328,9 +2346,20 @@ async def create_task(request: Request):
     destination   = (data.get("destination") or "").strip()
     map_id        = (data.get("map_id") or "").strip() or None
     notes         = (data.get("notes") or "").strip()
-    operator_name = (data.get("operator_name") or "").strip() or None
-    operator_id   = (data.get("operator_id") or "").strip() or None
-    send_order    = data.get("send_order", True)   # False = chỉ lưu, không gửi lệnh
+    operator_name    = (data.get("operator_name") or "").strip() or None
+    operator_id      = (data.get("operator_id") or "").strip() or None
+    session_id       = (data.get("session_id") or "").strip() or None
+    return_to_charge = bool(data.get("return_to_charge", False))
+    send_order       = data.get("send_order", True)
+    # Thông tin đơn hàng từ WMS (tuỳ chọn): {"product_code": ..., "type": ..., "quantity": ...}
+    raw_order_info = data.get("order_info")
+    import json as _json
+    if isinstance(raw_order_info, dict) and raw_order_info:
+        order_info = _json.dumps(raw_order_info, ensure_ascii=False)
+    elif isinstance(raw_order_info, str) and raw_order_info.strip():
+        order_info = raw_order_info.strip()
+    else:
+        order_info = None
 
     if not agv_id or not destination:
         raise HTTPException(400, "agv_id và destination là bắt buộc")
@@ -2344,9 +2373,9 @@ async def create_task(request: Request):
     try:
         async with pool.acquire() as conn:
             await conn.execute(
-                "INSERT INTO agv_tasks (task_id, agv_id, destination, map_id, status, notes, operator_name, operator_id) "
-                "VALUES ($1,$2,$3,$4,'pending',$5,$6,$7)",
-                task_id, agv_id, destination, map_id, notes, operator_name, operator_id,
+                "INSERT INTO agv_tasks (task_id, agv_id, destination, map_id, status, notes, operator_name, operator_id, order_info) "
+                "VALUES ($1,$2,$3,$4,'pending',$5,$6,$7,$8::jsonb)",
+                task_id, agv_id, destination, map_id, notes, operator_name, operator_id, order_info,
             )
     except Exception as e:
         print(f"[TASK] INSERT thất bại: {e}")
@@ -2359,7 +2388,8 @@ async def create_task(request: Request):
 
     # Gửi lệnh di chuyển thực sự
     try:
-        cmd = MoveCommand(agv_id=agv_id, destination=destination, map_id=map_id)
+        cmd = MoveCommand(agv_id=agv_id, destination=destination, map_id=map_id,
+                          session_id=session_id, return_to_charge=return_to_charge)
         result = await move_agv(cmd)
         order_id = result.get("orderId", "")
         async with pool.acquire() as conn:
@@ -2373,13 +2403,22 @@ async def create_task(request: Request):
             await conn.execute(
                 "UPDATE agv_tasks SET status='failed', updated_at=NOW() WHERE task_id=$1", task_id
             )
-        # Vẫn trả 200 kèm error detail để frontend biết task đã được lưu
+        asyncio.create_task(integration_engine.fire_callbacks(
+            task_id, "failed",
+            {"task_id": task_id, "agv_id": agv_id, "destination": destination,
+             "map_id": map_id, "status": "failed", "operator_name": operator_name, "operator_id": operator_id}
+        ))
         return {"task_id": task_id, "status": "failed", "error": e.detail}
     except Exception as e:
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE agv_tasks SET status='failed', updated_at=NOW() WHERE task_id=$1", task_id
             )
+        asyncio.create_task(integration_engine.fire_callbacks(
+            task_id, "failed",
+            {"task_id": task_id, "agv_id": agv_id, "destination": destination,
+             "map_id": map_id, "status": "failed", "operator_name": operator_name, "operator_id": operator_id}
+        ))
         return {"task_id": task_id, "status": "failed", "error": str(e)}
 
 
@@ -2396,6 +2435,9 @@ async def cancel_task(task_id: str):
         await asyncio.to_thread(cancel_agv_order, row["agv_id"])
     except Exception:
         pass
+    asyncio.create_task(
+        integration_engine.fire_callbacks(task_id, "cancelled", dict(row) | {"status": "cancelled"})
+    )
     return {"status": "cancelled", "task_id": task_id}
 
 
@@ -2405,7 +2447,100 @@ async def mark_task_done(task_id: str):
         await conn.execute(
             "UPDATE agv_tasks SET status='done', updated_at=NOW() WHERE task_id=$1", task_id
         )
+        row = await conn.fetchrow("SELECT * FROM agv_tasks WHERE task_id=$1", task_id)
+    asyncio.create_task(
+        integration_engine.fire_callbacks(task_id, "completed", dict(row) if row else {"task_id": task_id, "status": "done"})
+    )
     return {"status": "done", "task_id": task_id}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INTEGRATION API
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/integrations")
+async def api_list_integrations():
+    return await integration_engine.list_integrations()
+
+@app.post("/api/integrations")
+async def api_create_integration(request: Request):
+    data = await request.json()
+    try:
+        result = await integration_engine.create_integration(data)
+        return result
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+@app.get("/api/integrations/{conn_id}")
+async def api_get_integration(conn_id: str):
+    row = await integration_engine.get_integration(conn_id)
+    if not row:
+        raise HTTPException(404, "Không tìm thấy kết nối")
+    return row
+
+@app.put("/api/integrations/{conn_id}")
+async def api_update_integration(conn_id: str, request: Request):
+    data = await request.json()
+    result = await integration_engine.update_integration(conn_id, data)
+    if not result:
+        raise HTTPException(404, "Không tìm thấy kết nối")
+    return result
+
+@app.delete("/api/integrations/{conn_id}")
+async def api_delete_integration(conn_id: str):
+    ok = await integration_engine.delete_integration(conn_id)
+    if not ok:
+        raise HTTPException(404, "Không tìm thấy kết nối")
+    return {"deleted": True, "conn_id": conn_id}
+
+@app.get("/api/integrations/{conn_id}/logs")
+async def api_integration_logs(conn_id: str, limit: int = 100):
+    return await integration_engine.get_logs(conn_id, limit)
+
+@app.post("/api/integrations/{conn_id}/test")
+async def api_test_integration(conn_id: str):
+    return await integration_engine.test_callback(conn_id)
+
+@app.post("/api/agv/tot/{conn_id}")
+async def api_webhook_inbound(conn_id: str, request: Request):
+    """Endpoint nhận lệnh từ WMS/ERP."""
+    # Lấy API key từ header Authorization hoặc query param
+    auth_header = request.headers.get("Authorization", "")
+    api_key = auth_header.replace("Bearer ", "").replace("bearer ", "").strip()
+    if not api_key:
+        api_key = request.query_params.get("api_key", "")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "Body phải là JSON hợp lệ")
+    try:
+        result = await integration_engine.handle_webhook(conn_id, api_key, body)
+        # Tự động dispatch task nếu có agv_id và destination
+        if result.get("agv_id") and result.get("destination"):
+            try:
+                cmd = MoveCommand(
+                    agv_id=result["agv_id"],
+                    destination=result["destination"],
+                    map_id=body.get("map_id"),
+                )
+                mv = await move_agv(cmd)
+                if pool:
+                    async with pool.acquire() as _c:
+                        await _c.execute(
+                            "UPDATE agv_tasks SET status='running', order_id=$1 WHERE task_id=$2",
+                            mv.get("orderId", ""), result["task_id"],
+                        )
+                result["order_id"] = mv.get("orderId", "")
+                result["status"] = "running"
+            except Exception as _de:
+                print(f"[WEBHOOK] dispatch error: {_de}")
+        return result
+    except PermissionError as e:
+        raise HTTPException(401, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 # ==========================
@@ -3443,11 +3578,29 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
     return True
 
 
+import datetime as _dt
+
+# Ngưỡng online/offline — giống hệt Web_UI/agv_manager.py STATUS_THRESHOLD_SECONDS
+_AGV_ONLINE_THRESHOLD_SEC = 30
+
+def _conn_from_last_seen(last_seen) -> str:
+    """Tính connection status từ DB last_seen — cùng logic với AGVManager."""
+    if not last_seen:
+        return "OFFLINE"
+    try:
+        now_utc = _dt.datetime.now(_dt.timezone.utc)
+        # Đảm bảo timezone-aware để tránh lỗi so sánh
+        ls = last_seen if last_seen.tzinfo else last_seen.replace(tzinfo=_dt.timezone.utc)
+        return "ONLINE" if (now_utc - ls).total_seconds() <= _AGV_ONLINE_THRESHOLD_SEC else "OFFLINE"
+    except Exception:
+        return "OFFLINE"
+
+
 @app.get("/api/execute/agv-list")
 async def execute_agv_list():
     """Danh sách AGV từ bảng agv_devices, kết hợp trạng thái real-time.
     Dùng psycopg2 (sync trong thread) — cùng pattern với agv_manager.py."""
-    from line_agv_handler import line_agv_handler, OFFLINE_TIMEOUT_SEC as _LINE_OFFLINE_SEC
+    from line_agv_handler import line_agv_handler
     from task_queue import agv_task_queue
 
     # ── Đọc từ DB bằng psycopg2 (giống agv_manager.py, không bị lỗi INET type) ─
@@ -3488,14 +3641,9 @@ async def execute_agv_list():
 
         if is_line:
             st = line_agv_handler.state_store.get(agv_id)
-            # Ưu tiên connection_state == "ONLINE" (set bởi _on_state, cleared bởi LWT thật)
-            # Fallback: time-based nếu chưa nhận state nào (last_update == 0)
-            if st and st.last_update > 0 and st.connection_state == "ONLINE":
-                line_conn = "ONLINE"
-            elif st and st.last_update > 0 and (time.time() - st.last_update) < _LINE_OFFLINE_SEC:
-                line_conn = "ONLINE"
-            else:
-                line_conn = "OFFLINE"
+            # Dùng DB last_seen — cùng nguồn dữ liệu với AGVManager
+            # last_seen được cập nhật bởi agv_heartbeat.touch() mỗi khi nhận bất kỳ MQTT nào
+            line_conn = _conn_from_last_seen(last_seen)
             result.append({
                 "agv_id":           agv_id,
                 "agv_type":         agv_type,
@@ -3539,7 +3687,7 @@ async def execute_agv_list():
                 "battery_blocking": False,
                 "driving":          bool(st.get("driving")),
                 "paused":           bool(st.get("paused")),
-                "connection":       st.get("connection", "ONLINE") if st else "OFFLINE",
+                "connection":       _conn_from_last_seen(last_seen),
                 "operating_mode":   st.get("operatingMode", "MANUAL"),
                 "is_busy":          agv_task_queue.is_busy(agv_id),
                 "queue_size":       agv_task_queue.queue_size(agv_id),
@@ -3734,7 +3882,7 @@ async def execute_agv_positions(map_id: str):
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT name, agv_type FROM agv_devices WHERE map_id = %s",
+                    "SELECT name, agv_type, last_seen FROM agv_devices WHERE map_id = %s",
                     (mid,)
                 )
                 devices = cur.fetchall()
@@ -3755,27 +3903,22 @@ async def execute_agv_positions(map_id: str):
         raise HTTPException(status_code=503, detail=str(e))
 
     result = []
-    for (name, agv_type_raw) in devices:
+    for (name, agv_type_raw, dev_last_seen) in devices:
         agv_id       = str(name)
         agv_type_raw = str(agv_type_raw or "")
         is_line      = not agv_type_raw.lower().startswith("slam")
 
+        # Dùng DB last_seen cho tất cả loại AGV — cùng logic với AGVManager
+        connection = _conn_from_last_seen(dev_last_seen)
+
         if is_line:
-            from line_agv_handler import OFFLINE_TIMEOUT_SEC as _LINE_OFF_SEC
             st           = line_agv_handler.state_store.get(agv_id)
             current_node = str(st.current_tag) if (st and st.current_tag is not None and st.current_tag != 0) else None
-            if st and st.last_update > 0 and st.connection_state == "ONLINE":
-                connection = "ONLINE"
-            elif st and st.last_update > 0 and (time.time() - st.last_update) < _LINE_OFF_SEC:
-                connection = "ONLINE"
-            else:
-                connection = "OFFLINE"
             driving  = st.driving if st else False
             battery  = st.battery if st else None
         else:
             st           = agv_manager.get_agv(agv_id) or {}
             current_node = str(st.get("lastNodeId") or "") or None
-            connection   = "ONLINE" if st else "OFFLINE"
             driving      = bool(st.get("driving"))
             battery      = st.get("batteryState", {}).get("batteryCharge") if st else None
 

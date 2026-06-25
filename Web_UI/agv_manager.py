@@ -331,62 +331,62 @@ def layout(lang: str = "vi"):
                     "padding": "18px",
                 },
                 children=[
-                    html.H4("Thêm AGV mới", className="mb-1 text-white"),
+                    html.H4(t(lang, "agv.add_panel.title", "Add New AGV"), className="mb-1 text-white"),
                     html.P(
-                        "Chọn loại và bản đồ. Các thông tin khác (tên, IP, MQTT...) sẽ được cấu hình sau qua lệnh Config Mode.",
+                        t(lang, "agv.add_panel.desc", "Select type and map. Other settings will be configured later via Config Mode."),
                         style={"fontSize": "12px", "color": "#8c909f", "marginBottom": "20px"},
                     ),
 
-                    dbc.Label("Loại AGV", className="mb-1",
+                    dbc.Label(t(lang, "agv.type_label", "AGV Type"), className="mb-1",
                               style={"fontSize": "13px", "color": "#c2c6d6", "fontWeight": "600"}),
                     dcc.Dropdown(
                         id="add-agv-type",
                         options=[
-                            {"label": "🤖 AGV Carry (kéo hàng — Line)", "value": "carry"},
-                            {"label": "🚜 AGV Tow (kéo xe — Line)",      "value": "tow"},
-                            {"label": "🛒 AGV Trailer (kéo rơ-moóc — Line)", "value": "trailer"},
-                            {"label": "📷 AGV Slam / QR Code (VDA5050)", "value": "slam_qr"},
+                            {"label": t(lang, "agv.type.carry",   "🤖 AGV Carry (tow load — Line)"),    "value": "carry"},
+                            {"label": t(lang, "agv.type.tow",     "🚜 AGV Tow (tow cart — Line)"),      "value": "tow"},
+                            {"label": t(lang, "agv.type.trailer", "🛒 AGV Trailer (tow trailer — Line)"), "value": "trailer"},
+                            {"label": t(lang, "agv.type.slam",    "📷 AGV Slam / QR Code (VDA5050)"),   "value": "slam_qr"},
                         ],
-                        placeholder="Chọn loại AGV…",
+                        placeholder=t(lang, "agv.placeholder.type", "Select AGV type..."),
                         className="mb-4",
                         style={"color": "#000"},
                     ),
 
-                    dbc.Label("Bản đồ", className="mb-1",
+                    dbc.Label(t(lang, "agv.map_label", "Map"), className="mb-1",
                               style={"fontSize": "13px", "color": "#c2c6d6", "fontWeight": "600"}),
                     dcc.Dropdown(
                         id="add-agv-map",
                         options=[{"label": m["name"], "value": m["id"]} for m in load_maps()],
-                        placeholder="Chọn bản đồ…",
+                        placeholder=t(lang, "agv.placeholder.map", "Select map..."),
                         className="mb-2",
                         clearable=True,
                         style={"color": "#000"},
                     ),
                     html.Small(
-                        "💡 Line AGV cần bản đồ để hiển thị vị trí theo RFID tag.",
+                        t(lang, "agv.line_hint", "💡 Line AGV needs a map to show position via RFID tag."),
                         style={"color": "#8c909f", "fontSize": "11px", "display": "block", "marginBottom": "24px"},
                     ),
 
-                    # Thông tin mặc định hiển thị để người dùng biết
+                    # Default info display
                     html.Div(
                         [
-                            html.Div("Thông tin mặc định khi tạo:", style={"fontSize": "11px", "color": "#8c909f", "marginBottom": "6px", "fontWeight": "600"}),
-                            html.Div([html.Span("Tên AGV: ", style={"color": "#8c909f"}), html.Span("Tự sinh (AGVxxx)", style={"color": "#adc6ff", "fontFamily": "monospace"})], style={"fontSize": "11px", "marginBottom": "3px"}),
+                            html.Div(t(lang, "agv.default_info_title", "Default values on creation:"), style={"fontSize": "11px", "color": "#8c909f", "marginBottom": "6px", "fontWeight": "600"}),
+                            html.Div([html.Span(t(lang, "agv.default_name_lbl", "AGV Name: "), style={"color": "#8c909f"}), html.Span(t(lang, "agv.default_name_val", "Auto-generated (AGVxxx)"), style={"color": "#adc6ff", "fontFamily": "monospace"})], style={"fontSize": "11px", "marginBottom": "3px"}),
                             html.Div([html.Span("Factory: ", style={"color": "#8c909f"}), html.Span("tot", style={"color": "#adc6ff", "fontFamily": "monospace"})], style={"fontSize": "11px", "marginBottom": "3px"}),
-                            html.Div([html.Span("IP / Port: ", style={"color": "#8c909f"}), html.Span("Chưa cấu hình", style={"color": "#555"})], style={"fontSize": "11px"}),
+                            html.Div([html.Span("IP / Port: ", style={"color": "#8c909f"}), html.Span(t(lang, "agv.default_ip", "Not configured"), style={"color": "#555"})], style={"fontSize": "11px"}),
                         ],
                         style={"background": "rgba(255,255,255,.04)", "border": "1px solid rgba(255,255,255,.08)", "borderRadius": "8px", "padding": "10px 12px", "marginBottom": "20px"},
                     ),
 
-                    # Hidden inputs giữ lại để callback cũ không lỗi
+                    # Hidden inputs
                     dbc.Input(id="add-agv-name",    value="", style={"display": "none"}),
                     dbc.Input(id="add-agv-factory", value="", style={"display": "none"}),
                     dbc.Input(id="add-agv-ip",      value="", style={"display": "none"}),
                     dbc.Input(id="add-agv-port",    value="", style={"display": "none"}),
 
-                    dbc.Button("Thêm AGV", id="btn-save-agv", color="primary", className="me-2",
+                    dbc.Button(t(lang, "agv.add", "+ Add AGV"), id="btn-save-agv", color="primary", className="me-2",
                                style={"fontWeight": "600"}),
-                    dbc.Button("Đóng", id="btn-close-agv", color="secondary", outline=True),
+                    dbc.Button(t(lang, "agv.btn.close", "Close"), id="btn-close-agv", color="secondary", outline=True),
                 ],
             ),
             # ── Modal điều khiển AGV (mở khi click "Cấu hình") ────────────

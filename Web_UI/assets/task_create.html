@@ -64,12 +64,12 @@ tailwind.config = {
 <!-- ── LEFT: Task Library ── -->
 <aside class="w-[280px] h-full flex flex-col bg-surface-container-lowest border-r border-outline-variant/10 shrink-0">
   <div class="px-6 pt-7 pb-5">
-    <div class="text-[10px] font-bold uppercase tracking-widest text-outline/60 mb-1.5 font-status-code">Quản lý lộ trình</div>
-    <h3 class="text-on-surface font-bold text-base">Thư viện tác vụ</h3>
+    <div class="text-[10px] font-bold uppercase tracking-widest text-outline/60 mb-1.5 font-status-code" data-i18n="lib_sub">Quản lý lộ trình</div>
+    <h3 class="text-on-surface font-bold text-base" data-i18n="lib_title">Thư viện tác vụ</h3>
   </div>
 
   <div class="flex-1 overflow-y-auto px-4 space-y-2.5 pb-4">
-    <div class="text-[9px] font-bold uppercase tracking-widest text-outline/50 px-1 pt-1 pb-0.5 font-status-code">Hành động cơ bản</div>
+    <div class="text-[9px] font-bold uppercase tracking-widest text-outline/50 px-1 pt-1 pb-0.5 font-status-code" data-i18n="basic_actions">Hành động cơ bản</div>
 
     <!-- Move -->
     <div class="group p-3 rounded-xl flex items-center gap-3 cursor-pointer active:scale-[.97] transition-all duration-200" onclick="addStep('move')"
@@ -78,8 +78,8 @@ tailwind.config = {
         <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1">directions_car</span>
       </div>
       <div class="flex-1">
-        <div class="text-xs font-semibold text-on-surface">Đi đến điểm</div>
-        <div class="text-[10px] text-outline">Di chuyển tới node đích</div>
+        <div class="text-xs font-semibold text-on-surface" data-i18n="step_move">Đi đến điểm</div>
+        <div class="text-[10px] text-outline" data-i18n="step_move_desc">Di chuyển tới node đích</div>
       </div>
       <span class="material-symbols-outlined text-outline/40 group-hover:text-primary transition-colors text-[18px]">drag_indicator</span>
     </div>
@@ -91,8 +91,8 @@ tailwind.config = {
         <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1">bolt</span>
       </div>
       <div class="flex-1">
-        <div class="text-xs font-semibold text-on-surface">Sạc pin</div>
-        <div class="text-[10px] text-outline">Gửi AGV đến trạm sạc</div>
+        <div class="text-xs font-semibold text-on-surface" data-i18n="step_charge">Sạc pin</div>
+        <div class="text-[10px] text-outline" data-i18n="step_charge_desc">Gửi AGV đến trạm sạc</div>
       </div>
       <span class="material-symbols-outlined text-[18px] transition-colors" style="color:rgba(245,158,11,.35)">drag_indicator</span>
     </div>
@@ -104,8 +104,8 @@ tailwind.config = {
         <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1">pause_circle</span>
       </div>
       <div class="flex-1">
-        <div class="text-xs font-semibold text-on-surface">Về khu chờ</div>
-        <div class="text-[10px] text-outline">Di chuyển về vùng standby</div>
+        <div class="text-xs font-semibold text-on-surface" data-i18n="step_wait_zone">Về khu chờ</div>
+        <div class="text-[10px] text-outline" data-i18n="step_wait_zone_desc">Di chuyển về vùng standby</div>
       </div>
       <span class="material-symbols-outlined text-[18px]" style="color:rgba(140,144,159,.35)">drag_indicator</span>
     </div>
@@ -117,14 +117,14 @@ tailwind.config = {
         <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1">hourglass_empty</span>
       </div>
       <div class="flex-1">
-        <div class="text-xs font-semibold text-on-surface">Chờ tại chỗ</div>
-        <div class="text-[10px] text-outline">Dừng tại node, chờ X giây</div>
+        <div class="text-xs font-semibold text-on-surface" data-i18n="step_wait">Chờ tại chỗ</div>
+        <div class="text-[10px] text-outline" data-i18n="step_wait_desc">Dừng tại node, chờ X giây</div>
       </div>
       <span class="material-symbols-outlined text-[18px]" style="color:rgba(129,140,248,.35)">drag_indicator</span>
     </div>
 
     <div class="h-px my-2" style="background:rgba(140,144,159,.12)"></div>
-    <div class="text-[9px] font-bold uppercase tracking-widest px-1 pb-1 font-status-code" style="color:rgba(140,144,159,.45)">Bộ mẫu nhanh</div>
+    <div class="text-[9px] font-bold uppercase tracking-widest px-1 pb-1 font-status-code" style="color:rgba(140,144,159,.45)" data-i18n="quick_tpl">Bộ mẫu nhanh</div>
 
     <div class="group p-3 rounded-xl flex items-center gap-3 cursor-pointer active:scale-[.97] transition-all" onclick="applyTemplate('pickup_delivery')"
       style="background:#1a2235;border:1px solid rgba(52,211,153,.2)">
@@ -132,8 +132,8 @@ tailwind.config = {
         <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1">inventory_2</span>
       </div>
       <div class="flex-1">
-        <div class="text-xs font-semibold text-on-surface">Nhận &amp; Giao hàng</div>
-        <div class="text-[10px] text-outline">Đến lấy → Đến giao</div>
+        <div class="text-xs font-semibold text-on-surface" data-i18n="tpl_pickup">Nhận &amp; Giao hàng</div>
+        <div class="text-[10px] text-outline" data-i18n="tpl_pickup_desc">Đến lấy → Đến giao</div>
       </div>
     </div>
 
@@ -143,8 +143,8 @@ tailwind.config = {
         <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1">battery_charging_full</span>
       </div>
       <div class="flex-1">
-        <div class="text-xs font-semibold text-on-surface">Sạc rồi chờ</div>
-        <div class="text-[10px] text-outline">Sạc pin → Khu chờ</div>
+        <div class="text-xs font-semibold text-on-surface" data-i18n="tpl_charge">Sạc rồi chờ</div>
+        <div class="text-[10px] text-outline" data-i18n="tpl_charge_desc">Sạc pin → Khu chờ</div>
       </div>
     </div>
 
@@ -154,16 +154,16 @@ tailwind.config = {
         <span class="material-symbols-outlined text-[22px]" style="font-variation-settings:'FILL' 1">track_changes</span>
       </div>
       <div class="flex-1">
-        <div class="text-xs font-semibold text-on-surface">Tuần tra</div>
-        <div class="text-[10px] text-outline">Di chuyển qua nhiều điểm</div>
+        <div class="text-xs font-semibold text-on-surface" data-i18n="tpl_patrol">Tuần tra</div>
+        <div class="text-[10px] text-outline" data-i18n="tpl_patrol_desc">Di chuyển qua nhiều điểm</div>
       </div>
     </div>
 
     <!-- Quy trình đã lưu -->
     <div class="h-px my-2" style="background:rgba(140,144,159,.12)"></div>
     <div class="flex items-center justify-between px-1 pb-1">
-      <div class="text-[9px] font-bold uppercase tracking-widest font-status-code" style="color:rgba(140,144,159,.45)">Quy trình đã lưu</div>
-      <button onclick="loadTemplateList()" class="text-[10px] hover:text-primary transition-colors" style="color:rgba(140,144,159,.5);background:none;border:none;cursor:pointer">↻ Tải lại</button>
+      <div class="text-[9px] font-bold uppercase tracking-widest font-status-code" style="color:rgba(140,144,159,.45)" data-i18n="saved_wf">Quy trình đã lưu</div>
+      <button onclick="loadTemplateList()" class="text-[10px] hover:text-primary transition-colors" style="color:rgba(140,144,159,.5);background:none;border:none;cursor:pointer" data-i18n="reload">↻ Tải lại</button>
     </div>
     <div id="saved-templates" class="flex flex-col gap-1.5">
       <div class="text-[10px] text-center py-3" style="color:rgba(140,144,159,.4)">Đang tải...</div>
@@ -173,7 +173,7 @@ tailwind.config = {
   <div class="p-5 bg-surface-container-lowest border-t border-outline-variant/10">
     <button onclick="saveWorkflow()" class="w-full bg-primary-container text-white py-3 rounded-xl font-bold hover:brightness-110 active:scale-[.98] transition-all shadow-lg text-sm flex items-center justify-center gap-2" style="background:#4d8eff">
       <span class="material-symbols-outlined text-[18px]">save</span>
-      Lưu quy trình
+      <span data-i18n="save_wf">Lưu quy trình</span>
     </button>
   </div>
 </aside>
@@ -199,11 +199,11 @@ tailwind.config = {
           <select id="map-select" onchange="onMapChange()"
             class="rounded-lg px-3 py-1.5 pr-7 text-xs outline-none appearance-none cursor-pointer transition-all"
             style="background:#ffffff;color:#111111;border:1px solid #c0c8d8">
-            <option value="">-- Bản đồ --</option>
+            <option value="" data-i18n-opt="sel_map">-- Bản đồ --</option>
           </select>
           <span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-outline pointer-events-none" style="font-size:14px">expand_more</span>
         </div>
-        <input id="task-name" type="text" placeholder="Tên tác vụ..."
+        <input id="task-name" type="text" data-i18n="task_name_ph" data-i18n-attr="placeholder" placeholder="Tên tác vụ..."
           class="bg-surface-container-high border border-outline-variant/20 rounded-lg px-3 py-1.5 text-xs text-on-surface outline-none focus:border-primary/50 transition-all w-40"/>
       </div>
       <div class="flex bg-surface-container-high/60 border border-outline-variant/10 rounded-lg p-1">
@@ -220,7 +220,7 @@ tailwind.config = {
           <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
           <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
         </span>
-        <span class="text-[10px] font-status-code uppercase text-on-surface-variant">Sẵn sàng</span>
+        <span class="text-[10px] font-status-code uppercase text-on-surface-variant" data-i18n="ready">Sẵn sàng</span>
       </div>
     </div>
   </div>
@@ -245,7 +245,7 @@ tailwind.config = {
             <span class="material-symbols-outlined" style="font-size:16px">tune</span>
           </div>
           <div>
-            <div class="font-bold text-on-surface text-xs uppercase tracking-tight">Thông số bước</div>
+            <div class="font-bold text-on-surface text-xs uppercase tracking-tight" data-i18n="step_params">Thông số bước</div>
             <div class="text-[10px] font-status-code text-outline/50" id="rp-step-badge"></div>
           </div>
         </div>
@@ -258,14 +258,14 @@ tailwind.config = {
       <div id="config-form" class="flex-1 overflow-y-auto p-5 space-y-5">
         <!-- Wait seconds -->
         <div id="cfg-wait-grp" class="hidden">
-          <label class="block text-[10px] font-bold text-outline uppercase tracking-widest mb-2.5 font-status-code">Thời gian chờ (giây)</label>
+          <label class="block text-[10px] font-bold text-outline uppercase tracking-widest mb-2.5 font-status-code" data-i18n="wait_sec">Thời gian chờ (giây)</label>
           <input type="number" id="cfg-wait-sec" value="30" min="1" max="3600"
             class="w-full bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-3 text-sm text-on-surface focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none"/>
         </div>
         <!-- Speed -->
         <div>
           <div class="flex justify-between items-center mb-3">
-            <label class="text-[10px] font-bold text-outline uppercase tracking-widest font-status-code">Tốc độ tối đa (m/s)</label>
+            <label class="text-[10px] font-bold text-outline uppercase tracking-widest font-status-code" data-i18n="speed_lbl">Tốc độ tối đa (m/s)</label>
             <span class="font-status-code text-sm text-primary font-bold bg-primary/10 px-2 py-0.5 rounded border border-primary/20" id="speed-display">0.5</span>
           </div>
           <input type="range" id="cfg-speed" min="0.1" max="2.0" step="0.1" value="0.5" class="w-full accent-primary"
@@ -274,24 +274,24 @@ tailwind.config = {
         </div>
         <!-- Notes -->
         <div>
-          <label class="block text-[10px] font-bold text-outline uppercase tracking-widest mb-2.5 font-status-code">Ghi chú</label>
-          <textarea id="cfg-notes" rows="2" placeholder="VD: Lấy kiện hàng tại đây..."
+          <label class="block text-[10px] font-bold text-outline uppercase tracking-widest mb-2.5 font-status-code" data-i18n="notes">Ghi chú</label>
+          <textarea id="cfg-notes" rows="2" data-i18n="notes_ph" data-i18n-attr="placeholder" placeholder="VD: Lấy kiện hàng tại đây..."
             class="w-full bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-3 text-sm text-on-surface focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all outline-none resize-none"></textarea>
         </div>
         <!-- Priority -->
         <div>
-          <label class="block text-[10px] font-bold text-outline uppercase tracking-widest mb-2.5 font-status-code">Ưu tiên</label>
+          <label class="block text-[10px] font-bold text-outline uppercase tracking-widest mb-2.5 font-status-code" data-i18n="priority">Ưu tiên</label>
           <div class="grid grid-cols-3 gap-2">
-            <div class="p-2 rounded-lg border text-center text-[11px] font-bold cursor-pointer transition-all border-primary/40 bg-primary/10 text-primary p-opt" data-p="normal" onclick="setPriority('normal')">Bình thường</div>
-            <div class="p-2 rounded-lg border text-center text-[11px] font-bold cursor-pointer transition-all border-outline-variant/20 text-outline hover:bg-surface-container-high p-opt" data-p="high" onclick="setPriority('high')">Cao</div>
-            <div class="p-2 rounded-lg border text-center text-[11px] font-bold cursor-pointer transition-all border-outline-variant/20 text-outline hover:bg-surface-container-high p-opt" data-p="urgent" onclick="setPriority('urgent')">Khẩn</div>
+            <div class="p-2 rounded-lg border text-center text-[11px] font-bold cursor-pointer transition-all border-primary/40 bg-primary/10 text-primary p-opt" data-p="normal" onclick="setPriority('normal')" data-i18n="p_normal">Bình thường</div>
+            <div class="p-2 rounded-lg border text-center text-[11px] font-bold cursor-pointer transition-all border-outline-variant/20 text-outline hover:bg-surface-container-high p-opt" data-p="high" onclick="setPriority('high')" data-i18n="p_high">Cao</div>
+            <div class="p-2 rounded-lg border text-center text-[11px] font-bold cursor-pointer transition-all border-outline-variant/20 text-outline hover:bg-surface-container-high p-opt" data-p="urgent" onclick="setPriority('urgent')" data-i18n="p_urgent">Khẩn</div>
           </div>
         </div>
         <!-- Apply -->
         <button onclick="applyConfig()"
           class="w-full py-3 bg-surface-container-high hover:bg-primary/10 hover:text-primary hover:border-primary/30 text-on-surface border border-outline-variant/20 rounded-xl text-xs font-bold transition-all active:scale-[.98] flex items-center justify-center gap-2">
           <span class="material-symbols-outlined" style="font-size:18px">sync_alt</span>
-          Cập nhật thay đổi
+          <span data-i18n="apply_changes">Cập nhật thay đổi</span>
         </button>
       </div>
     </aside>
@@ -301,7 +301,7 @@ tailwind.config = {
   <footer class="bg-surface-container-lowest border-t border-outline-variant/10 px-6 py-2.5 flex items-center justify-between z-10">
     <div class="flex gap-8 items-center">
       <div class="flex items-center gap-2">
-        <span class="text-[9px] font-bold text-outline uppercase tracking-widest font-status-code">Bước</span>
+        <span class="text-[9px] font-bold text-outline uppercase tracking-widest font-status-code" data-i18n="step_lbl">Bước</span>
         <span class="font-status-code text-xs text-on-surface-variant px-2 py-0.5 bg-surface-container rounded" id="cf-steps">0</span>
       </div>
       <div id="submit-msg" class="text-xs font-semibold"></div>
@@ -309,11 +309,11 @@ tailwind.config = {
     <div class="flex gap-3">
       <button onclick="clearAll()" class="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-surface-container hover:bg-surface-bright text-xs font-semibold transition-all text-on-surface-variant hover:text-on-surface border border-outline-variant/10">
         <span class="material-symbols-outlined" style="font-size:16px">delete_sweep</span>
-        Xóa hết
+        <span data-i18n="clear_all">Xóa hết</span>
       </button>
       <button class="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-surface-container hover:bg-surface-bright text-xs font-semibold transition-all text-on-surface-variant hover:text-on-surface border border-outline-variant/10">
         <span class="material-symbols-outlined" style="font-size:16px">play_circle</span>
-        Mô phỏng
+        <span data-i18n="simulate">Mô phỏng</span>
       </button>
     </div>
   </footer>
@@ -324,11 +324,122 @@ tailwind.config = {
 <div id="toast" class="fixed bottom-5 right-5 px-4 py-2.5 rounded-xl text-xs font-bold z-50 shadow-2xl hidden" style="animation:none"></div>
 
 <script>
+// ── I18N ──────────────────────────────────────────────────────────────────
+const _lang = new URLSearchParams(location.search).get('lang') || 'vi';
+const _I = {
+  vi:{
+    lib_title:'Thư viện tác vụ', lib_sub:'Quản lý lộ trình',
+    basic_actions:'Hành động cơ bản',
+    step_move:'Đi đến điểm', step_move_desc:'Di chuyển tới node đích',
+    step_charge:'Sạc pin', step_charge_desc:'Gửi AGV đến trạm sạc',
+    step_wait_zone:'Về khu chờ', step_wait_zone_desc:'Di chuyển về vùng standby',
+    step_wait:'Chờ tại chỗ', step_wait_desc:'Dừng tại node, chờ X giây',
+    quick_tpl:'Bộ mẫu nhanh',
+    tpl_pickup:'Nhận & Giao hàng', tpl_pickup_desc:'Đến lấy → Đến giao',
+    tpl_charge:'Sạc rồi chờ', tpl_charge_desc:'Sạc pin → Khu chờ',
+    tpl_patrol:'Tuần tra', tpl_patrol_desc:'Di chuyển qua nhiều điểm',
+    saved_wf:'Quy trình đã lưu', reload:'↻ Tải lại',
+    save_wf:'Lưu quy trình',
+    sel_map:'-- Bản đồ --', task_name_ph:'Tên tác vụ...',
+    ready:'Sẵn sàng',
+    step_params:'Thông số bước',
+    wait_sec:'Thời gian chờ (giây)', speed_lbl:'Tốc độ tối đa (m/s)',
+    notes:'Ghi chú', notes_ph:'VD: Lấy kiện hàng tại đây...',
+    priority:'Ưu tiên',
+    p_normal:'Bình thường', p_high:'Cao', p_urgent:'Khẩn',
+    apply_changes:'Cập nhật thay đổi',
+    step_lbl:'Bước', clear_all:'Xóa hết', simulate:'Mô phỏng',
+    no_steps:'Nhấn hành động bên trái để thêm bước',
+    no_steps_yet:'Chưa có bước nào',
+    add_move:'Thêm bước di chuyển',
+    trigger_label:'Tín hiệu kích hoạt', trigger_title:'Bắt đầu quy trình',
+    task_label:'Tác vụ',
+    sel_node:'-- Chọn node --',
+    wf_title:'Workflow',
+    err_load:'Lỗi tải', no_wf:'Chưa có quy trình nào', no_server:'Không kết nối được server',
+    confirm_load:'Tải quy trình "{name}" sẽ xóa quy trình hiện tại?',
+    loaded:'Đã tải: ',
+    confirm_del:'Xóa quy trình này?',
+    deleted:'Đã xóa', del_fail:'Xóa thất bại', conn_err:'Lỗi kết nối',
+    err_no_name:'Vui lòng đặt tên tác vụ trước khi lưu',
+    err_no_step:'Chưa có bước nào',
+    saved_wf_ok:'Đã lưu quy trình ',
+    save_fail:'Lưu thất bại',
+    step_added:'Đã thêm: ',
+    confirm_clear:'Xóa toàn bộ quy trình?',
+    config_updated:'Đã cập nhật bước',
+    confirm_tpl:'Áp dụng mẫu sẽ xóa quy trình hiện tại?',
+    tpl_applied:'Đã áp dụng mẫu',
+    step_suffix:'bước',
+    sending:'Đang gửi...',
+    sent_ok:'✓ Đã gửi {} bước',
+    sent_warn:'⚠ {} OK / {} lỗi',
+  },
+  en:{
+    lib_title:'Task Library', lib_sub:'Workflow Management',
+    basic_actions:'Basic Actions',
+    step_move:'Move to Point', step_move_desc:'Move to destination node',
+    step_charge:'Charge Battery', step_charge_desc:'Send AGV to charging station',
+    step_wait_zone:'Go to Wait Zone', step_wait_zone_desc:'Move to standby zone',
+    step_wait:'Wait in Place', step_wait_desc:'Stop at node, wait X seconds',
+    quick_tpl:'Quick Templates',
+    tpl_pickup:'Pickup & Delivery', tpl_pickup_desc:'Go pick → Go deliver',
+    tpl_charge:'Charge then Wait', tpl_charge_desc:'Charge → Wait Zone',
+    tpl_patrol:'Patrol', tpl_patrol_desc:'Move through multiple points',
+    saved_wf:'Saved Workflows', reload:'↻ Reload',
+    save_wf:'Save Workflow',
+    sel_map:'-- Map --', task_name_ph:'Task name...',
+    ready:'Ready',
+    step_params:'Step Parameters',
+    wait_sec:'Wait Duration (seconds)', speed_lbl:'Max Speed (m/s)',
+    notes:'Notes', notes_ph:'E.g.: Pick up package here...',
+    priority:'Priority',
+    p_normal:'Normal', p_high:'High', p_urgent:'Urgent',
+    apply_changes:'Apply Changes',
+    step_lbl:'Step', clear_all:'Clear All', simulate:'Simulate',
+    no_steps:'Click an action on the left to add a step',
+    no_steps_yet:'No steps yet',
+    add_move:'Add move step',
+    trigger_label:'Trigger Signal', trigger_title:'Start Workflow',
+    task_label:'Task',
+    sel_node:'-- Select node --',
+    wf_title:'Workflow',
+    err_load:'Load error', no_wf:'No workflows yet', no_server:'Cannot connect to server',
+    confirm_load:'Loading "{name}" will clear the current workflow?',
+    loaded:'Loaded: ',
+    confirm_del:'Delete this workflow?',
+    deleted:'Deleted', del_fail:'Delete failed', conn_err:'Connection error',
+    err_no_name:'Please enter a task name before saving',
+    err_no_step:'No steps yet',
+    saved_wf_ok:'Saved workflow ',
+    save_fail:'Save failed',
+    step_added:'Added: ',
+    confirm_clear:'Clear the entire workflow?',
+    config_updated:'Step updated',
+    confirm_tpl:'Applying template will clear current workflow?',
+    tpl_applied:'Template applied',
+    step_suffix:'steps',
+    sending:'Sending...',
+    sent_ok:'✓ Sent {} steps',
+    sent_warn:'⚠ {} OK / {} error(s)',
+  }
+};
+function _t(k){ return ((_I[_lang]||_I.vi)[k]) ?? k; }
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const attr=el.getAttribute('data-i18n-attr');
+    const val=_t(el.getAttribute('data-i18n'));
+    if(attr) el.setAttribute(attr,val); else el.textContent=val;
+  });
+  document.documentElement.lang=_lang;
+});
+
 const API = `${location.protocol}//${location.hostname}:8000`;
 let steps=[], selectedId=null, mapNodes=[], stepCtr=0;
 
 const ICONS = {move:'directions_car',charge:'bolt','wait-zone':'pause_circle',wait:'hourglass_empty'};
-const LABELS= {move:'Đi đến điểm',charge:'Sạc pin','wait-zone':'Về khu chờ',wait:'Chờ tại chỗ'};
+const LABELS_FN = () => ({move:_t('step_move'),charge:_t('step_charge'),'wait-zone':_t('step_wait_zone'),wait:_t('step_wait')});
+const LABELS = LABELS_FN();
 const ICON_STYLE={
   move: 'background:rgba(77,142,255,.2);border-color:rgba(77,142,255,.3);color:#adc6ff',
   charge: 'background:rgba(245,158,11,.18);border-color:rgba(245,158,11,.3);color:#fbbf24',
@@ -345,10 +456,10 @@ async function loadTemplateList(){
   const box = document.getElementById('saved-templates');
   try{
     const r = await fetch(`${API}/api/workflow-templates`);
-    if(!r.ok){ box.innerHTML=`<div class="text-[10px] text-center py-2" style="color:#f87171">Lỗi tải</div>`; return; }
+    if(!r.ok){ box.innerHTML=`<div class="text-[10px] text-center py-2" style="color:#f87171">${_t('err_load')}</div>`; return; }
     const list = await r.json();
     if(!list.length){
-      box.innerHTML=`<div class="text-[10px] text-center py-3" style="color:rgba(140,144,159,.4)">Chưa có quy trình nào</div>`;
+      box.innerHTML=`<div class="text-[10px] text-center py-3" style="color:rgba(140,144,159,.4)">${_t('no_wf')}</div>`;
       return;
     }
     box.innerHTML = list.map(t=>`
@@ -362,7 +473,7 @@ async function loadTemplateList(){
         </div>
         <div class="flex-1 min-w-0">
           <div class="text-[11px] font-semibold truncate" style="color:#dae2fd">${escHtml(t.name)}</div>
-          <div class="text-[9px]" style="color:rgba(140,144,159,.6)">${t.step_count} bước</div>
+          <div class="text-[9px]" style="color:rgba(140,144,159,.6)">${t.step_count} ${_t('step_suffix')}</div>
         </div>
         <button onclick="event.stopPropagation();deleteTemplate('${t.template_id}')"
           class="opacity-0 group-hover:opacity-100 transition-opacity"
@@ -371,12 +482,12 @@ async function loadTemplateList(){
         </button>
       </div>`).join('');
   }catch(e){
-    box.innerHTML=`<div class="text-[10px] text-center py-2" style="color:#f87171">Không kết nối được server</div>`;
+    box.innerHTML=`<div class="text-[10px] text-center py-2" style="color:#f87171">${_t('no_server')}</div>`;
   }
 }
 
 function loadTemplate(t){
-  if(steps.length && !confirm(`Tải quy trình "${t.name}" sẽ xóa quy trình hiện tại?`)) return;
+  if(steps.length && !confirm(_t('confirm_load').replace('{name}', t.name))) return;
   steps=[]; stepCtr=0; selectedId=null;
   window._currentTemplateId = t.template_id;
   document.getElementById('task-name').value = t.name;
@@ -386,16 +497,16 @@ function loadTemplate(t){
       waitSec:s.waitSec||30, speed:s.speed||0.5, notes:s.notes||'', priority:s.priority||'normal'});
   }
   showConfig(null); renderSteps();
-  toast(`Đã tải: "${t.name}" (${steps.length} bước)`,'success');
+  toast(`${_t('loaded')}"${t.name}" (${steps.length} ${_t('step_suffix')})`,'success');
 }
 
 async function deleteTemplate(templateId){
-  if(!confirm('Xóa quy trình này?')) return;
+  if(!confirm(_t('confirm_del'))) return;
   try{
     const r = await fetch(`${API}/api/workflow-templates/${templateId}`,{method:'DELETE'});
-    if(r.ok){ toast('Đã xóa','success'); loadTemplateList(); }
-    else toast('Xóa thất bại','error');
-  }catch(e){ toast('Lỗi kết nối','error'); }
+    if(r.ok){ toast(_t('deleted'),'success'); loadTemplateList(); }
+    else toast(_t('del_fail'),'error');
+  }catch(e){ toast(_t('conn_err'),'error'); }
 }
 
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -411,7 +522,7 @@ async function loadMaps(){
     if(!r.ok) return;
     const maps=await r.json();
     const sel=document.getElementById('map-select');
-    sel.innerHTML='<option value="">-- Bản đồ --</option>';
+    sel.innerHTML=`<option value="">${_t('sel_map')}</option>`;
     for(const m of maps)
       sel.appendChild(Object.assign(document.createElement('option'),{value:m.id,textContent:m.name||`Map ${m.id}`}));
     if(maps.length){ sel.value=maps[0].id; await loadNodes(maps[0].id); }
@@ -421,7 +532,7 @@ async function loadMaps(){
 async function loadNodes(mapId){
   mapNodes=[];
   const d=document.getElementById('cfg-dest');
-  if(d) d.innerHTML='<option value="">-- Chọn node --</option>';
+  if(d) d.innerHTML=`<option value="">${_t('sel_node')}</option>`;
   if(!mapId) return;
   try{
     const r=await fetch(`${API}/api/maps/${mapId}`);
@@ -440,7 +551,7 @@ function addStep(type){
   steps.push({id:`s${stepCtr}`,type,dest:'',waitSec:30,speed:0.5,notes:'',priority:'normal'});
   renderSteps();
   selectStep(`s${stepCtr}`);
-  toast(`Đã thêm: ${LABELS[type]}`,'info');
+  toast(`${_t('step_added')}${LABELS[type]}`,'info');
 }
 
 function removeStep(id){
@@ -461,7 +572,7 @@ function moveStep(id,dir){
 }
 
 function clearAll(){
-  if(steps.length&&!confirm('Xóa toàn bộ quy trình?')) return;
+  if(steps.length&&!confirm(_t('confirm_clear'))) return;
   steps=[];selectedId=null;window._currentTemplateId=null;
   document.getElementById('task-name').value='';
   showConfig(null);renderSteps();
@@ -476,10 +587,10 @@ function renderSteps(){
       <div class="w-96 border-2 border-dashed border-outline-variant/20 rounded-2xl h-32 flex items-center justify-center text-outline/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer group" style="background:rgba(6,14,32,.2)">
         <div class="flex flex-col items-center gap-2">
           <span class="material-symbols-outlined text-4xl group-hover:scale-110 transition-transform">add_circle</span>
-          <span class="text-xs font-semibold uppercase tracking-wider">Nhấn hành động bên trái để thêm bước</span>
+          <span class="text-xs font-semibold uppercase tracking-wider" data-i18n="no_steps">Nhấn hành động bên trái để thêm bước</span>
         </div>
       </div>`;
-    document.getElementById('ct-subtitle').textContent='Chưa có bước nào';
+    document.getElementById('ct-subtitle').textContent=_t('no_steps_yet');
     setEnabled(false); return;
   }
 
@@ -490,8 +601,8 @@ function renderSteps(){
         <span class="material-symbols-outlined" style="font-size:22px;color:#adc6ff">play_circle</span>
       </div>
       <div>
-        <div class="text-[9px] uppercase font-bold tracking-widest mb-0.5 font-status-code" style="color:#adc6ff">Tín hiệu kích hoạt</div>
-        <div class="font-semibold text-on-surface text-sm">Bắt đầu quy trình</div>
+        <div class="text-[9px] uppercase font-bold tracking-widest mb-0.5 font-status-code" style="color:#adc6ff">${_t('trigger_label')}</div>
+        <div class="font-semibold text-on-surface text-sm">${_t('trigger_title')}</div>
       </div>
     </div>`;
 
@@ -523,7 +634,7 @@ function renderSteps(){
 
           <!-- Content -->
           <div class="flex-1 min-w-0">
-            <div class="text-[9px] uppercase font-bold tracking-widest mb-1 font-status-code text-outline">Tác vụ ${String(i+1).padStart(2,'0')}</div>
+            <div class="text-[9px] uppercase font-bold tracking-widest mb-1 font-status-code text-outline">${_t('task_label')} ${String(i+1).padStart(2,'0')}</div>
             <div class="font-bold text-on-surface text-xl leading-tight">${LABELS[s.type]}</div>
             <div class="flex gap-2 mt-3 flex-wrap">${chip2}${chip3}</div>
           </div>
@@ -551,12 +662,12 @@ function renderSteps(){
     <div class="w-96 border-2 border-dashed border-outline-variant/20 rounded-2xl h-20 flex items-center justify-center text-outline/60 hover:border-primary/40 hover:bg-primary/5 hover:text-primary transition-all cursor-pointer group" onclick="addStep('move')">
       <div class="flex items-center gap-2">
         <span class="material-symbols-outlined text-2xl group-hover:scale-110 transition-transform">add_circle</span>
-        <span class="text-xs font-semibold uppercase tracking-wider">Thêm bước di chuyển</span>
+        <span class="text-xs font-semibold uppercase tracking-wider" data-i18n="add_move">Thêm bước di chuyển</span>
       </div>
     </div>`;
 
   container.innerHTML=html;
-  document.getElementById('ct-subtitle').textContent=`${steps.length} bước`;
+  document.getElementById('ct-subtitle').textContent=`${steps.length} ${_t('step_suffix')}`;
   setEnabled(steps.length>0);
 }
 
@@ -570,7 +681,7 @@ function showConfig(step){
   const badge = document.getElementById('rp-step-badge');
   if(!step){ closeConfig(); return; }
   panel.classList.add('open');
-  badge.textContent = `Bước ${steps.findIndex(s=>s.id===step.id)+1}`;
+  badge.textContent = `${_t('step_lbl')} ${steps.findIndex(s=>s.id===step.id)+1}`;
   document.getElementById('cfg-wait-grp').style.display = step.type==='wait' ? 'block' : 'none';
   document.getElementById('cfg-wait-sec').value = step.waitSec||30;
   document.getElementById('cfg-speed').value = step.speed||0.5;
@@ -592,7 +703,7 @@ function applyConfig(){
   s.speed=parseFloat(document.getElementById('cfg-speed').value)||0.5;
   s.notes=document.getElementById('cfg-notes').value.trim();
   s.priority=document.querySelector('.p-opt[style*="primary"]')?.dataset.p||'normal';
-  renderSteps(); toast('Đã cập nhật bước','success');
+  renderSteps(); toast(_t('config_updated'),'success');
 }
 
 function setPriority(p){
@@ -607,19 +718,19 @@ function setPriority(p){
 function setPriorityUI(p){setPriority(p);}
 
 function applyTemplate(key){
-  if(steps.length&&!confirm('Áp dụng mẫu sẽ xóa quy trình hiện tại?')) return;
+  if(steps.length&&!confirm(_t('confirm_tpl'))) return;
   steps=[];stepCtr=0;
   if(key==='pickup_delivery'){addS('move');addS('move');}
   else if(key==='go_charge'){addS('charge');addS('wait-zone');}
   else if(key==='patrol'){addS('move');addS('wait');addS('move');addS('wait');}
-  renderSteps();toast('Đã áp dụng mẫu','info');
+  renderSteps();toast(_t('tpl_applied'),'info');
 }
 function addS(type){stepCtr++;steps.push({id:`s${stepCtr}`,type,dest:'',waitSec:30,speed:0.5,notes:'',priority:'normal'});}
 
 async function saveWorkflow(){
   const name=document.getElementById('task-name').value.trim();
-  if(!name){ toast('Vui lòng đặt tên tác vụ trước khi lưu','error'); return; }
-  if(!steps.length){ toast('Chưa có bước nào','error'); return; }
+  if(!name){ toast(_t('err_no_name'),'error'); return; }
+  if(!steps.length){ toast(_t('err_no_step'),'error'); return; }
 
   // Lưu template — không cần AGV hay điểm đến cụ thể
   const payload={
@@ -646,12 +757,12 @@ async function saveWorkflow(){
     const data=await r.json();
     if(r.ok){
       window._currentTemplateId=data.template_id;
-      toast(`Đã lưu quy trình "${name}" (${data.step_count} bước)`,'success');
+      toast(`${_t('saved_wf_ok')}"${name}" (${data.step_count} ${_t('step_suffix')})`,'success');
       loadTemplateList(); // refresh danh sách bên trái
     } else {
-      toast(data.error||data.detail||'Lưu thất bại','error');
+      toast(data.error||data.detail||_t('save_fail'),'error');
     }
-  }catch(e){ toast('Lỗi kết nối server','error'); }
+  }catch(e){ toast(_t('conn_err'),'error'); }
 }
 
 async function submitTask(){

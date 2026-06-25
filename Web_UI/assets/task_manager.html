@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html class="dark" lang="vi">
+<html class="dark" lang="vi" id="html-root">
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
@@ -52,12 +52,12 @@ tailwind.config = {
 
   <!-- Header + Search (combined row) -->
   <div class="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0">
-    <h1 class="text-base font-bold text-on-surface whitespace-nowrap">Danh sách Tác vụ</h1>
+    <h1 class="text-base font-bold text-on-surface whitespace-nowrap" data-i18n="title"></h1>
     <span id="total-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold flex-shrink-0"
-      style="background:rgba(77,142,255,.12);border:1px solid rgba(77,142,255,.25);color:#7eb3ff">0 tác vụ</span>
+      style="background:rgba(77,142,255,.12);border:1px solid rgba(77,142,255,.25);color:#7eb3ff"></span>
     <div class="flex-1 relative">
       <span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant" style="font-size:16px">search</span>
-      <input id="search-input" type="text" placeholder="Tìm theo tên tác vụ..."
+      <input id="search-input" type="text" data-i18n-attr="placeholder" data-i18n="search_placeholder"
         class="w-full pl-8 pr-3 py-1.5 text-sm rounded-xl outline-none"
         style="background:rgba(45,52,73,.5);border:1px solid rgba(66,71,84,.4);color:#dae2fd"
         oninput="renderTable()"/>
@@ -66,7 +66,7 @@ tailwind.config = {
       class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all hover:brightness-110 flex-shrink-0"
       style="background:rgba(45,52,73,.6);border:1px solid rgba(66,71,84,.4);color:#c2c6d6">
       <span class="material-symbols-outlined" id="refresh-icon" style="font-size:15px">refresh</span>
-      Làm mới
+      <span data-i18n="refresh"></span>
     </button>
   </div>
 
@@ -78,9 +78,9 @@ tailwind.config = {
           <thead class="sticky top-0 z-10">
             <tr style="background:rgba(34,42,61,.95);border-bottom:1px solid rgba(66,71,84,.3)">
               <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant whitespace-nowrap w-20">Task ID</th>
-              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant">Task Name</th>
-              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant">Thao tác</th>
-              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant whitespace-nowrap">Thời gian tạo</th>
+              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant" data-i18n="col_name"></th>
+              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant" data-i18n="col_action"></th>
+              <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant whitespace-nowrap" data-i18n="col_created"></th>
               <th class="px-6 py-4 font-label-caps text-label-caps text-on-surface-variant text-right w-28"></th>
             </tr>
           </thead>
@@ -96,9 +96,12 @@ tailwind.config = {
       <!-- Pagination -->
       <div class="flex-shrink-0 px-6 py-3 flex items-center justify-between"
         style="background:rgba(34,42,61,.5);border-top:1px solid rgba(66,71,84,.2)">
-        <p class="text-sm text-on-surface-variant">
-          Hiển thị <span class="font-semibold text-on-surface" id="pg-from">0</span>–<span class="font-semibold text-on-surface" id="pg-to">0</span>
-          trong <span class="font-semibold text-on-surface" id="pg-total">0</span> tác vụ
+        <p class="text-sm text-on-surface-variant" id="pg-info">
+          <span data-i18n="showing"></span>
+          <span class="font-semibold text-on-surface" id="pg-from">0</span>–<span class="font-semibold text-on-surface" id="pg-to">0</span>
+          <span data-i18n="of"></span>
+          <span class="font-semibold text-on-surface" id="pg-total">0</span>
+          <span data-i18n="tasks"></span>
         </p>
         <div id="pagination" class="flex items-center gap-1"></div>
       </div>
@@ -114,14 +117,14 @@ tailwind.config = {
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
         <span class="material-symbols-outlined" style="color:#7eb3ff;font-size:20px">edit</span>
-        <span class="font-bold text-on-surface">Sửa tên tác vụ</span>
+        <span class="font-bold text-on-surface" data-i18n="modal_title"></span>
       </div>
       <button onclick="closeEdit()" style="background:none;border:none;cursor:pointer;color:#8c909f">
         <span class="material-symbols-outlined" style="font-size:20px">close</span>
       </button>
     </div>
     <div>
-      <label class="block text-[10px] font-bold uppercase tracking-widest mb-2 font-status-code" style="color:#8c909f">Tên tác vụ</label>
+      <label class="block text-[10px] font-bold uppercase tracking-widest mb-2 font-status-code" style="color:#8c909f" data-i18n="field_name"></label>
       <input id="edit-name" type="text"
         class="w-full px-4 py-3 rounded-xl text-sm outline-none"
         style="background:#1e293b;border:1px solid rgba(66,71,84,.4);color:#dae2fd"/>
@@ -132,12 +135,12 @@ tailwind.config = {
         class="flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all hover:brightness-110"
         style="background:#4d8eff;color:#fff">
         <span class="material-symbols-outlined" style="font-size:16px">save</span>
-        Lưu
+        <span data-i18n="save"></span>
       </button>
       <button onclick="closeEdit()"
         class="flex-1 py-2.5 rounded-xl font-semibold text-sm transition-all"
         style="background:rgba(45,52,73,.5);border:1px solid rgba(66,71,84,.3);color:#c2c6d6">
-        Hủy
+        <span data-i18n="cancel"></span>
       </button>
     </div>
   </div>
@@ -148,6 +151,51 @@ tailwind.config = {
 <div class="fixed bottom-10 left-10 w-96 h-96 blur-[120px] -z-10 rounded-full pointer-events-none" style="background:rgba(109,0,190,.04)"></div>
 
 <script>
+// ── I18N ─────────────────────────────────────────────────────────────
+const _lang = new URLSearchParams(location.search).get('lang') || 'vi';
+document.getElementById('html-root').lang = _lang;
+const _I = {
+  vi: {
+    title:'Danh sách Tác vụ', search_placeholder:'Tìm theo tên tác vụ...',
+    refresh:'Làm mới', col_name:'Tên tác vụ', col_action:'Thao tác', col_created:'Thời gian tạo',
+    loading:'Đang tải...', no_server:'Không kết nối được server',
+    no_result:'Không tìm thấy kết quả', empty:'Chưa có tác vụ nào',
+    showing:'Hiển thị', of:'trong', tasks:'tác vụ',
+    modal_title:'Sửa tên tác vụ', field_name:'Tên tác vụ',
+    save:'Lưu', cancel:'Hủy',
+    required:'Vui lòng nhập tên', saving:'Đang lưu...', saved:'✓ Đã lưu',
+    save_err:'Lỗi lưu', conn_err:'Lỗi kết nối',
+    confirm_delete:'Xóa tác vụ này? Hành động không thể hoàn tác.',
+    delete_fail:'Xóa thất bại', btn_edit:'Sửa', btn_delete:'Xóa',
+    step_move:'Đi đến node', step_charge:'Sạc pin', step_wait_zone:'Chờ tại điểm', step_wait:'Chờ',
+    step_prefix:'Bước',
+  },
+  en: {
+    title:'Task List', search_placeholder:'Search by task name...',
+    refresh:'Refresh', col_name:'Task Name', col_action:'Actions', col_created:'Created',
+    loading:'Loading...', no_server:'Cannot connect to server',
+    no_result:'No results found', empty:'No tasks yet',
+    showing:'Showing', of:'of', tasks:'tasks',
+    modal_title:'Edit task name', field_name:'Task name',
+    save:'Save', cancel:'Cancel',
+    required:'Please enter a name', saving:'Saving...', saved:'✓ Saved',
+    save_err:'Save error', conn_err:'Connection error',
+    confirm_delete:'Delete this task? This action cannot be undone.',
+    delete_fail:'Delete failed', btn_edit:'Edit', btn_delete:'Delete',
+    step_move:'Move to node', step_charge:'Charge', step_wait_zone:'Wait at point', step_wait:'Wait',
+    step_prefix:'Step',
+  }
+};
+function _t(k){ return (_I[_lang]||_I.vi)[k]||k; }
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const attr = el.getAttribute('data-i18n-attr');
+    const val  = _t(el.getAttribute('data-i18n'));
+    if(attr) el.setAttribute(attr, val); else el.textContent = val;
+  });
+});
+
+// ── APP ──────────────────────────────────────────────────────────────
 const API = `${location.protocol}//${location.hostname}:8000`;
 const PAGE_SIZE = 15;
 
@@ -155,15 +203,15 @@ let allTemplates = [], filtered = [], currentPage = 1;
 let editingId = null;
 
 const STEP_INFO = {
-  move:        { label:'Đi đến node',    icon:'directions_car', color:'#7eb3ff',  bg:'rgba(77,142,255,.1)',   border:'rgba(77,142,255,.2)'  },
-  charge:      { label:'Sạc pin',        icon:'bolt',           color:'#fbbf24',  bg:'rgba(245,158,11,.1)',   border:'rgba(245,158,11,.2)'  },
-  'wait-zone': { label:'Chờ tại điểm',  icon:'pause_circle',   color:'#c2c6d6',  bg:'rgba(140,144,159,.1)', border:'rgba(140,144,159,.2)' },
-  wait:        { label:'Chờ',            icon:'hourglass_empty', color:'#a5b4fc', bg:'rgba(129,140,248,.1)',  border:'rgba(129,140,248,.2)' },
+  move:        { label:_t('step_move'),      icon:'directions_car', color:'#7eb3ff',  bg:'rgba(77,142,255,.1)',   border:'rgba(77,142,255,.2)'  },
+  charge:      { label:_t('step_charge'),    icon:'bolt',           color:'#fbbf24',  bg:'rgba(245,158,11,.1)',   border:'rgba(245,158,11,.2)'  },
+  'wait-zone': { label:_t('step_wait_zone'), icon:'pause_circle',   color:'#c2c6d6',  bg:'rgba(140,144,159,.1)', border:'rgba(140,144,159,.2)' },
+  wait:        { label:_t('step_wait'),      icon:'hourglass_empty', color:'#a5b4fc', bg:'rgba(129,140,248,.1)',  border:'rgba(129,140,248,.2)' },
 };
 
 function stepText(s, idx){
   const info = STEP_INFO[s.type] || { label: s.type||'?' };
-  let label = `Bước ${idx+1}: ${info.label}`;
+  let label = `${_t('step_prefix')} ${idx+1}: ${info.label}`;
   if(s.type==='wait' && s.waitSec) label += ` ${s.waitSec}s`;
   if(s.notes) label += ` (${s.notes})`;
   return label;
@@ -180,7 +228,7 @@ async function loadTemplates(){
   }catch(e){
     document.getElementById('tmpl-tbody').innerHTML=`<tr><td colspan="5" class="px-6 py-16 text-center" style="color:#f87171">
       <span class="material-symbols-outlined block mx-auto mb-3 opacity-40" style="font-size:48px">cloud_off</span>
-      <span class="text-sm">Không kết nối được server</span>
+      <span class="text-sm">${_t('no_server')}</span>
     </td></tr>`;
   }
 }
@@ -198,13 +246,13 @@ function renderTable(){
   document.getElementById('pg-from').textContent  = total ? start+1 : 0;
   document.getElementById('pg-to').textContent    = Math.min(start+PAGE_SIZE, total);
   document.getElementById('pg-total').textContent = total;
-  document.getElementById('total-badge').textContent = `${allTemplates.length} tác vụ`;
+  document.getElementById('total-badge').textContent = `${allTemplates.length} ${_t('tasks')}`;
 
   const tbody = document.getElementById('tmpl-tbody');
   if(!slice.length){
     tbody.innerHTML=`<tr><td colspan="5" class="px-6 py-16 text-center text-on-surface-variant">
       <span class="material-symbols-outlined block mx-auto mb-3 opacity-20" style="font-size:48px">inbox</span>
-      <span class="text-sm opacity-60">${q?'Không tìm thấy kết quả':'Chưa có tác vụ nào'}</span>
+      <span class="text-sm opacity-60">${q?_t('no_result'):_t('empty')}</span>
     </td></tr>`;
   } else {
     tbody.innerHTML = slice.map((t,i)=>tmplRow(t, start+i+1)).join('');
@@ -214,16 +262,11 @@ function renderTable(){
 
 function tmplRow(t, rowIdx){
   const steps = Array.isArray(t.steps) ? t.steps : [];
-  const stepsText = steps.length
-    ? steps.map((s,i)=>stepText(s,i)).join(', ')
-    : '—';
+  const stepsText = steps.length ? steps.map((s,i)=>stepText(s,i)).join(', ') : '—';
   const stepsHtml = `<span class="text-xs" style="color:#c2c6d6;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:360px" title="${escHtml(stepsText)}">${escHtml(stepsText)}</span>`;
   const timeStr = formatTime(t.created_at);
-
   return `<tr style="cursor:default">
-    <td class="px-6 py-4">
-      <span class="font-status-code text-status-code" style="color:#7eb3ff">#${rowIdx}</span>
-    </td>
+    <td class="px-6 py-4"><span class="font-status-code text-status-code" style="color:#7eb3ff">#${rowIdx}</span></td>
     <td class="px-6 py-4">
       <div class="flex items-center gap-2.5">
         <div class="size-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(77,142,255,.1);border:1px solid rgba(77,142,255,.18)">
@@ -238,12 +281,12 @@ function tmplRow(t, rowIdx){
       <div class="flex items-center justify-end gap-1.5">
         <button onclick="openEdit('${escHtml(t.template_id)}','${escHtml(t.name)}')"
           class="p-1.5 rounded-lg transition-all hover:scale-110"
-          style="background:rgba(77,142,255,.08);border:1px solid rgba(77,142,255,.2);color:#7eb3ff" title="Sửa">
+          style="background:rgba(77,142,255,.08);border:1px solid rgba(77,142,255,.2);color:#7eb3ff" title="${_t('btn_edit')}">
           <span class="material-symbols-outlined" style="font-size:17px">edit</span>
         </button>
         <button onclick="deleteTemplate('${escHtml(t.template_id)}')"
           class="p-1.5 rounded-lg transition-all hover:scale-110"
-          style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171" title="Xóa">
+          style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171" title="${_t('btn_delete')}">
           <span class="material-symbols-outlined" style="font-size:17px">delete</span>
         </button>
       </div>
@@ -251,7 +294,6 @@ function tmplRow(t, rowIdx){
   </tr>`;
 }
 
-// ── EDIT ──
 function openEdit(templateId, name){
   editingId = templateId;
   document.getElementById('edit-name').value = name;
@@ -266,52 +308,42 @@ function closeEdit(){
 async function saveEdit(){
   const name = document.getElementById('edit-name').value.trim();
   const msg  = document.getElementById('edit-msg');
-  if(!name){ msg.style.color='#f87171'; msg.textContent='Vui lòng nhập tên'; return; }
-  msg.style.color='#7eb3ff'; msg.textContent='Đang lưu...';
+  if(!name){ msg.style.color='#f87171'; msg.textContent=_t('required'); return; }
+  msg.style.color='#7eb3ff'; msg.textContent=_t('saving');
   try{
     const r = await fetch(`${API}/api/workflow-templates`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({template_id: editingId, name, steps: (allTemplates.find(t=>t.template_id===editingId)||{}).steps||[]})
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({template_id:editingId, name, steps:(allTemplates.find(t=>t.template_id===editingId)||{}).steps||[]})
     });
     const data = await r.json();
     if(r.ok||data.template_id){
-      msg.style.color='#34d399'; msg.textContent='✓ Đã lưu';
-      const idx = allTemplates.findIndex(t=>t.template_id===editingId);
-      if(idx>=0) allTemplates[idx].name = name;
-      renderTable();
-      setTimeout(closeEdit, 800);
-    } else {
-      msg.style.color='#f87171'; msg.textContent=data.error||'Lỗi lưu';
-    }
-  }catch(e){ msg.style.color='#f87171'; msg.textContent='Lỗi kết nối'; }
+      msg.style.color='#34d399'; msg.textContent=_t('saved');
+      const idx=allTemplates.findIndex(t=>t.template_id===editingId);
+      if(idx>=0) allTemplates[idx].name=name;
+      renderTable(); setTimeout(closeEdit,800);
+    } else { msg.style.color='#f87171'; msg.textContent=data.error||_t('save_err'); }
+  }catch(e){ msg.style.color='#f87171'; msg.textContent=_t('conn_err'); }
 }
 
-// ── DELETE ──
 async function deleteTemplate(templateId){
-  if(!confirm('Xóa tác vụ này? Hành động không thể hoàn tác.')) return;
+  if(!confirm(_t('confirm_delete'))) return;
   try{
     const r = await fetch(`${API}/api/workflow-templates/${templateId}`,{method:'DELETE'});
-    if(r.ok){
-      allTemplates = allTemplates.filter(t=>t.template_id!==templateId);
-      renderTable();
-    } else { alert('Xóa thất bại'); }
-  }catch(e){ alert('Lỗi kết nối'); }
+    if(r.ok){ allTemplates=allTemplates.filter(t=>t.template_id!==templateId); renderTable(); }
+    else { alert(_t('delete_fail')); }
+  }catch(e){ alert(_t('conn_err')); }
 }
 
-// ── REFRESH ──
 async function refresh(){
-  const icon = document.getElementById('refresh-icon');
-  icon.style.animation='spin .5s linear';
-  setTimeout(()=>icon.style.animation='',500);
+  const icon=document.getElementById('refresh-icon');
+  icon.style.animation='spin .5s linear'; setTimeout(()=>icon.style.animation='',500);
   await loadTemplates();
 }
 
-// ── PAGINATION ──
 function renderPagination(pages){
-  const el = document.getElementById('pagination');
+  const el=document.getElementById('pagination');
   if(pages<=1){ el.innerHTML=''; return; }
-  let html = btnPage('chevron_left', currentPage-1, currentPage===1);
+  let html=btnPage('chevron_left',currentPage-1,currentPage===1);
   for(const p of getPageRange(currentPage,pages)){
     if(p==='...') html+=`<span class="px-1 text-xs" style="color:#8c909f">...</span>`;
     else {
@@ -320,10 +352,10 @@ function renderPagination(pages){
         style="${a?'background:#4d8eff;color:#fff':'background:none;color:#8c909f'};cursor:pointer;border:none">${p}</button>`;
     }
   }
-  html += btnPage('chevron_right', currentPage+1, currentPage===pages);
-  el.innerHTML = html;
+  html+=btnPage('chevron_right',currentPage+1,currentPage===pages);
+  el.innerHTML=html;
 }
-function btnPage(icon, p, disabled){
+function btnPage(icon,p,disabled){
   return `<button onclick="changePage(${p})" ${disabled?'disabled':''} class="p-1.5 rounded-lg" style="color:#8c909f;background:none;border:none;cursor:pointer">
     <span class="material-symbols-outlined">${icon}</span></button>`;
 }
@@ -335,13 +367,11 @@ function getPageRange(cur,total){
 }
 function changePage(p){ if(p<1||p>Math.ceil(filtered.length/PAGE_SIZE)) return; currentPage=p; renderTable(); }
 
-// ── HELPERS ──
 function formatTime(iso){
   if(!iso) return '—';
-  const d = new Date(iso);
-  const hm = d.toLocaleTimeString('vi',{hour:'2-digit',minute:'2-digit'});
-  const dm = d.toLocaleDateString('vi',{day:'2-digit',month:'2-digit',year:'2-digit'});
-  return `${hm} · ${dm}`;
+  const d=new Date(iso), loc=_lang==='en'?'en-GB':'vi';
+  return d.toLocaleTimeString(loc,{hour:'2-digit',minute:'2-digit'}) + ' · ' +
+         d.toLocaleDateString(loc,{day:'2-digit',month:'2-digit',year:'2-digit'});
 }
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 

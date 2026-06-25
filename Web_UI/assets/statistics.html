@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Thống kê</title>
+<title id="page-title">Thống kê</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
@@ -70,34 +70,34 @@
   <!-- View toggle -->
   <div style="display:flex;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.06)">
     <button class="vtab active" onclick="switchView('tasks')">
-      <span class="material-symbols-outlined" style="font-size:14px;margin-right:4px">task_alt</span>Nhiệm vụ
+      <span class="material-symbols-outlined" style="font-size:14px;margin-right:4px">task_alt</span><span data-i18n="view_tasks">Nhiệm vụ</span>
     </button>
     <button class="vtab" onclick="switchView('trips')">
-      <span class="material-symbols-outlined" style="font-size:14px;margin-right:4px">route</span>Chuyến đi AGV
+      <span class="material-symbols-outlined" style="font-size:14px;margin-right:4px">route</span><span data-i18n="view_trips">Chuyến đi AGV</span>
     </button>
   </div>
 
   <!-- Period + filters -->
   <div style="padding:8px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <div style="display:flex;gap:3px">
-      <button class="ptab"        data-p="week"    onclick="setPeriod('week')">Tuần</button>
-      <button class="ptab"        data-p="month"   onclick="setPeriod('month')">Tháng</button>
-      <button class="ptab"        data-p="quarter" onclick="setPeriod('quarter')">Quý</button>
-      <button class="ptab active" data-p="year"    onclick="setPeriod('year')">Năm</button>
-      <button class="ptab"        data-p="custom"  onclick="setPeriod('custom')">Tùy chỉnh</button>
+      <button class="ptab"        data-p="week"    onclick="setPeriod('week')" data-i18n="period_week">Tuần</button>
+      <button class="ptab"        data-p="month"   onclick="setPeriod('month')" data-i18n="period_month">Tháng</button>
+      <button class="ptab"        data-p="quarter" onclick="setPeriod('quarter')" data-i18n="period_quarter">Quý</button>
+      <button class="ptab active" data-p="year"    onclick="setPeriod('year')" data-i18n="period_year">Năm</button>
+      <button class="ptab"        data-p="custom"  onclick="setPeriod('custom')" data-i18n="period_custom">Tùy chỉnh</button>
     </div>
     <div id="custom-range" style="display:none;align-items:center;gap:5px">
       <input type="date" id="date-from"/>
       <span style="color:#fff">—</span>
       <input type="date" id="date-to"/>
-      <button onclick="loadAll()" style="padding:3px 10px;border-radius:7px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:12px;cursor:pointer">Áp dụng</button>
+      <button onclick="loadAll()" style="padding:3px 10px;border-radius:7px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:12px;cursor:pointer" data-i18n="apply">Áp dụng</button>
     </div>
     <select id="filter-agv" onchange="loadAll()" style="min-width:120px">
-      <option value="">Tất cả AGV</option>
+      <option value="" data-i18n-opt="all_agv">Tất cả AGV</option>
     </select>
     <span id="period-label" style="font-size:11px;color:#fff;font-family:'JetBrains Mono',monospace"></span>
     <button onclick="loadAll()" style="margin-left:auto;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:4px">
-      <span class="material-symbols-outlined" id="refresh-icon" style="font-size:14px">refresh</span>Làm mới
+      <span class="material-symbols-outlined" id="refresh-icon" style="font-size:14px">refresh</span><span data-i18n="refresh">Làm mới</span>
     </button>
   </div>
 </div>
@@ -111,41 +111,41 @@
     <!-- KPI row -->
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">
       <div class="kpi">
-        <span class="kpi-lbl">Tổng nhiệm vụ</span>
+        <span class="kpi-lbl" data-i18n="kpi_total_tasks">Tổng nhiệm vụ</span>
         <span class="kpi-val" id="t-total" style="color:#fff">—</span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">Hoàn thành</span>
+        <span class="kpi-lbl" data-i18n="kpi_done">Hoàn thành</span>
         <span class="kpi-val" id="t-done" style="color:#fff">—</span>
         <span class="kpi-sub" id="t-done-pct"></span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">Thất bại</span>
+        <span class="kpi-lbl" data-i18n="kpi_fail">Thất bại</span>
         <span class="kpi-val" id="t-fail" style="color:#fff">—</span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">Đã hủy</span>
+        <span class="kpi-lbl" data-i18n="kpi_cancel">Đã hủy</span>
         <span class="kpi-val" id="t-cancel" style="color:#fff">—</span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">Đang chạy</span>
+        <span class="kpi-lbl" data-i18n="kpi_running">Đang chạy</span>
         <span class="kpi-val" id="t-run" style="color:#fff">—</span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">TG trung bình</span>
+        <span class="kpi-lbl" data-i18n="kpi_avg">TG trung bình</span>
         <span class="kpi-val" id="t-avg" style="color:#fff;font-size:20px">—</span>
-        <span class="kpi-sub">mỗi lệnh</span>
+        <span class="kpi-sub" data-i18n="kpi_per_cmd">mỗi lệnh</span>
       </div>
     </div>
 
     <!-- Charts -->
     <div style="display:grid;grid-template-columns:3fr 2fr;gap:10px">
       <div class="cc" style="min-height:220px">
-        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">bar_chart</span>Nhiệm vụ theo ngày</div>
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">bar_chart</span><span data-i18n="chart_tasks_by_day">Nhiệm vụ theo ngày</span></div>
         <div style="flex:1;position:relative"><canvas id="t-chart-day"></canvas></div>
       </div>
       <div class="cc" style="min-height:220px">
-        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">pie_chart</span>Phân bổ trạng thái</div>
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">pie_chart</span><span data-i18n="chart_status_dist">Phân bổ trạng thái</span></div>
         <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center"><canvas id="t-chart-status" style="max-height:200px"></canvas></div>
       </div>
     </div>
@@ -153,19 +153,19 @@
     <!-- Bottom row -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="cc" style="max-height:220px">
-        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">conveyor_belt</span>Hiệu suất AGV</div>
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">conveyor_belt</span><span data-i18n="chart_agv_perf">Hiệu suất AGV</span></div>
         <div style="overflow:auto;flex:1">
           <table class="st" id="t-agv-table">
             <thead><tr>
-              <th>AGV</th><th style="text-align:right">Tổng</th>
-              <th style="text-align:right">✓</th><th style="text-align:right">✗</th><th>Tỉ lệ</th>
+              <th>AGV</th><th style="text-align:right" data-i18n="col_total">Tổng</th>
+              <th style="text-align:right" data-i18n="col_done">✓</th><th style="text-align:right" data-i18n="col_fail">✗</th><th data-i18n="col_rate">Tỉ lệ</th>
             </tr></thead>
-            <tbody id="t-agv-tbody"><tr><td colspan="5" style="text-align:center;padding:20px;color:#fff">Đang tải…</td></tr></tbody>
+            <tbody id="t-agv-tbody"><tr><td colspan="5" style="text-align:center;padding:20px;color:#fff" data-i18n="loading">Đang tải…</td></tr></tbody>
           </table>
         </div>
       </div>
       <div class="cc" style="max-height:220px">
-        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">location_on</span>Top điểm đến</div>
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">location_on</span><span data-i18n="chart_top_dest">Top điểm đến</span></div>
         <div style="flex:1;position:relative"><canvas id="t-chart-dest"></canvas></div>
       </div>
     </div>
@@ -177,29 +177,29 @@
     <!-- KPI row -->
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px">
       <div class="kpi">
-        <span class="kpi-lbl">Tổng chuyến đi</span>
+        <span class="kpi-lbl" data-i18n="kpi_total_trips">Tổng chuyến đi</span>
         <span class="kpi-val" id="r-total" style="color:#fff">—</span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">Hoàn thành</span>
+        <span class="kpi-lbl" data-i18n="kpi_done">Hoàn thành</span>
         <span class="kpi-val" id="r-done" style="color:#fff">—</span>
         <span class="kpi-sub" id="r-done-pct"></span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">Thất bại / Hủy</span>
+        <span class="kpi-lbl" data-i18n="kpi_fail_cancel">Thất bại / Hủy</span>
         <span class="kpi-val" id="r-fail" style="color:#fff">—</span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">Đang chạy</span>
+        <span class="kpi-lbl" data-i18n="kpi_running">Đang chạy</span>
         <span class="kpi-val" id="r-run" style="color:#fff">—</span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">Tổng TG hoạt động</span>
+        <span class="kpi-lbl" data-i18n="kpi_active_time">Tổng TG hoạt động</span>
         <span class="kpi-val" id="r-active" style="color:#fff;font-size:20px">—</span>
-        <span class="kpi-sub">xe đang di chuyển</span>
+        <span class="kpi-sub" data-i18n="kpi_active_sub">xe đang di chuyển</span>
       </div>
       <div class="kpi">
-        <span class="kpi-lbl">TG TB / chuyến</span>
+        <span class="kpi-lbl" data-i18n="kpi_avg_trip">TG TB / chuyến</span>
         <span class="kpi-val" id="r-avg-trip" style="color:#fff;font-size:20px">—</span>
         <span class="kpi-sub" id="r-avg-steps"></span>
       </div>
@@ -208,11 +208,11 @@
     <!-- Charts row 1 -->
     <div style="display:grid;grid-template-columns:3fr 2fr;gap:10px">
       <div class="cc" style="min-height:220px">
-        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">bar_chart</span>Chuyến đi theo ngày</div>
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">bar_chart</span><span data-i18n="chart_trips_by_day">Chuyến đi theo ngày</span></div>
         <div style="flex:1;position:relative"><canvas id="r-chart-day"></canvas></div>
       </div>
       <div class="cc" style="min-height:220px">
-        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">pie_chart</span>Trạng thái chuyến</div>
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">pie_chart</span><span data-i18n="chart_trip_status">Trạng thái chuyến</span></div>
         <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center"><canvas id="r-chart-status" style="max-height:200px"></canvas></div>
       </div>
     </div>
@@ -220,23 +220,23 @@
     <!-- Charts row 2: AGV table + workflow labels -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="cc" style="max-height:240px">
-        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">directions_car</span>Hiệu suất AGV (chuyến)</div>
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">directions_car</span><span data-i18n="chart_agv_trips">Hiệu suất AGV (chuyến)</span></div>
         <div style="overflow:auto;flex:1">
           <table class="st" id="r-agv-table">
             <thead><tr>
               <th>AGV</th>
-              <th style="text-align:right">Chuyến</th>
-              <th style="text-align:right">Hoàn thành</th>
-              <th style="text-align:right">TG HĐ</th>
-              <th style="text-align:right">TB/chuyến</th>
-              <th>Tỉ lệ</th>
+              <th style="text-align:right" data-i18n="col_trips">Chuyến</th>
+              <th style="text-align:right" data-i18n="col_done_full">Hoàn thành</th>
+              <th style="text-align:right" data-i18n="col_active_time">TG HĐ</th>
+              <th style="text-align:right" data-i18n="col_avg_trip">TB/chuyến</th>
+              <th data-i18n="col_rate">Tỉ lệ</th>
             </tr></thead>
-            <tbody id="r-agv-tbody"><tr><td colspan="6" style="text-align:center;padding:20px;color:#fff">Đang tải…</td></tr></tbody>
+            <tbody id="r-agv-tbody"><tr><td colspan="6" style="text-align:center;padding:20px;color:#fff" data-i18n="loading">Đang tải…</td></tr></tbody>
           </table>
         </div>
       </div>
       <div class="cc" style="max-height:240px">
-        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">account_tree</span>Top loại workflow</div>
+        <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">account_tree</span><span data-i18n="chart_top_wf">Top loại workflow</span></div>
         <div style="flex:1;position:relative"><canvas id="r-chart-label"></canvas></div>
       </div>
     </div>
@@ -245,14 +245,77 @@
 </div><!-- /content -->
 
 <script>
-const API = 'http://' + (window.location.hostname || '192.168.1.13') + ':8000';
+// ── I18N ──────────────────────────────────────────────────────────────────
+const _lang = new URLSearchParams(location.search).get('lang') || 'vi';
+const _I = {
+  vi:{
+    view_tasks:'Nhiệm vụ',view_trips:'Chuyến đi AGV',
+    period_week:'Tuần',period_month:'Tháng',period_quarter:'Quý',period_year:'Năm',period_custom:'Tùy chỉnh',
+    apply:'Áp dụng',all_agv:'Tất cả AGV',refresh:'Làm mới',
+    kpi_total_tasks:'Tổng nhiệm vụ',kpi_done:'Hoàn thành',kpi_fail:'Thất bại',kpi_cancel:'Đã hủy',
+    kpi_running:'Đang chạy',kpi_avg:'TG trung bình',kpi_per_cmd:'mỗi lệnh',
+    kpi_total_trips:'Tổng chuyến đi',kpi_fail_cancel:'Thất bại / Hủy',
+    kpi_active_time:'Tổng TG hoạt động',kpi_active_sub:'xe đang di chuyển',
+    kpi_avg_trip:'TG TB / chuyến',
+    chart_tasks_by_day:'Nhiệm vụ theo ngày',chart_status_dist:'Phân bổ trạng thái',
+    chart_agv_perf:'Hiệu suất AGV',chart_top_dest:'Top điểm đến',
+    chart_trips_by_day:'Chuyến đi theo ngày',chart_trip_status:'Trạng thái chuyến',
+    chart_agv_trips:'Hiệu suất AGV (chuyến)',chart_top_wf:'Top loại workflow',
+    col_total:'Tổng',col_done:'✓',col_fail:'✗',col_rate:'Tỉ lệ',
+    col_trips:'Chuyến',col_done_full:'Hoàn thành',col_active_time:'TG HĐ',col_avg_trip:'TB/chuyến',
+    status_completed:'Hoàn thành',status_failed:'Thất bại',status_cancelled:'Đã hủy',
+    status_running:'Đang chạy',status_queued:'Hàng chờ',
+    chart_done:'Hoàn thành',chart_fail_cancel:'Thất bại/Hủy',
+    pct_total:'% tổng',avg_cmd_per_trip:'lệnh/chuyến',avg_tb:'TB',
+    visits:'Lần ghé',trips_count:'Số chuyến',no_data:'Không có dữ liệu',
+    loading:'Đang tải…',
+  },
+  en:{
+    view_tasks:'Tasks',view_trips:'AGV Trips',
+    period_week:'Week',period_month:'Month',period_quarter:'Quarter',period_year:'Year',period_custom:'Custom',
+    apply:'Apply',all_agv:'All AGVs',refresh:'Refresh',
+    kpi_total_tasks:'Total Tasks',kpi_done:'Completed',kpi_fail:'Failed',kpi_cancel:'Cancelled',
+    kpi_running:'Running',kpi_avg:'Avg. Duration',kpi_per_cmd:'per command',
+    kpi_total_trips:'Total Trips',kpi_fail_cancel:'Failed / Cancelled',
+    kpi_active_time:'Total Active Time',kpi_active_sub:'vehicle moving',
+    kpi_avg_trip:'Avg. per Trip',
+    chart_tasks_by_day:'Tasks by Day',chart_status_dist:'Status Distribution',
+    chart_agv_perf:'AGV Performance',chart_top_dest:'Top Destinations',
+    chart_trips_by_day:'Trips by Day',chart_trip_status:'Trip Status',
+    chart_agv_trips:'AGV Performance (Trips)',chart_top_wf:'Top Workflow Types',
+    col_total:'Total',col_done:'✓',col_fail:'✗',col_rate:'Rate',
+    col_trips:'Trips',col_done_full:'Completed',col_active_time:'Active Time',col_avg_trip:'Avg/trip',
+    status_completed:'Completed',status_failed:'Failed',status_cancelled:'Cancelled',
+    status_running:'Running',status_queued:'Queued',
+    chart_done:'Completed',chart_fail_cancel:'Failed/Cancelled',
+    pct_total:'% total',avg_cmd_per_trip:'cmds/trip',avg_tb:'Avg',
+    visits:'Visits',trips_count:'Trips',no_data:'No data',
+    loading:'Loading…',
+  }
+};
+function _t(k){ return ((_I[_lang]||_I.vi)[k]) ?? k; }
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const val=_t(el.getAttribute('data-i18n'));
+    el.textContent=val;
+  });
+  document.querySelectorAll('[data-i18n-opt]').forEach(el=>{
+    const val=_t(el.getAttribute('data-i18n-opt'));
+    if(val) el.textContent=val;
+  });
+  document.documentElement.lang=_lang;
+  const ptEl=document.getElementById('page-title');
+  if(ptEl) ptEl.textContent=_lang==='en'?'Statistics':'Thống kê';
+});
+
+const API = 'http://' + (window.location.hostname || '192.168.0.89') + ':8000';
 
 let period  = 'year';    // mặc định năm để bao phủ dữ liệu từ các tháng trước
 let curView = 'tasks';
 const charts = {};
 
 const STATUS_COLORS = { completed:'#34d399', failed:'#fb7185', cancelled:'#94a3b8', running:'#fbbf24', queued:'#a78bfa' };
-const STATUS_LABELS = { completed:'Hoàn thành', failed:'Thất bại', cancelled:'Đã hủy', running:'Đang chạy', queued:'Hàng chờ' };
+const STATUS_LABELS = () => ({ completed:_t('status_completed'), failed:_t('status_failed'), cancelled:_t('status_cancelled'), running:_t('status_running'), queued:_t('status_queued') });
 
 // Palette màu cho horizontal bar
 const BAR_PALETTE = ['#06b6d4','#a78bfa','#fbbf24','#34d399','#fb7185','#38bdf8','#f472b6','#4ade80'];
@@ -334,17 +397,17 @@ function renderTasks(d) {
   setText('t-cancel', s.cancelled);
   setText('t-run',    s.running);
   setText('t-avg',    fmtDur(s.avg_duration_s));
-  setText('t-done-pct', s.total > 0 ? pct(s.completed, s.total) + '% tổng' : '');
+  setText('t-done-pct', s.total > 0 ? pct(s.completed, s.total) + '% ' + _t('pct_total').replace('% ','') : '');
 
   // Daily bar + line
   mkBarChart('t-chart-day', d.by_day.map(r => fmtDs(r.day)),
     [
-      { label:'Hoàn thành', type:'bar',
+      { label:_t('chart_done'), type:'bar',
         data: d.by_day.map(r=>r.completed),
         backgroundColor:'rgba(52,211,153,.75)', borderColor:'#34d399',
         borderWidth:1.5, borderRadius:6, borderSkipped:false,
         hoverBackgroundColor:'#34d399', order:1 },
-      { label:'Thất bại/Hủy', type:'line',
+      { label:_t('chart_fail_cancel'), type:'line',
         data: d.by_day.map(r=>r.failed),
         borderColor:'#fb7185', borderWidth:2,
         backgroundColor:'rgba(251,113,133,.1)',
@@ -354,8 +417,9 @@ function renderTasks(d) {
     ], false);
 
   // Status pie
+  const sl1 = STATUS_LABELS();
   mkDoughnut('t-chart-status',
-    d.by_status.map(r => STATUS_LABELS[r.status]||r.status),
+    d.by_status.map(r => sl1[r.status]||r.status),
     d.by_status.map(r => r.count),
     d.by_status.map(r => STATUS_COLORS[r.status]||'#64748b'));
 
@@ -364,15 +428,14 @@ function renderTasks(d) {
     d.by_agv.map(r => ({
       agv_id: r.agv_id, total: r.total,
       completed: r.completed, failed: r.failed,
-    })),
-    ['AGV', 'Tổng', '✓ Hoàn thành', '✗ Lỗi/Hủy', 'Tỉ lệ']);
+    })));
 
   // Top destinations horizontal bar
   mkHBar('t-chart-dest',
     d.top_destinations.map(r => `Tag ${r.node}`),
     d.top_destinations.map(r => r.count),
     d.top_destinations.map((_,i) => BAR_PALETTE[i % BAR_PALETTE.length]),
-    'Lần ghé');
+    _t('visits'));
 
   populateAgvFilter(d.by_agv);
 }
@@ -388,19 +451,19 @@ function renderTrips(d) {
   setText('r-run',      s.running);
   setText('r-active',   fmtDur(d.total_active_time_s));
   setText('r-avg-trip', fmtDur(d.avg_trip_duration_s));
-  setText('r-done-pct', s.total > 0 ? pct(s.completed, s.total) + '% tổng' : '');
+  setText('r-done-pct', s.total > 0 ? pct(s.completed, s.total) + '% ' + _t('pct_total').replace('% ','') : '');
   setText('r-avg-steps', d.avg_steps_per_trip != null
-    ? `TB ${d.avg_steps_per_trip.toFixed(1)} lệnh/chuyến` : '');
+    ? `${_t('avg_tb')} ${d.avg_steps_per_trip.toFixed(1)} ${_t('avg_cmd_per_trip')}` : '');
 
   // Daily bar + line (chuyến)
   mkBarChart('r-chart-day', d.by_day.map(r => fmtDs(r.day)),
     [
-      { label:'Hoàn thành', type:'bar',
+      { label:_t('chart_done'), type:'bar',
         data: d.by_day.map(r=>r.completed),
         backgroundColor:'rgba(52,211,153,.75)', borderColor:'#34d399',
         borderWidth:1.5, borderRadius:6, borderSkipped:false,
         hoverBackgroundColor:'#34d399', order:1 },
-      { label:'Thất bại/Hủy', type:'line',
+      { label:_t('chart_fail_cancel'), type:'line',
         data: d.by_day.map(r=>r.failed),
         borderColor:'#fb7185', borderWidth:2,
         backgroundColor:'rgba(251,113,133,.1)',
@@ -410,15 +473,16 @@ function renderTrips(d) {
     ], false);
 
   // Status pie (chuyến)
+  const sl2 = STATUS_LABELS();
   mkDoughnut('r-chart-status',
-    d.by_status.map(r => STATUS_LABELS[r.status]||r.status),
+    d.by_status.map(r => sl2[r.status]||r.status),
     d.by_status.map(r => r.count),
     d.by_status.map(r => STATUS_COLORS[r.status]||'#64748b'));
 
   // AGV table (chuyến)
   const tbody = document.getElementById('r-agv-tbody');
   if (!d.by_agv.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:#fff">Không có dữ liệu</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:#fff">${_t('no_data')}</td></tr>`;
   } else {
     tbody.innerHTML = d.by_agv.map(r => {
       const rate = r.total > 0 ? pct(r.completed, r.total) : 0;
@@ -444,7 +508,7 @@ function renderTrips(d) {
     d.by_label.map(r => r.label),
     d.by_label.map(r => r.count),
     d.by_label.map((_,i) => BAR_PALETTE[i % BAR_PALETTE.length]),
-    'Số chuyến');
+    _t('trips_count'));
 
   populateAgvFilter(d.by_agv);
 }
@@ -564,10 +628,10 @@ function mkHBar(id, labels, data, colors, lbl) {
 }
 
 // ══ AGV TABLE (tasks view) ════════════════════════════════════════════════════
-function renderAgvTable(tbodyId, rows) {
+function renderAgvTable(tbodyId, rows, _headers) {
   const tbody = document.getElementById(tbodyId);
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#fff">Không có dữ liệu</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:#fff">${_t('no_data')}</td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(r => {

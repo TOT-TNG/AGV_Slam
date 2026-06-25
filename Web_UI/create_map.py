@@ -4,7 +4,7 @@ from dash import html
 def layout(lang: str = "vi"):
     return html.Div(
         html.Iframe(
-            src="/assets/map_editor.html",
+            src=f"/assets/map_editor.html?lang={lang}",
             style={
                 "width": "100%",
                 "height": "calc(100vh - 68px)",

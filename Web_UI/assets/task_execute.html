@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Thực hiện nhiệm vụ</title>
+<title id="page-title">Thực hiện nhiệm vụ</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
@@ -88,15 +88,15 @@
 <!-- ── Header ──────────────────────────────────────────────────────────────── -->
 <div id="te-header" style="padding:12px 18px 10px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(15,23,42,.6)">
   <div>
-    <h1 style="font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em">Thực hiện nhiệm vụ</h1>
-    <p style="font-size:11px;color:#8c909f;margin:2px 0 0">Điều phối AGV · chọn quy trình · xác nhận lệnh</p>
+    <h1 style="font-size:18px;font-weight:700;margin:0;letter-spacing:-.01em" data-i18n="title">Thực hiện nhiệm vụ</h1>
+    <p style="font-size:11px;color:#8c909f;margin:2px 0 0" data-i18n="subtitle">Điều phối AGV · chọn quy trình · xác nhận lệnh</p>
   </div>
   <div style="display:flex;align-items:center;gap:8px">
     <div style="display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:9px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.4);font-size:10px;font-family:'JetBrains Mono',monospace;color:#adc6ff">
-      <span style="width:6px;height:6px;border-radius:50%;background:#22c55e;box-shadow:0 0 5px #22c55e"></span>HỆ THỐNG: SẴN SÀNG
+      <span style="width:6px;height:6px;border-radius:50%;background:#22c55e;box-shadow:0 0 5px #22c55e"></span><span data-i18n="sys_ready">HỆ THỐNG: SẴN SÀNG</span>
     </div>
     <button onclick="loadAll()" style="padding:5px 10px;border-radius:8px;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.4);color:#c2c6d6;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px">
-      <span class="material-symbols-outlined" id="ri" style="font-size:14px">refresh</span>Làm mới
+      <span class="material-symbols-outlined" id="ri" style="font-size:14px">refresh</span><span data-i18n="refresh">Làm mới</span>
     </button>
   </div>
 </div>
@@ -105,19 +105,19 @@
 <div id="te-tabbar" style="display:flex;padding:0 16px;background:rgba(11,19,38,.9);border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0">
   <button id="tab-btn-task" onclick="switchMode('task')"
     style="padding:9px 18px;border:none;background:transparent;color:#adc6ff;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid #adc6ff;display:flex;align-items:center;gap:6px;white-space:nowrap">
-    <span class="material-symbols-outlined" style="font-size:15px">task_alt</span>Thực hiện nhiệm vụ
+    <span class="material-symbols-outlined" style="font-size:15px">task_alt</span><span data-i18n="tab_task">Thực hiện nhiệm vụ</span>
   </button>
   <button id="tab-btn-sim" onclick="switchMode('sim')"
     style="padding:9px 18px;border:none;background:transparent;color:#8c909f;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px;white-space:nowrap">
-    <span class="material-symbols-outlined" style="font-size:15px">route</span>Chạy thử nghiệm
+    <span class="material-symbols-outlined" style="font-size:15px">route</span><span data-i18n="tab_sim">Chạy thử nghiệm</span>
   </button>
   <button id="tab-btn-sched" onclick="switchMode('sched')"
     style="padding:9px 18px;border:none;background:transparent;color:#8c909f;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px;white-space:nowrap">
-    <span class="material-symbols-outlined" style="font-size:15px">schedule</span>Lập lịch
+    <span class="material-symbols-outlined" style="font-size:15px">schedule</span><span data-i18n="tab_sched">Lập lịch</span>
   </button>
   <button id="tab-btn-multi" onclick="switchMode('multi')"
     style="padding:9px 18px;border:none;background:transparent;color:#8c909f;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;display:flex;align-items:center;gap:6px;white-space:nowrap">
-    <span class="material-symbols-outlined" style="font-size:15px">inventory_2</span>Đa tổ
+    <span class="material-symbols-outlined" style="font-size:15px">inventory_2</span><span data-i18n="tab_multi">Đa tổ</span>
   </button>
 </div>
 
@@ -133,20 +133,20 @@
     <!-- TOP 2/3: AGV list -->
     <div style="flex:2;min-height:0;display:flex;flex-direction:column;padding:12px 12px 8px;overflow:hidden;border-bottom:1px solid rgba(255,255,255,.06)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-shrink:0">
-        <span class="sec-label">Lựa chọn AGV</span>
+        <span class="sec-label" data-i18n="sec_agv">Lựa chọn AGV</span>
         <span id="online-count" style="font-size:10px;color:#adc6ff;background:rgba(173,198,255,.1);padding:2px 8px;border-radius:20px;border:1px solid rgba(173,198,255,.2)">…</span>
       </div>
       <div id="agv-list" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:7px">
-        <div style="text-align:center;padding:28px;color:#8c909f;font-size:12px">Đang tải danh sách AGV…</div>
+        <div style="text-align:center;padding:28px;color:#8c909f;font-size:12px" data-i18n="loading_agv">Đang tải danh sách AGV…</div>
       </div>
     </div>
 
     <!-- BOTTOM 1/3: Workflow -->
     <div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:10px 12px 12px;overflow:hidden">
-      <div style="margin-bottom:7px;flex-shrink:0"><span class="sec-label">Quy trình vận hành</span></div>
+      <div style="margin-bottom:7px;flex-shrink:0"><span class="sec-label" data-i18n="sec_wf">Quy trình vận hành</span></div>
       <div style="position:relative;flex-shrink:0">
         <select id="wf-select" onchange="onWorkflowChange()">
-          <option disabled selected value="">-- Chọn quy trình --</option>
+          <option disabled selected value="" data-i18n-opt="sel_wf">-- Chọn quy trình --</option>
         </select>
         <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:14px;color:#8c909f">expand_more</span>
       </div>
@@ -163,28 +163,28 @@
 
       <!-- Config grid -->
       <div>
-        <div class="sec-label" style="margin-bottom:8px">⚙ Cấu hình</div>
+        <div class="sec-label" style="margin-bottom:8px" data-i18n="sim_config">⚙ Cấu hình</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <div>
-            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">AGV</div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px" data-i18n="sched_agv_lbl">AGV</div>
             <select id="sim-agv" style="width:100%;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:8px;padding:5px 8px;font-size:12px;outline:none">
-              <option value="">-- Chọn AGV --</option>
+              <option value="" data-i18n-opt="sel_agv">-- Chọn AGV --</option>
             </select>
           </div>
           <div>
-            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Kiểu lộ trình</div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px" data-i18n="sim_type_lbl">Kiểu lộ trình</div>
             <select id="sim-type" onchange="simUpdateGuide()" style="width:100%;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:8px;padding:5px 8px;font-size:12px;outline:none">
               <option value="loop">🔁 Loop</option>
               <option value="pingpong">↔ Ping-pong</option>
             </select>
           </div>
           <div>
-            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Số vòng</div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px" data-i18n="sim_cycles_lbl">Số vòng</div>
             <input id="sim-cycles" type="number" min="1" max="9999" value="10"
               style="width:100%;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);border-radius:8px;color:#fff;padding:5px 8px;font-size:12px;outline:none"/>
           </div>
           <div>
-            <div style="font-size:10px;color:#8c909f;margin-bottom:4px">Dừng tại điểm (s)</div>
+            <div style="font-size:10px;color:#8c909f;margin-bottom:4px" data-i18n="sim_delay_lbl">Dừng tại điểm (s)</div>
             <input id="sim-delay" type="number" min="0" max="60" step="0.5" value="1"
               style="width:100%;background:rgba(34,42,61,.8);border:1px solid rgba(66,71,84,.5);border-radius:8px;color:#fff;padding:5px 8px;font-size:12px;outline:none"/>
           </div>
@@ -197,10 +197,10 @@
       <!-- Route builder -->
       <div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <div class="sec-label">🗺 Lộ trình <span id="sim-route-count" style="color:#adc6ff;font-size:10px">(0 node)</span></div>
-          <button onclick="simClearRoute()" style="padding:2px 8px;border-radius:6px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;font-size:10px;cursor:pointer">Xóa</button>
+          <div class="sec-label"><span data-i18n="sim_route_lbl">🗺 Lộ trình</span> <span id="sim-route-count" style="color:#adc6ff;font-size:10px">(0 node)</span></div>
+          <button onclick="simClearRoute()" style="padding:2px 8px;border-radius:6px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;font-size:10px;cursor:pointer" data-i18n="sim_clear">Xóa</button>
         </div>
-        <div style="font-size:10px;color:#555;margin-bottom:5px">→ Bấm node trên bản đồ để thêm</div>
+        <div style="font-size:10px;color:#555;margin-bottom:5px" data-i18n="sim_click_hint">→ Bấm node trên bản đồ để thêm</div>
         <div id="sim-route-list" style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto">
           <div style="color:#555;font-size:11px;text-align:center;padding:10px">Chưa có node nào</div>
         </div>
@@ -214,22 +214,22 @@
       <div style="display:flex;gap:6px">
         <button id="sim-btn-start" onclick="simStart()"
           style="flex:1;padding:7px 4px;border-radius:8px;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.35);color:#4ade80;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px">
-          <span class="material-symbols-outlined" style="font-size:15px">play_arrow</span>Bắt đầu
+          <span class="material-symbols-outlined" style="font-size:15px">play_arrow</span><span data-i18n="sim_start">Bắt đầu</span>
         </button>
         <button id="sim-btn-pause" onclick="simPause()" disabled
           style="flex:1;padding:7px 4px;border-radius:8px;background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.25);color:#fde047;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;opacity:.35">
-          <span class="material-symbols-outlined" style="font-size:15px">pause</span>Tạm dừng
+          <span class="material-symbols-outlined" style="font-size:15px">pause</span><span data-i18n="sim_pause">Tạm dừng</span>
         </button>
         <button id="sim-btn-stop" onclick="simStop()" disabled
           style="flex:1;padding:7px 4px;border-radius:8px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);color:#f87171;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;opacity:.35">
-          <span class="material-symbols-outlined" style="font-size:15px">stop</span>Dừng hẳn
+          <span class="material-symbols-outlined" style="font-size:15px">stop</span><span data-i18n="sim_stop_btn">Dừng hẳn</span>
         </button>
       </div>
 
       <!-- Status -->
       <div id="sim-status-box" style="display:none;background:rgba(13,22,42,.9);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <span id="sim-status-label" style="font-size:12px;font-weight:600;color:#4ade80">Đang chạy</span>
+          <span id="sim-status-label" style="font-size:12px;font-weight:600;color:#4ade80" data-i18n="sim_status_running">Đang chạy</span>
           <span id="sim-status-cycles" style="font-size:11px;font-family:'JetBrains Mono',monospace;color:#adc6ff"></span>
         </div>
         <div style="height:5px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden;margin-bottom:6px">
@@ -257,9 +257,9 @@
       <div style="padding:16px 18px 12px;border-bottom:1px solid rgba(173,198,255,.08);flex-shrink:0">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
           <span class="material-symbols-outlined" style="color:#adc6ff;font-size:16px">add_task</span>
-          <span style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace">TẠO LỊCH MỚI</span>
+          <span style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace" data-i18n="sched_new">TẠO LỊCH MỚI</span>
         </div>
-        <p style="font-size:9px;color:#8c909f;font-family:'JetBrains Mono',monospace;letter-spacing:.04em">CẤU HÌNH → LẬP LỊCH → TRIỂN KHAI</p>
+        <p style="font-size:9px;color:#8c909f;font-family:'JetBrains Mono',monospace;letter-spacing:.04em" data-i18n="sched_sub">CẤU HÌNH → LẬP LỊCH → TRIỂN KHAI</p>
       </div>
 
       <!-- Form body -->
@@ -267,7 +267,7 @@
 
         <!-- Task label -->
         <div>
-          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">TÊN LỊCH</div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_name_lbl">TÊN LỊCH</div>
           <input id="sched-label" type="text" placeholder="VD: VAN_CHUYEN_TO_1_SANG"
             style="width:100%;background:rgba(255,255,255,.04);color:#e8eaf6;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;box-sizing:border-box;outline:none;transition:.2s"
             onfocus="this.style.borderColor='rgba(173,198,255,.6)'" onblur="this.style.borderColor='rgba(173,198,255,.2)'">
@@ -276,76 +276,76 @@
         <!-- AGV + Tác vụ -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
-            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">AGV</div>
+            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_agv_lbl">AGV</div>
             <select id="sched-agv"
               style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
-              <option value="">-- Chọn AGV --</option>
+              <option value="" data-i18n-opt="sel_agv">-- Chọn AGV --</option>
             </select>
           </div>
           <div>
-            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">TÁC VỤ</div>
+            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_task_lbl">TÁC VỤ</div>
             <select id="sched-cmd" onchange="schedCmdChange()"
               style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
-              <option value="">-- Chọn tác vụ --</option>
+              <option value="" data-i18n-opt="sched_sel_task_opt">-- Chọn tác vụ --</option>
             </select>
           </div>
         </div>
 
         <!-- Bản đồ -->
         <div>
-          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">BẢN ĐỒ</div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_map_lbl">BẢN ĐỒ</div>
           <select id="sched-map" onchange="schedMapChange()"
             style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
-            <option value="">-- Chọn bản đồ --</option>
+            <option value="" data-i18n-opt="sel_map">-- Chọn bản đồ --</option>
           </select>
         </div>
 
         <!-- Tổ đích + Priority -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
-            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">TỔ ĐÍCH</div>
+            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_team_lbl">TỔ ĐÍCH</div>
             <select id="sched-team"
               style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
-              <option value="">-- Chọn bản đồ trước --</option>
+              <option value="" data-i18n-opt="sched_sel_map_first">-- Chọn bản đồ trước --</option>
             </select>
           </div>
           <div>
-            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">MỨC ƯU TIÊN</div>
+            <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_pri_lbl">MỨC ƯU TIÊN</div>
             <select id="sched-priority"
               style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;appearance:none;outline:none;cursor:pointer">
-              <option value="1">🔴 Khẩn cấp</option>
-              <option value="2">🟠 Cao</option>
-              <option value="3" selected>🔵 Bình thường</option>
-              <option value="4">⚫ Thấp</option>
-              <option value="5">⬜ Rất thấp</option>
+              <option value="1" data-i18n-opt="sched_p_urgent">🔴 Khẩn cấp</option>
+              <option value="2" data-i18n-opt="sched_p_high">🟠 Cao</option>
+              <option value="3" selected data-i18n-opt="sched_p_normal">🔵 Bình thường</option>
+              <option value="4" data-i18n-opt="sched_p_low">⚫ Thấp</option>
+              <option value="5" data-i18n-opt="sched_p_vlow">⬜ Rất thấp</option>
             </select>
           </div>
         </div>
 
         <!-- Recurrence type -->
         <div>
-          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:6px">CHẾ ĐỘ LẶP</div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:6px" data-i18n="sched_recur_lbl">CHẾ ĐỘ LẶP</div>
           <div style="display:flex;gap:0">
-            <button id="sched-type-once"     class="sched-type-btn active" onclick="schedTypeSwitch('once')">MỘT LẦN</button>
-            <button id="sched-type-daily"    class="sched-type-btn" onclick="schedTypeSwitch('daily')">HÀNG NGÀY</button>
-            <button id="sched-type-interval" class="sched-type-btn" onclick="schedTypeSwitch('interval')">LẶP LẠI</button>
+            <button id="sched-type-once"     class="sched-type-btn active" onclick="schedTypeSwitch('once')" data-i18n="sched_once">MỘT LẦN</button>
+            <button id="sched-type-daily"    class="sched-type-btn" onclick="schedTypeSwitch('daily')" data-i18n="sched_daily">HÀNG NGÀY</button>
+            <button id="sched-type-interval" class="sched-type-btn" onclick="schedTypeSwitch('interval')" data-i18n="sched_interval">LẶP LẠI</button>
           </div>
         </div>
 
         <!-- Panel: Một lần -->
         <div id="sched-panel-once">
-          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">NGÀY GIỜ THỰC HIỆN</div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_dt_lbl">NGÀY GIỜ THỰC HIỆN</div>
           <input type="datetime-local" id="sched-datetime"
             style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;box-sizing:border-box;outline:none">
         </div>
 
         <!-- Panel: Hàng ngày -->
         <div id="sched-panel-daily" style="display:none">
-          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">GIỜ THỰC HIỆN</div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_time_lbl">GIỜ THỰC HIỆN</div>
           <input type="time" id="sched-time" value="08:00"
             style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:13px;font-family:'JetBrains Mono',monospace;box-sizing:border-box;outline:none;margin-bottom:10px">
-          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:6px">NGÀY TRONG TUẦN</div>
-          <div style="display:flex;gap:4px">
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:6px" data-i18n="sched_days_lbl">NGÀY TRONG TUẦN</div>
+          <div style="display:flex;gap:4px" id="sched-days-row">
             <label id="day-lbl-1" class="day-chk"><input type="checkbox" value="1" onchange="schedDayToggle(1)">T2</label>
             <label id="day-lbl-2" class="day-chk"><input type="checkbox" value="2" onchange="schedDayToggle(2)">T3</label>
             <label id="day-lbl-3" class="day-chk"><input type="checkbox" value="3" onchange="schedDayToggle(3)">T4</label>
@@ -358,7 +358,7 @@
 
         <!-- Panel: Lặp lại -->
         <div id="sched-panel-interval" style="display:none">
-          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px">LẶP MỖI (PHÚT)</div>
+          <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:5px" data-i18n="sched_mins_lbl">LẶP MỖI (PHÚT)</div>
           <input type="number" id="sched-interval" value="60" min="5"
             style="width:100%;background:rgba(255,255,255,.04);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:7px 10px;font-size:13px;font-family:'JetBrains Mono',monospace;box-sizing:border-box;outline:none">
         </div>
@@ -366,7 +366,8 @@
         <!-- Save button -->
         <button onclick="schedSave()"
           style="width:100%;padding:10px;border:1px solid rgba(173,198,255,.4);background:rgba(173,198,255,.08);color:#adc6ff;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:.2s;margin-top:auto"
-          onmouseover="this.style.background='rgba(173,198,255,.18)'" onmouseout="this.style.background='rgba(173,198,255,.08)'">
+          onmouseover="this.style.background='rgba(173,198,255,.18)'" onmouseout="this.style.background='rgba(173,198,255,.08)'"
+          data-i18n="sched_save_btn">
           LƯU LỊCH ▶
         </button>
 
@@ -381,7 +382,7 @@
       <div style="padding:16px 20px 12px;border-bottom:1px solid rgba(173,198,255,.08);flex-shrink:0;display:flex;align-items:center;justify-content:space-between">
         <div style="display:flex;align-items:center;gap:8px">
           <span class="material-symbols-outlined" style="color:#adc6ff;font-size:16px">calendar_view_day</span>
-          <span style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace">DANH SÁCH LỊCH ĐÃ ĐẶT</span>
+          <span style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.1em;text-transform:uppercase;font-family:'JetBrains Mono',monospace" data-i18n="sched_list_title">DANH SÁCH LỊCH ĐÃ ĐẶT</span>
           <span id="sched-count-badge" style="font-size:9px;background:rgba(173,198,255,.12);color:#adc6ff;border:1px solid rgba(173,198,255,.2);padding:1px 7px;font-family:'JetBrains Mono',monospace"></span>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -397,7 +398,7 @@
 
       <!-- Timeline list -->
       <div id="sched-list" style="flex:1;overflow-y:auto;padding:6px 0">
-        <div style="text-align:center;padding:32px;color:#8c909f;font-size:11px;font-family:'JetBrains Mono',monospace">Đang tải dữ liệu lịch...</div>
+        <div style="text-align:center;padding:32px;color:#8c909f;font-size:11px;font-family:'JetBrains Mono',monospace" data-i18n="sched_loading">Đang tải dữ liệu lịch...</div>
       </div>
     </div>
 
@@ -408,33 +409,33 @@
 
     <!-- AGV picker -->
     <div>
-      <div class="sec-label" style="margin-bottom:6px">AGV thực hiện</div>
+      <div class="sec-label" style="margin-bottom:6px" data-i18n="multi_agv_lbl">AGV thực hiện</div>
       <select id="multi-agv-select" onchange="multiOnAgvChange()"
         style="background:#fff;border:1px solid #c0c8d8;border-radius:8px;color:#111;padding:7px 10px;font-size:13px;width:100%">
-        <option value="">— Chọn AGV —</option>
+        <option value="" data-i18n-opt="multi_sel_agv">— Chọn AGV —</option>
       </select>
     </div>
 
     <!-- Team checkboxes -->
     <div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <span class="sec-label">Chọn tổ cần cấp hàng</span>
-        <span id="multi-no-supply-warn" style="display:none;font-size:10px;color:#f87171">⚠ Một số tổ chưa có node lấy hàng</span>
+        <span class="sec-label" data-i18n="multi_teams_lbl">Chọn tổ cần cấp hàng</span>
+        <span id="multi-no-supply-warn" style="display:none;font-size:10px;color:#f87171" data-i18n="multi_warn_no_supply">⚠ Một số tổ chưa có node lấy hàng</span>
       </div>
       <div id="multi-team-list" style="display:flex;flex-direction:column;gap:5px">
-        <div style="color:#8c909f;font-size:12px;text-align:center;padding:12px">Đang tải danh sách tổ…</div>
+        <div style="color:#8c909f;font-size:12px;text-align:center;padding:12px" data-i18n="multi_loading_teams">Đang tải danh sách tổ…</div>
       </div>
     </div>
 
     <!-- Priority reorder -->
     <div id="multi-priority-section" style="display:none">
-      <div class="sec-label" style="margin-bottom:6px">Thứ tự giao hàng <small style="color:#8c909f;font-weight:400;text-transform:none">(kéo hoặc dùng ↑↓)</small></div>
+      <div class="sec-label" style="margin-bottom:6px"><span data-i18n="multi_order_lbl">Thứ tự giao hàng</span> <small style="color:#8c909f;font-weight:400;text-transform:none" data-i18n="multi_order_hint">(kéo hoặc dùng ↑↓)</small></div>
       <div id="multi-priority-list" style="display:flex;flex-direction:column;gap:4px"></div>
     </div>
 
     <!-- Route preview -->
     <div id="multi-route-preview" style="display:none;background:rgba(173,198,255,.05);border:1px solid rgba(173,198,255,.15);border-radius:10px;padding:12px">
-      <div class="sec-label" style="margin-bottom:8px">Lộ trình sẽ thực hiện</div>
+      <div class="sec-label" style="margin-bottom:8px" data-i18n="multi_route_lbl">Lộ trình sẽ thực hiện</div>
       <div id="multi-route-steps" style="display:flex;flex-direction:column;gap:5px"></div>
     </div>
 
@@ -442,7 +443,7 @@
     <button id="multi-dispatch-btn" onclick="multiDispatch()" disabled
       style="background:rgba(77,142,255,.15);color:#8c909f;border:1px solid rgba(77,142,255,.2);border-radius:10px;padding:10px;font-size:13px;font-weight:700;cursor:not-allowed;transition:all .2s;letter-spacing:.04em">
       <span class="material-symbols-outlined" style="font-size:15px;vertical-align:middle;margin-right:4px">play_arrow</span>
-      Bắt đầu thực hiện
+      <span data-i18n="multi_start_btn">Bắt đầu thực hiện</span>
     </button>
 
   </div><!-- /multi-panel -->
@@ -457,7 +458,7 @@
       <span class="material-symbols-outlined" style="color:#adc6ff;font-size:16px">map</span>
       <div style="position:relative;flex:1">
         <select id="map-select" onchange="onMapChange()">
-          <option value="">-- Chọn bản đồ --</option>
+          <option value="" data-i18n-opt="sel_map">-- Chọn bản đồ --</option>
         </select>
         <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#8c909f">expand_more</span>
       </div>
@@ -491,7 +492,7 @@
       </button>
       <div id="map-empty" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none">
         <span class="material-symbols-outlined" style="font-size:52px;color:#adc6ff;opacity:.1">warehouse</span>
-        <p style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;margin-top:6px;letter-spacing:.08em;text-transform:uppercase;opacity:.35">Chọn bản đồ để xem</p>
+        <p style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;margin-top:6px;letter-spacing:.08em;text-transform:uppercase;opacity:.35" data-i18n="map_empty_txt">Chọn bản đồ để xem</p>
       </div>
     </div>
 
@@ -499,26 +500,26 @@
     <div id="start-node-row" style="display:none;flex-shrink:0;padding:7px 12px;border-top:1px solid rgba(255,183,0,.25);background:rgba(255,183,0,.05)">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">
         <span class="material-symbols-outlined" style="color:#ffb700;font-size:15px">warning</span>
-        <span style="font-size:10px;color:#ffb700;font-weight:600;letter-spacing:.04em">VỊ TRÍ AGV CHƯA XÁC NHẬN</span>
+        <span style="font-size:10px;color:#ffb700;font-weight:600;letter-spacing:.04em" data-i18n="agv_pos_warn">VỊ TRÍ AGV CHƯA XÁC NHẬN</span>
         <button id="btn-ping-agv" onclick="pingAgv()"
           style="margin-left:auto;padding:3px 9px;border-radius:6px;background:rgba(77,142,255,.15);border:1px solid rgba(77,142,255,.3);color:#adc6ff;font-size:10px;cursor:pointer;display:flex;align-items:center;gap:3px">
-          <span class="material-symbols-outlined" style="font-size:12px">sensors</span>Ping AGV
+          <span class="material-symbols-outlined" style="font-size:12px">sensors</span><span data-i18n="ping_agv">Ping AGV</span>
         </button>
       </div>
-      <div style="font-size:10px;color:#8c909f;margin-bottom:6px">
-        Server chưa nhận state từ AGV. Chọn node đúng vị trí thực tế và nhấn <b style="color:#a5b4fc">📍 Gán vị trí</b> để cập nhật server, hoặc nhấn "Ping AGV" để yêu cầu xe tự báo.
+      <div style="font-size:10px;color:#8c909f;margin-bottom:6px" id="te-pos-desc">
+        <span data-i18n="pos_desc">Server chưa nhận state từ AGV. Chọn node đúng vị trí thực tế và nhấn</span> <b style="color:#a5b4fc">📍 <span data-i18n="assign_pos">Gán vị trí</span></b> <span data-i18n="pos_assign_hint">để cập nhật server, hoặc nhấn "Ping AGV" để yêu cầu xe tự báo.</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
-        <span class="sec-label" style="white-space:nowrap;color:#ffb700">Vị trí xe</span>
+        <span class="sec-label" style="white-space:nowrap;color:#ffb700" data-i18n="pos_label">Vị trí xe</span>
         <div style="position:relative;flex:1">
           <select id="start-node-select" onchange="onStartNodeSelect()">
-            <option value="">-- Xe đang ở node nào? (nhấn node trên map hoặc chọn) --</option>
+            <option value="" data-i18n-opt="pos_sel_hint">-- Xe đang ở node nào? (nhấn node trên map hoặc chọn) --</option>
           </select>
           <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#8c909f">expand_more</span>
         </div>
         <button id="btn-assign-pos" onclick="assignAgvPosition('start')"
           style="padding:4px 11px;border-radius:7px;background:rgba(99,102,241,.2);border:1px solid rgba(99,102,241,.5);color:#a5b4fc;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:3px;flex-shrink:0">
-          <span class="material-symbols-outlined" style="font-size:12px">pin_drop</span>Gán vị trí
+          <span class="material-symbols-outlined" style="font-size:12px">pin_drop</span><span data-i18n="assign_pos">Gán vị trí</span>
         </button>
       </div>
     </div>
@@ -533,8 +534,8 @@
       <div id="step-dest-inner" style="padding:7px 12px;display:flex;flex-direction:column;gap:5px">
         <div style="display:flex;align-items:center;gap:8px">
           <span class="material-symbols-outlined" style="color:#ddb7ff;font-size:15px">pin_drop</span>
-          <span class="sec-label">Điểm đến</span>
-          <span style="font-size:10px;color:#424754">— chọn quy trình trước</span>
+          <span class="sec-label" data-i18n="step_dest_lbl">Điểm đến</span>
+          <span style="font-size:10px;color:#424754" data-i18n="step_dest_hint">— chọn quy trình trước</span>
         </div>
       </div>
     </div>
@@ -550,26 +551,26 @@
   <div id="lc-picking" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
     <span class="material-symbols-outlined" style="color:#22c55e;font-size:20px">inventory_2</span>
     <div style="flex:1;min-width:0">
-      <div style="font-size:11px;font-weight:700;color:#22c55e;letter-spacing:.04em">AGV ĐÃ ĐẾN ĐIỂM LẤY HÀNG</div>
-      <div style="font-size:10px;color:#8c909f;margin-top:1px">AGV đang đứng chờ — nhấn xác nhận sau khi đã lấy hàng lên xe xong</div>
+      <div style="font-size:11px;font-weight:700;color:#22c55e;letter-spacing:.04em" data-i18n="lc_pick_title">AGV ĐÃ ĐẾN ĐIỂM LẤY HÀNG</div>
+      <div style="font-size:10px;color:#8c909f;margin-top:1px" data-i18n="lc_pick_desc">AGV đang đứng chờ — nhấn xác nhận sau khi đã lấy hàng lên xe xong</div>
     </div>
     <button id="lc-picking-btn" onclick="confirmLifecycle()"
       style="padding:8px 20px;border-radius:9px;background:rgba(34,197,94,.3);border:1px solid rgba(34,197,94,.5);color:#fff;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;transition:all .2s"
       onmouseover="this.style.background='rgba(34,197,94,.5)'" onmouseout="this.style.background='rgba(34,197,94,.3)'">
-      <span class="material-symbols-outlined" style="font-size:14px">check_circle</span>ĐÃ LẤY HÀNG XONG
+      <span class="material-symbols-outlined" style="font-size:14px">check_circle</span><span data-i18n="lc_pick_btn">ĐÃ LẤY HÀNG XONG</span>
     </button>
   </div>
   <!-- delivering state (WAIT_USER → arrived_wait_user) -->
   <div id="lc-delivering" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
     <span class="material-symbols-outlined" style="color:#adc6ff;font-size:20px">local_shipping</span>
     <div style="flex:1;min-width:0">
-      <div style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.04em">AGV ĐÃ ĐẾN ĐIỂM GIAO HÀNG</div>
-      <div style="font-size:10px;color:#8c909f;margin-top:1px">AGV đang đứng chờ — nhấn xác nhận sau khi đã dỡ hàng xuống xong</div>
+      <div style="font-size:11px;font-weight:700;color:#adc6ff;letter-spacing:.04em" data-i18n="lc_del_title">AGV ĐÃ ĐẾN ĐIỂM GIAO HÀNG</div>
+      <div style="font-size:10px;color:#8c909f;margin-top:1px" data-i18n="lc_del_desc">AGV đang đứng chờ — nhấn xác nhận sau khi đã dỡ hàng xuống xong</div>
     </div>
     <button id="lc-delivering-btn" onclick="confirmLifecycle()"
       style="padding:8px 20px;border-radius:9px;background:rgba(77,142,255,.3);border:1px solid rgba(77,142,255,.5);color:#fff;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;transition:all .2s"
       onmouseover="this.style.background='rgba(77,142,255,.5)'" onmouseout="this.style.background='rgba(77,142,255,.3)'">
-      <span class="material-symbols-outlined" style="font-size:14px">check_circle</span>ĐÃ GIAO HÀNG XONG
+      <span class="material-symbols-outlined" style="font-size:14px">check_circle</span><span data-i18n="lc_del_btn">ĐÃ GIAO HÀNG XONG</span>
     </button>
   </div>
 </div>
@@ -580,13 +581,13 @@
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px">
       <div style="display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.04);border:1px solid rgba(66,71,84,.4)">
         <span style="color:#8c909f;font-size:10px;font-family:'JetBrains Mono',monospace">AGV</span>
-        <span id="sum-agv" style="font-weight:700;color:#adc6ff">Chưa chọn</span>
+        <span id="sum-agv" style="font-weight:700;color:#adc6ff" data-i18n="agv_not_sel">Chưa chọn</span>
         <span id="sum-agv-type" style="display:none;font-size:9px;padding:1px 5px;border-radius:4px"></span>
       </div>
       <span class="material-symbols-outlined" style="color:#424754;font-size:12px">chevron_right</span>
       <div style="display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.04);border:1px solid rgba(66,71,84,.4)">
         <span style="color:#8c909f;font-size:10px;font-family:'JetBrains Mono',monospace">QUY TRÌNH</span>
-        <span id="sum-wf" style="font-weight:700;color:#ddb7ff">Chưa chọn</span>
+        <span id="sum-wf" style="font-weight:700;color:#ddb7ff" data-i18n="wf_not_sel">Chưa chọn</span>
       </div>
       <span class="material-symbols-outlined" style="color:#424754;font-size:12px">chevron_right</span>
       <div style="display:flex;align-items:center;gap:5px;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.04);border:1px solid rgba(66,71,84,.4)">
@@ -595,22 +596,22 @@
       </div>
       <div id="sum-queue" style="display:none;align-items:center;gap:5px;padding:4px 9px;border-radius:7px;background:rgba(255,183,0,.08);border:1px solid rgba(255,183,0,.25)">
         <span class="material-symbols-outlined" style="color:#ffb700;font-size:12px">queue</span>
-        <span id="sum-qtxt" style="font-size:10px;font-weight:600;color:#ffb700"></span>
+        <span id="sum-qtxt" style="font-size:10px;font-weight:600;color:#ffb700" data-i18n="queue_lbl"></span>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
       <button id="queue-mgr-btn" onclick="openQueueManager()" style="display:none;padding:8px 12px;border-radius:9px;background:rgba(255,183,0,.1);border:1px solid rgba(255,183,0,.35);color:#ffb700;font-size:11px;font-weight:700;cursor:pointer;display:none;align-items:center;gap:5px">
         <span class="material-symbols-outlined" style="font-size:14px">pending_actions</span>
-        <span id="queue-mgr-count"></span>HÀNG CHỜ
+        <span id="queue-mgr-count"></span><span data-i18n="queue_lbl">HÀNG CHỜ</span>
       </button>
       <button onclick="emergencyStop()"
         style="padding:8px 14px;border-radius:9px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.3);color:#ffb4ab;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .15s"
         onmouseover="this.style.background='rgba(147,0,10,.4)'" onmouseout="this.style.background='rgba(255,80,80,.08)'">
-        <span class="material-symbols-outlined" style="font-size:14px">emergency</span>DỪNG KHẨN CẤP
+        <span class="material-symbols-outlined" style="font-size:14px">emergency</span><span data-i18n="emg_stop">DỪNG KHẨN CẤP</span>
       </button>
       <button id="start-btn" onclick="startMission()" disabled
         style="padding:8px 20px;border-radius:9px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.15);color:rgba(255,255,255,.25);font-weight:700;font-size:12px;cursor:not-allowed;display:flex;align-items:center;gap:6px;letter-spacing:.04em;transition:all .2s">
-        BẮT ĐẦU NHIỆM VỤ
+        <span data-i18n="start_mission">BẮT ĐẦU NHIỆM VỤ</span>
         <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span>
       </button>
     </div>
@@ -622,22 +623,22 @@
   <div class="modal-box" style="border:1px solid rgba(255,183,0,.35)">
     <div style="display:flex;align-items:center;gap:10px">
       <span class="material-symbols-outlined" style="color:#ffb700;font-size:26px">queue</span>
-      <div><b style="color:#dae2fd">Lệnh đã xếp hàng chờ</b><br/><span style="font-size:11px;color:#8c909f">AGV đang bận — thực hiện sau khi hoàn thành</span></div>
+      <div><b style="color:#dae2fd" data-i18n="modal_q_title">Lệnh đã xếp hàng chờ</b><br/><span style="font-size:11px;color:#8c909f" data-i18n="modal_q_sub">AGV đang bận — thực hiện sau khi hoàn thành</span></div>
     </div>
     <div id="queue-body" style="padding:9px 11px;border-radius:9px;background:rgba(255,183,0,.06);border:1px solid rgba(255,183,0,.15);font-size:12px;color:#c2c6d6"></div>
-    <button onclick="closeModal('queue-modal')" style="padding:9px;border-radius:9px;background:rgba(77,142,255,.15);border:1px solid rgba(77,142,255,.25);color:#adc6ff;font-weight:600;cursor:pointer">OK, đã hiểu</button>
+    <button onclick="closeModal('queue-modal')" style="padding:9px;border-radius:9px;background:rgba(77,142,255,.15);border:1px solid rgba(77,142,255,.25);color:#adc6ff;font-weight:600;cursor:pointer" data-i18n="modal_q_ok">OK, đã hiểu</button>
   </div>
 </div>
 <div id="confirm-modal" class="modal">
   <div class="modal-box" style="border:1px solid rgba(77,142,255,.35)">
     <div style="display:flex;align-items:center;gap:10px">
       <span class="material-symbols-outlined" style="color:#7eb3ff;font-size:26px">send</span>
-      <div><b style="color:#dae2fd">Xác nhận gửi lệnh</b><br/><span id="confirm-sub" style="font-size:11px;color:#8c909f"></span></div>
+      <div><b style="color:#dae2fd" data-i18n="modal_c_title">Xác nhận gửi lệnh</b><br/><span id="confirm-sub" style="font-size:11px;color:#8c909f"></span></div>
     </div>
     <div id="confirm-body" style="padding:9px 11px;border-radius:9px;background:rgba(77,142,255,.06);border:1px solid rgba(77,142,255,.15);font-size:12px;color:#c2c6d6"></div>
     <div style="display:flex;gap:7px">
-      <button onclick="closeModal('confirm-modal')" style="flex:1;padding:9px;border-radius:9px;background:rgba(45,52,73,.7);border:1px solid rgba(66,71,84,.4);color:#c2c6d6;cursor:pointer">Hủy</button>
-      <button onclick="doDispatch()" style="flex:1;padding:9px;border-radius:9px;background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.4);color:#86efac;font-weight:700;cursor:pointer">Gửi lệnh</button>
+      <button onclick="closeModal('confirm-modal')" style="flex:1;padding:9px;border-radius:9px;background:rgba(45,52,73,.7);border:1px solid rgba(66,71,84,.4);color:#c2c6d6;cursor:pointer" data-i18n="modal_cancel">Hủy</button>
+      <button onclick="doDispatch()" style="flex:1;padding:9px;border-radius:9px;background:rgba(34,197,94,.2);border:1px solid rgba(34,197,94,.4);color:#86efac;font-weight:700;cursor:pointer" data-i18n="modal_send">Gửi lệnh</button>
     </div>
   </div>
 </div>
@@ -648,7 +649,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
       <div style="display:flex;align-items:center;gap:8px">
         <span class="material-symbols-outlined" style="color:#ffb700;font-size:22px">pending_actions</span>
-        <b style="color:#dae2fd;font-size:14px">Quản lý hàng chờ</b>
+        <b style="color:#dae2fd;font-size:14px" data-i18n="modal_qmgr">Quản lý hàng chờ</b>
         <span id="qmgr-agv-id" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#adc6ff;padding:1px 7px;border-radius:4px;background:rgba(77,142,255,.12)"></span>
       </div>
       <button onclick="closeModal('qmgr-modal')" style="padding:3px 8px;border-radius:6px;background:rgba(45,52,73,.7);border:1px solid rgba(66,71,84,.4);color:#8c909f;cursor:pointer;font-size:11px">✕</button>
@@ -656,15 +657,15 @@
 
     <!-- Running command -->
     <div id="qmgr-running-wrap">
-      <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;margin:10px 0 5px;text-transform:uppercase;letter-spacing:.06em">Đang thực hiện</div>
+      <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;margin:10px 0 5px;text-transform:uppercase;letter-spacing:.06em" data-i18n="modal_running_lbl">Đang thực hiện</div>
       <div id="qmgr-running" style="padding:9px 11px;border-radius:9px;background:rgba(255,183,0,.06);border:1px solid rgba(255,183,0,.2)">
-        <div style="font-size:11px;color:#8c909f">Không có</div>
+        <div style="font-size:11px;color:#8c909f" data-i18n="no_running">Không có</div>
       </div>
     </div>
 
     <!-- Queued commands -->
     <div id="qmgr-queue-wrap" style="margin-top:10px">
-      <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Hàng chờ</div>
+      <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em" data-i18n="modal_queue_lbl">Hàng chờ</div>
       <div id="qmgr-queue-list"></div>
     </div>
 
@@ -672,23 +673,305 @@
     <div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">
       <button onclick="cancelRunning()" id="btn-cancel-running"
         style="flex:1;padding:8px;border-radius:8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ffb4ab;font-size:11px;font-weight:700;cursor:pointer;min-width:120px">
-        <span class="material-symbols-outlined" style="font-size:13px;vertical-align:middle">cancel</span> Hủy lệnh đang chạy
+        <span class="material-symbols-outlined" style="font-size:13px;vertical-align:middle">cancel</span> <span data-i18n="btn_cancel_run">Hủy lệnh đang chạy</span>
       </button>
       <button onclick="cancelAllQueue()" id="btn-cancel-queue"
         style="flex:1;padding:8px;border-radius:8px;background:rgba(255,183,0,.1);border:1px solid rgba(255,183,0,.3);color:#ffb700;font-size:11px;font-weight:700;cursor:pointer;min-width:120px">
-        <span class="material-symbols-outlined" style="font-size:13px;vertical-align:middle">clear_all</span> Xóa hàng chờ
+        <span class="material-symbols-outlined" style="font-size:13px;vertical-align:middle">clear_all</span> <span data-i18n="btn_clear_queue">Xóa hàng chờ</span>
       </button>
       <button onclick="cancelEverything()"
         style="width:100%;padding:9px;border-radius:8px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.4);color:#ff6b6b;font-size:12px;font-weight:700;cursor:pointer">
-        <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle">delete_sweep</span> HỦY TẤT CẢ (running + queue)
+        <span class="material-symbols-outlined" style="font-size:14px;vertical-align:middle">delete_sweep</span> <span data-i18n="btn_cancel_all">HỦY TẤT CẢ (running + queue)</span>
       </button>
     </div>
   </div>
 </div>
 
 <script>
+// ── I18N ──────────────────────────────────────────────────────────────────
+const _lang = new URLSearchParams(location.search).get('lang') || 'vi';
+const _I = {
+  vi:{
+    title:'Thực hiện nhiệm vụ',subtitle:'Điều phối AGV · chọn quy trình · xác nhận lệnh',
+    sys_ready:'HỆ THỐNG: SẴN SÀNG',refresh:'Làm mới',
+    tab_task:'Thực hiện nhiệm vụ',tab_sim:'Chạy thử nghiệm',tab_sched:'Lập lịch',tab_multi:'Đa tổ',
+    sec_agv:'Lựa chọn AGV',loading_agv:'Đang tải danh sách AGV…',sec_wf:'Quy trình vận hành',
+    sel_wf:'-- Chọn quy trình --',sel_map:'-- Chọn bản đồ --',sel_agv:'-- Chọn AGV --',
+    sim_config:'⚙ Cấu hình',sim_type_lbl:'Kiểu lộ trình',sim_cycles_lbl:'Số vòng',
+    sim_delay_lbl:'Dừng tại điểm (s)',sim_route_lbl:'🗺 Lộ trình',
+    sim_click_hint:'→ Bấm node trên bản đồ để thêm',sim_no_nodes:'Chưa có node nào',
+    sim_clear:'Xóa',sim_start:'Bắt đầu',sim_pause:'Tạm dừng',sim_resume:'Tiếp tục',sim_stop_btn:'Dừng hẳn',
+    sim_status_running:'▶ Đang chạy',sim_status_paused:'⏸ Tạm dừng',
+    sim_status_completed:'✅ Hoàn thành',sim_status_stopped:'⏹ Đã dừng',sim_status_error:'❌ Lỗi',
+    sim_going_to:'→ Đang đến: ',sim_step_lbl:'bước',sim_cycles_lbl2:'Vòng',
+    sim_dispatch_ok:'✓',sim_cmds:'lệnh',sim_err_count:'lỗi',sim_eta:'⏱ ~',
+    sim_stopped_toast:'⏹ Đã dừng mô phỏng',sim_completed_toast:'✅ Mô phỏng hoàn thành!',
+    sim_start_ok:'✓ Bắt đầu mô phỏng',sim_n_cycles:'vòng',
+    sim_need_agv:'Chọn AGV trước',sim_need_nodes:'Cần ít nhất 2 node trong lộ trình',
+    sim_conn_err:'✗ Mất kết nối server',
+    sim_loop_title:'Loop — Vòng tròn',
+    sim_loop_desc:'AGV chạy lần lượt qua từng node theo thứ tự bạn chọn, rồi quay lại node đầu tiên và lặp lại.',
+    sim_loop_ex:'Ví dụ: A→B→C→D → A→B→C→D → ...',
+    sim_loop_t1:'Phù hợp cho đường một chiều hoặc đường vòng kín.',
+    sim_loop_t2:'Thêm node theo đúng chiều xe sẽ đi.',
+    sim_loop_t3:'Nếu có 4 node, 1 vòng = 4 chặng đi.',
+    sim_pp_title:'Ping-pong — Qua lại',
+    sim_pp_desc:'AGV đi từ đầu đến cuối lộ trình, rồi quay ngược lại từ cuối về đầu, cứ thế lặp lại.',
+    sim_pp_ex:'Ví dụ: A→B→C→D → D→C→B→A → A→B→... (1 vòng = đi và về)',
+    sim_pp_t1:'Phù hợp cho hành lang thẳng 2 chiều.',
+    sim_pp_t2:'Chọn các node từ điểm đầu đến điểm cuối.',
+    sim_pp_t3:'Điểm đầu và cuối không bị lặp khi quay đầu.',
+    sched_new:'TẠO LỊCH MỚI',sched_sub:'CẤU HÌNH → LẬP LỊCH → TRIỂN KHAI',
+    sched_name_lbl:'TÊN LỊCH',sched_agv_lbl:'AGV',sched_task_lbl:'TÁC VỤ',
+    sched_map_lbl:'BẢN ĐỒ',sched_team_lbl:'TỔ ĐÍCH',sched_pri_lbl:'MỨC ƯU TIÊN',
+    sched_recur_lbl:'CHẾ ĐỘ LẶP',sched_once:'MỘT LẦN',sched_daily:'HÀNG NGÀY',sched_interval:'LẶP LẠI',
+    sched_dt_lbl:'NGÀY GIỜ THỰC HIỆN',sched_time_lbl:'GIỜ THỰC HIỆN',
+    sched_days_lbl:'NGÀY TRONG TUẦN',sched_mins_lbl:'LẶP MỖI (PHÚT)',
+    sched_save_btn:'LƯU LỊCH ▶',sched_list_title:'DANH SÁCH LỊCH ĐÃ ĐẶT',
+    sched_loading:'Đang tải dữ liệu lịch...',
+    sched_empty_msg:'Chưa có lịch nào được đặt',sched_empty_hint:'Dùng form bên trái để tạo lịch mới',
+    sched_pri_badge:'ƯU TIÊN',
+    sched_p_urgent:'🔴 Khẩn cấp',sched_p_high:'🟠 Cao',sched_p_normal:'🔵 Bình thường',
+    sched_p_low:'⚫ Thấp',sched_p_vlow:'⬜ Rất thấp',
+    sched_today:'⚡ HÔM_NAY',sched_tomorrow:'→ NGÀY_MAI',sched_repeat_undef:'∞ LẶP LẠI KHÔNG XÁC ĐỊNH',
+    sched_now:'▶ NGAY BÂY GIỜ',sched_in:'còn',sched_min:'phút',
+    sched_run_count:'Đã chạy:',sched_times:'lần',sched_delete:'Xóa lịch này?',
+    sched_toggle_pause:'Tạm dừng',sched_toggle_act:'Kích hoạt',
+    sched_cmd_go:'GIAO HÀNG',sched_cmd_charge:'SẠC PIN',sched_cmd_wait:'CHỜ TẠI TRẠM',
+    sched_rep_once:'📌 Một lần',sched_rep_interval_pre:'⏱ Lặp mỗi',sched_rep_interval_post:'phút',
+    sched_rep_daily:'🔁 Hàng ngày',sched_all_days:'Tất cả các ngày',
+    sched_day_names:{1:'T2',2:'T3',3:'T4',4:'T5',5:'T6',6:'T7',7:'CN'},
+    sched_err_load:'Lỗi tải lịch',sched_save_ok:'✅ Đã lưu lịch',
+    sched_sel_agv:'Chọn AGV trước',sched_sel_task:'Chọn tác vụ trước',
+    sched_sel_map:'Chọn bản đồ trước',sched_sel_dt:'Chọn ngày giờ',
+    sched_sel_time:'Chọn giờ',sched_sel_day:'Chọn ít nhất 1 ngày',sched_min_mins:'Tối thiểu 5 phút',
+    sched_agv_busy:'[đang bận]',sched_agv_ready:'[sẵn sàng]',sched_agv_offline:'[offline]',
+    sched_sel_map_first:'-- Chọn bản đồ trước --',sched_sel_team:'-- Chọn tổ --',
+    sched_no_team:'Chưa có tổ nào trong bản đồ này',sched_err_team:'Lỗi tải danh sách tổ',
+    sched_sel_task_opt:'-- Chọn tác vụ --',sched_no_task:'Chưa có tác vụ nào',
+    sched_err_task:'Lỗi tải danh sách tác vụ',
+    multi_agv_lbl:'AGV thực hiện',multi_sel_agv:'— Chọn AGV —',
+    multi_teams_lbl:'Chọn tổ cần cấp hàng',multi_warn_no_supply:'⚠ Một số tổ chưa có node lấy hàng',
+    multi_loading_teams:'Đang tải danh sách tổ…',
+    multi_order_lbl:'Thứ tự giao hàng',multi_order_hint:'(kéo hoặc dùng ↑↓)',
+    multi_route_lbl:'Lộ trình sẽ thực hiện',multi_start_btn:'Bắt đầu thực hiện',
+    multi_pickup_to:'Đến Node',multi_pickup_for:'— lấy hàng cho Tổ',
+    multi_deliver_to:'Giao hàng Tổ',multi_no_node:'— chưa có node giao (bỏ qua)',
+    multi_return:'Về trạm sạc',multi_team_prefix:'Tổ',
+    multi_no_supply_node:'⚠ Chưa có node lấy hàng',multi_supply_node:'Lấy tại Node',
+    multi_no_steps:'Không có bước hợp lệ. Hãy kiểm tra cấu hình tổ và node lấy hàng.',
+    multi_sending:'Đang gửi lệnh…',multi_sent_ok:'✓ Đã gửi',multi_cmds:'lệnh',
+    multi_fail_pre:'bước gửi thất bại. Kiểm tra kết nối server.',
+    multi_supply_lbl:'Cấp Tổ',multi_pickup_cmd:'Lấy hàng Tổ',
+    multi_deliver_cmd:'Giao Tổ',multi_charge_cmd:'Về sạc',
+    map_empty_txt:'Chọn bản đồ để xem',
+    agv_pos_warn:'VỊ TRÍ AGV CHƯA XÁC NHẬN',ping_agv:'Ping AGV',
+    pos_desc:'Server chưa nhận state từ AGV. Chọn node đúng vị trí thực tế và nhấn',
+    pos_assign_hint:'để cập nhật server, hoặc nhấn "Ping AGV" để yêu cầu xe tự báo.',
+    pos_label:'Vị trí xe',pos_sel_hint:'-- Xe đang ở node nào? (nhấn node trên map hoặc chọn) --',
+    assign_pos:'Gán vị trí',start_node_req:'-- AGV đang ở node nào? (bắt buộc) --',
+    step_dest_lbl:'Điểm đến',step_dest_hint:'— chọn quy trình trước',
+    lc_pick_title:'AGV ĐÃ ĐẾN ĐIỂM LẤY HÀNG',
+    lc_pick_desc:'AGV đang đứng chờ — nhấn xác nhận sau khi đã lấy hàng lên xe xong',
+    lc_pick_btn:'ĐÃ LẤY HÀNG XONG',lc_del_title:'AGV ĐÃ ĐẾN ĐIỂM GIAO HÀNG',
+    lc_del_desc:'AGV đang đứng chờ — nhấn xác nhận sau khi đã dỡ hàng xuống xong',
+    lc_del_btn:'ĐÃ GIAO HÀNG XONG',
+    lc_pick_ack:'✓ Xác nhận lấy hàng — AGV tiếp tục',lc_del_ack:'✓ Xác nhận giao hàng — AGV tiếp tục',
+    lc_confirming:'Đang xác nhận…',lc_confirm_err:'✗ Mất kết nối server',
+    agv_not_sel:'Chưa chọn',wf_not_sel:'Chưa chọn',queue_lbl:'HÀNG CHỜ',
+    emg_stop:'DỪNG KHẨN CẤP',start_mission:'BẮT ĐẦU NHIỆM VỤ',start_mission_n:'BẮT ĐẦU',
+    modal_q_title:'Lệnh đã xếp hàng chờ',modal_q_sub:'AGV đang bận — thực hiện sau khi hoàn thành',
+    modal_q_ok:'OK, đã hiểu',modal_c_title:'Xác nhận gửi lệnh',modal_cancel:'Hủy',modal_send:'Gửi lệnh',
+    modal_qmgr:'Quản lý hàng chờ',modal_running_lbl:'Đang thực hiện',
+    modal_no_running:'Không có lệnh đang chạy',modal_queue_lbl:'Hàng chờ',
+    modal_queue_empty:'Hàng chờ trống',
+    btn_cancel_run:'Hủy lệnh đang chạy',btn_clear_queue:'Xóa hàng chờ',
+    btn_cancel_all:'HỦY TẤT CẢ (running + queue)',
+    agv_none:'Không có AGV trong database',agv_offline:'OFFLINE',agv_busy:'ĐANG CHẠY',agv_ready:'SẴN SÀNG',
+    agv_wait_q:'chờ',cmd_go_to:'Đi đến điểm',cmd_charge:'Đi sạc',cmd_wait_zone:'Về khu chờ',
+    cmd_stop:'Dừng',cmd_resume:'Tiếp tục',
+    step_auto_charge:'⚡ Đi sạc (tự động)',step_auto_wait:'⏸ Về khu chờ (tự động)',
+    step_auto_stop:'🛑 Dừng',step_auto_resume:'▶ Tiếp tục',
+    step_dest_ph:'— bấm map hoặc chọn —',
+    step_team_grp:'🏭 Điểm giao hàng (Tổ)',step_supply_grp:'📦 Điểm lấy hàng (Tổ cấp)',
+    step_all_nodes:'— Tất cả node —',team_prefix:'Tổ',
+    busy_warn:'⚠ AGV đang bận — các lệnh sẽ xếp hàng chờ',depart_from:'Xuất phát:',
+    sum_busy_pre:'Bận — hàng',sum_pts:'điểm',
+    sel_agv_warn:'Chưa chọn AGV',sel_node_warn:'Hãy chọn node trên map hoặc dropdown',
+    emg_confirm_pre:'Dừng khẩn cấp',no_map:'Không tải được bản đồ',node_prefix:'Node',
+    toast_pos_ok:'✓ Đã gán',toast_pos_to:'→ node',toast_pos_err:'✗ Gán vị trí thất bại: ',
+    toast_pos_start:'Vị trí xuất phát: ',toast_step:'Bước',toast_auto:'tự động',
+    toast_sent_ok:'✓ Đã gửi',toast_to:'lệnh đến',toast_offline:'AGV OFFLINE — không có kết nối',
+    toast_ready:'Sẵn sàng nhận lệnh',toast_err:'Lỗi: ',toast_err_conn:'mất kết nối server',
+    toast_conn_err:'✗ Không kết nối server',
+    cancel_ok:'✓ Đã hủy lệnh',cancel_fail:'✗ Không tìm thấy lệnh này',
+    cancel_run_ok:'✓ Đã hủy lệnh đang chạy — rảnh',cancel_run_empty:'Không có lệnh để hủy',
+    cancel_q_ok:'✓ Đã xóa',cancel_q_cmds:'lệnh trong hàng chờ',
+    cancel_all_ok:'✓ Đã hủy tất cả — rảnh',cancel_all_cmds:'lệnh chờ đã xóa',
+    cancel_run_confirm:'Hủy lệnh đang chạy của',cancel_run_warn:'AGV sẽ được giải phóng nhưng có thể đang ở giữa đường.',
+    cancel_all_confirm:'Hủy TẤT CẢ lệnh của',cancel_all_detail:'(lệnh đang chạy + toàn bộ hàng chờ)',
+    cancel_btn:'Hủy',queue_wait:'chờ',no_running:'Không có',
+    ping_sending:'Đang gửi…',ping_ok:'Đã gửi lệnh ping — chờ AGV báo vị trí (~3s)',
+    ping_fail:'Gửi ping thất bại (MQTT chưa kết nối?)',assigning:'Đang gán…',
+    fs_no_agv:'Không có AGV',map_monitor:'Bản đồ theo dõi',
+    step_go:'Đi đến điểm',step_charge_lbl:'Đi sạc pin',step_wait_zone_lbl:'Về khu chờ',step_stop_lbl:'Dừng khẩn cấp',
+  },
+  en:{
+    title:'Execute Task',subtitle:'Coordinate AGV · select workflow · confirm command',
+    sys_ready:'SYSTEM: READY',refresh:'Refresh',
+    tab_task:'Execute Task',tab_sim:'Simulation',tab_sched:'Schedule',tab_multi:'Multi-team',
+    sec_agv:'Select AGV',loading_agv:'Loading AGV list…',sec_wf:'Workflow',
+    sel_wf:'-- Select workflow --',sel_map:'-- Select map --',sel_agv:'-- Select AGV --',
+    sim_config:'⚙ Configuration',sim_type_lbl:'Route type',sim_cycles_lbl:'Cycles',
+    sim_delay_lbl:'Stop at point (s)',sim_route_lbl:'🗺 Route',
+    sim_click_hint:'→ Click a node on the map to add',sim_no_nodes:'No nodes yet',
+    sim_clear:'Clear',sim_start:'Start',sim_pause:'Pause',sim_resume:'Resume',sim_stop_btn:'Stop',
+    sim_status_running:'▶ Running',sim_status_paused:'⏸ Paused',
+    sim_status_completed:'✅ Completed',sim_status_stopped:'⏹ Stopped',sim_status_error:'❌ Error',
+    sim_going_to:'→ Going to: ',sim_step_lbl:'step',sim_cycles_lbl2:'Cycle',
+    sim_dispatch_ok:'✓',sim_cmds:'cmds',sim_err_count:'errors',sim_eta:'⏱ ~',
+    sim_stopped_toast:'⏹ Simulation stopped',sim_completed_toast:'✅ Simulation completed!',
+    sim_start_ok:'✓ Started simulation',sim_n_cycles:'cycles',
+    sim_need_agv:'Select AGV first',sim_need_nodes:'Need at least 2 nodes in the route',
+    sim_conn_err:'✗ Connection to server lost',
+    sim_loop_title:'Loop — Circular',
+    sim_loop_desc:'AGV runs through each node in order, then returns to the first node and repeats.',
+    sim_loop_ex:'Example: A→B→C→D → A→B→C→D → ...',
+    sim_loop_t1:'Suitable for one-way roads or closed loops.',
+    sim_loop_t2:'Add nodes in the direction the vehicle will travel.',
+    sim_loop_t3:'With 4 nodes, 1 cycle = 4 legs.',
+    sim_pp_title:'Ping-pong — Back and forth',
+    sim_pp_desc:'AGV goes from start to end of route, then reverses back from end to start, repeating.',
+    sim_pp_ex:'Example: A→B→C→D → D→C→B→A → A→B→... (1 cycle = there and back)',
+    sim_pp_t1:'Suitable for straight two-way corridors.',
+    sim_pp_t2:'Select nodes from start to end point.',
+    sim_pp_t3:'Start and end points are not repeated when reversing.',
+    sched_new:'CREATE SCHEDULE',sched_sub:'CONFIGURE → SCHEDULE → DEPLOY',
+    sched_name_lbl:'SCHEDULE NAME',sched_agv_lbl:'AGV',sched_task_lbl:'TASK',
+    sched_map_lbl:'MAP',sched_team_lbl:'TARGET TEAM',sched_pri_lbl:'PRIORITY',
+    sched_recur_lbl:'REPEAT MODE',sched_once:'ONE TIME',sched_daily:'DAILY',sched_interval:'REPEAT',
+    sched_dt_lbl:'EXECUTION DATE & TIME',sched_time_lbl:'EXECUTION TIME',
+    sched_days_lbl:'DAY OF WEEK',sched_mins_lbl:'REPEAT EVERY (MINUTES)',
+    sched_save_btn:'SAVE SCHEDULE ▶',sched_list_title:'SCHEDULED LIST',
+    sched_loading:'Loading schedule...',
+    sched_empty_msg:'No schedules set',sched_empty_hint:'Use the form on the left to create a new schedule',
+    sched_pri_badge:'PRIORITY',
+    sched_p_urgent:'🔴 Urgent',sched_p_high:'🟠 High',sched_p_normal:'🔵 Normal',
+    sched_p_low:'⚫ Low',sched_p_vlow:'⬜ Very low',
+    sched_today:'⚡ TODAY',sched_tomorrow:'→ TOMORROW',sched_repeat_undef:'∞ REPEAT UNDEFINED',
+    sched_now:'▶ RIGHT NOW',sched_in:'in',sched_min:'min',
+    sched_run_count:'Run:',sched_times:'times',sched_delete:'Delete this schedule?',
+    sched_toggle_pause:'Pause',sched_toggle_act:'Activate',
+    sched_cmd_go:'DELIVER',sched_cmd_charge:'CHARGE',sched_cmd_wait:'WAIT AT STATION',
+    sched_rep_once:'📌 One time',sched_rep_interval_pre:'⏱ Every',sched_rep_interval_post:'min',
+    sched_rep_daily:'🔁 Daily',sched_all_days:'All days',
+    sched_day_names:{1:'Mo',2:'Tu',3:'We',4:'Th',5:'Fr',6:'Sa',7:'Su'},
+    sched_err_load:'Error loading schedule',sched_save_ok:'✅ Schedule saved',
+    sched_sel_agv:'Select AGV first',sched_sel_task:'Select a task first',
+    sched_sel_map:'Select a map first',sched_sel_dt:'Select date & time',
+    sched_sel_time:'Select time',sched_sel_day:'Select at least 1 day',sched_min_mins:'Minimum 5 minutes',
+    sched_agv_busy:'[busy]',sched_agv_ready:'[ready]',sched_agv_offline:'[offline]',
+    sched_sel_map_first:'-- Select map first --',sched_sel_team:'-- Select team --',
+    sched_no_team:'No teams in this map',sched_err_team:'Error loading teams',
+    sched_sel_task_opt:'-- Select task --',sched_no_task:'No tasks available',
+    sched_err_task:'Error loading tasks',
+    multi_agv_lbl:'Executing AGV',multi_sel_agv:'— Select AGV —',
+    multi_teams_lbl:'Select teams to supply',multi_warn_no_supply:'⚠ Some teams have no pickup node',
+    multi_loading_teams:'Loading team list…',
+    multi_order_lbl:'Delivery order',multi_order_hint:'(drag or use ↑↓)',
+    multi_route_lbl:'Route to execute',multi_start_btn:'Start execution',
+    multi_pickup_to:'Go to Node',multi_pickup_for:'— pick up for Team',
+    multi_deliver_to:'Deliver Team',multi_no_node:'— no delivery node (skip)',
+    multi_return:'Return to charging station',multi_team_prefix:'Team',
+    multi_no_supply_node:'⚠ No pickup node',multi_supply_node:'Pick up at Node',
+    multi_no_steps:'No valid steps. Check team configuration and pickup nodes.',
+    multi_sending:'Sending commands…',multi_sent_ok:'✓ Sent',multi_cmds:'commands',
+    multi_fail_pre:'steps failed. Check server connection.',
+    multi_supply_lbl:'Supply Team',multi_pickup_cmd:'Pick up for Team',
+    multi_deliver_cmd:'Deliver Team',multi_charge_cmd:'Return to charge',
+    map_empty_txt:'Select a map to view',
+    agv_pos_warn:'AGV POSITION NOT CONFIRMED',ping_agv:'Ping AGV',
+    pos_desc:'Server has not received state from AGV. Select the correct node and press',
+    pos_assign_hint:'to update the server, or press "Ping AGV" to request the vehicle to report.',
+    pos_label:'Vehicle position',pos_sel_hint:'-- Which node is the vehicle at? --',
+    assign_pos:'Assign position',start_node_req:'-- Which node is the vehicle at? (required) --',
+    step_dest_lbl:'Destination',step_dest_hint:'— select a workflow first',
+    lc_pick_title:'AGV ARRIVED AT PICKUP POINT',
+    lc_pick_desc:'AGV is waiting — confirm after loading cargo onto vehicle',
+    lc_pick_btn:'CARGO LOADED',lc_del_title:'AGV ARRIVED AT DELIVERY POINT',
+    lc_del_desc:'AGV is waiting — confirm after unloading cargo',lc_del_btn:'CARGO DELIVERED',
+    lc_pick_ack:'✓ Pickup confirmed — AGV continuing',lc_del_ack:'✓ Delivery confirmed — AGV continuing',
+    lc_confirming:'Confirming…',lc_confirm_err:'✗ Connection to server lost',
+    agv_not_sel:'Not selected',wf_not_sel:'Not selected',queue_lbl:'QUEUE',
+    emg_stop:'EMERGENCY STOP',start_mission:'START MISSION',start_mission_n:'START',
+    modal_q_title:'Command Queued',modal_q_sub:'AGV is busy — will execute after completion',
+    modal_q_ok:'OK, got it',modal_c_title:'Confirm Command',modal_cancel:'Cancel',modal_send:'Send Command',
+    modal_qmgr:'Queue Manager',modal_running_lbl:'Running',
+    modal_no_running:'No command running',modal_queue_lbl:'Queue',modal_queue_empty:'Queue is empty',
+    btn_cancel_run:'Cancel running command',btn_clear_queue:'Clear queue',
+    btn_cancel_all:'CANCEL ALL (running + queue)',
+    agv_none:'No AGV in database',agv_offline:'OFFLINE',agv_busy:'RUNNING',agv_ready:'READY',
+    agv_wait_q:'waiting',cmd_go_to:'Move to node',cmd_charge:'Go charge',cmd_wait_zone:'Go to wait zone',
+    cmd_stop:'Stop',cmd_resume:'Resume',
+    step_auto_charge:'⚡ Go charge (auto)',step_auto_wait:'⏸ Go to wait zone (auto)',
+    step_auto_stop:'🛑 Stop',step_auto_resume:'▶ Resume',
+    step_dest_ph:'— click map or select —',
+    step_team_grp:'🏭 Delivery point (Team)',step_supply_grp:'📦 Pickup point (Supply)',
+    step_all_nodes:'— All nodes —',team_prefix:'Team',
+    busy_warn:'⚠ AGV is busy — commands will be queued',depart_from:'Depart from:',
+    sum_busy_pre:'Busy — queue',sum_pts:'points',
+    sel_agv_warn:'Select AGV first',sel_node_warn:'Select a node on the map or dropdown',
+    emg_confirm_pre:'Emergency stop',no_map:'Cannot load map',node_prefix:'Node',
+    toast_pos_ok:'✓ Assigned',toast_pos_to:'→ node',toast_pos_err:'✗ Position assignment failed: ',
+    toast_pos_start:'Starting position: ',toast_step:'Step',toast_auto:'automatic',
+    toast_sent_ok:'✓ Sent',toast_to:'commands to',toast_offline:'AGV OFFLINE — no connection',
+    toast_ready:'Ready for commands',toast_err:'Error: ',toast_err_conn:'connection to server lost',
+    toast_conn_err:'✗ Cannot connect to server',
+    cancel_ok:'✓ Command cancelled',cancel_fail:'✗ Command not found',
+    cancel_run_ok:'✓ Running command cancelled — AGV free',cancel_run_empty:'No command to cancel',
+    cancel_q_ok:'✓ Cleared',cancel_q_cmds:'commands from queue',
+    cancel_all_ok:'✓ All cancelled — AGV free',cancel_all_cmds:'queued commands cleared',
+    cancel_run_confirm:'Cancel running command for',cancel_run_warn:'AGV will be freed but may be mid-route.',
+    cancel_all_confirm:'Cancel ALL commands for',cancel_all_detail:'(running command + all queued)',
+    cancel_btn:'Cancel',queue_wait:'waiting',no_running:'None',
+    ping_sending:'Sending…',ping_ok:'Ping sent — waiting for AGV to report position (~3s)',
+    ping_fail:'Ping failed (MQTT not connected?)',assigning:'Assigning…',
+    fs_no_agv:'No AGV',map_monitor:'Monitor Map',
+    step_go:'Move to node',step_charge_lbl:'Go charge',step_wait_zone_lbl:'Go to wait zone',step_stop_lbl:'Emergency stop',
+  }
+};
+function _t(k){ return ((_I[_lang]||_I.vi)[k]) ?? k; }
+document.addEventListener('DOMContentLoaded',()=>{
+  // Apply data-i18n text content
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const val=_t(el.getAttribute('data-i18n'));
+    el.textContent=val;
+  });
+  // Apply data-i18n-opt for select option text
+  document.querySelectorAll('[data-i18n-opt]').forEach(el=>{
+    const val=_t(el.getAttribute('data-i18n-opt'));
+    if(val) el.textContent=val;
+  });
+  // Apply language to day labels
+  const dn=_t('sched_day_names');
+  if(dn&&typeof dn==='object'){
+    [1,2,3,4,5,6,7].forEach(d=>{
+      const lbl=document.getElementById('day-lbl-'+d);
+      if(lbl){
+        const inp=lbl.querySelector('input');
+        lbl.textContent='';
+        if(inp)lbl.appendChild(inp);
+        lbl.append(dn[d]||d);
+      }
+    });
+  }
+  document.documentElement.lang=_lang;
+  const ptEl=document.getElementById('page-title');
+  if(ptEl) ptEl.textContent=_t('title');
+});
+
 // ── Config ─────────────────────────────────────────────────────────────────
-const API  = 'http://' + (window.location.hostname || '192.168.1.13') + ':8000';
+const API  = 'http://' + (window.location.hostname || '192.168.0.89') + ':8000';
 const DASH = '';   // same origin as iframe
 
 // AGV type → icon path (served by Dash /assets/)
@@ -763,6 +1046,7 @@ async function loadAgvs(){
     console.error('[AGV]',e);
     document.getElementById('agv-list').innerHTML=
       `<div style="padding:20px;text-align:center;color:#ef4444;font-size:11px">❌ ${e.message}</div>`;
+    // keep error display as-is (technical info)
   }
 }
 
@@ -770,7 +1054,7 @@ function renderAgvs(){
   const online=agvs.filter(a=>a.connection==='ONLINE').length;
   document.getElementById('online-count').textContent=`${online}/${agvs.length} Online`;
   if(!agvs.length){
-    document.getElementById('agv-list').innerHTML='<div style="text-align:center;padding:24px;color:#8c909f;font-size:12px">Không có AGV trong database</div>';
+    document.getElementById('agv-list').innerHTML=`<div style="text-align:center;padding:24px;color:#8c909f;font-size:12px">${_t('agv_none')}</div>`;
     return;
   }
   document.getElementById('agv-list').innerHTML=agvs.map(a=>{
@@ -779,11 +1063,11 @@ function renderAgvs(){
     const isSel=selAgv?.agv_id===a.agv_id;
     const bat=a.battery??null;
     const [dot,stLabel,stColor]=!online
-      ?['#555','OFFLINE','#555']
-      :busy?['#eab308','ĐANG CHẠY','#eab308']:['#22c55e','SẴN SÀNG','#22c55e'];
+      ?['#555',_t('agv_offline'),'#555']
+      :busy?['#eab308',_t('agv_busy'),'#eab308']:['#22c55e',_t('agv_ready'),'#22c55e'];
     const typeC=a.agv_type==='LINE'?'color:#00d4ff;border:1px solid rgba(0,212,255,.3);background:rgba(0,212,255,.1)':'color:#c77dff;border:1px solid rgba(179,102,255,.3);background:rgba(179,102,255,.1)';
     const runHtml=a.running_cmd?`<div style="margin-top:4px;font-size:9px;padding:1px 6px;border-radius:4px;display:inline-block;background:rgba(255,183,0,.1);color:#ffb700;border:1px solid rgba(255,183,0,.2)">▶ ${a.running_cmd.command_label}${a.running_cmd.dest_node?' → '+a.running_cmd.dest_node:''}</div>`:'';
-    const qHtml=a.queue_size>0?`<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(255,183,0,.12);color:#ffb700;border:1px solid rgba(255,183,0,.2)">+${a.queue_size} chờ</span>`:'';
+    const qHtml=a.queue_size>0?`<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(255,183,0,.12);color:#ffb700;border:1px solid rgba(255,183,0,.2)">+${a.queue_size} ${_t('agv_wait_q')}</span>`:'';
     const batHtml=bat!=null?`<div style="margin-top:5px;display:flex;align-items:center;gap:5px;font-size:10px;color:#8c909f">
       <span class="material-symbols-outlined" style="font-size:12px;color:${bat>30?'#8c909f':'#ef4444'}">${bat>60?'battery_full':bat>30?'battery_horiz_075':'battery_low'}</span>
       <div style="flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.08)">
@@ -830,11 +1114,11 @@ function selectAgv(id){
 
 // ── Start node (vị trí xuất phát) ─────────────────────────────────────────
 function _populateNodeSel(selEl, savedId){
-  selEl.innerHTML='<option value="">-- Chọn node --</option>';
+  selEl.innerHTML=`<option value="">${_lang==='en'?'-- Select node --':'-- Chọn node --'}</option>`;
   mapNodes.forEach(n=>{
     const o=document.createElement('option');
     o.value=String(n.name_id);
-    o.textContent=n.name?`${n.name} (${n.name_id})`:`Node ${n.name_id}`;
+    o.textContent=n.name?`${n.name} (${n.name_id})`:`${_t('node_prefix')} ${n.name_id}`;
     if(savedId&&String(n.name_id)===String(savedId)) o.selected=true;
     selEl.appendChild(o);
   });
@@ -850,11 +1134,11 @@ function updateStartNodeRow(){
 
   // Dropdown start-node-select
   const sel=document.getElementById('start-node-select');
-  sel.innerHTML='<option value="">-- AGV đang ở node nào? (bắt buộc) --</option>';
+  sel.innerHTML=`<option value="">${_t('start_node_req')}</option>`;
   mapNodes.forEach(n=>{
     const o=document.createElement('option');
     o.value=String(n.name_id);
-    o.textContent=n.name?`${n.name} (${n.name_id})`:`Node ${n.name_id}`;
+    o.textContent=n.name?`${n.name} (${n.name_id})`:`${_t('node_prefix')} ${n.name_id}`;
     if(selStartNode&&String(selStartNode.name_id)===String(n.name_id)) o.selected=true;
     sel.appendChild(o);
   });
@@ -875,7 +1159,7 @@ function updateNotifRow(){
   if(a.connection!=='ONLINE'){
     lines.push(`<div style="display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:6px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25)">
       <span class="material-symbols-outlined" style="color:#ff5050;font-size:13px">wifi_off</span>
-      <span style="font-size:10px;color:#ff5050;font-weight:600">AGV OFFLINE — không có kết nối</span>
+      <span style="font-size:10px;color:#ff5050;font-weight:600">${_t('toast_offline')}</span>
     </div>`);
     content.innerHTML=lines.join('');
     return;
@@ -885,7 +1169,7 @@ function updateNotifRow(){
   if(a.last_error){
     lines.push(`<div style="display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:6px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);margin-bottom:3px">
       <span class="material-symbols-outlined" style="color:#ff5050;font-size:13px">error</span>
-      <span style="font-size:10px;color:#ff5050;font-weight:600">Lỗi: ${a.last_error}</span>
+      <span style="font-size:10px;color:#ff5050;font-weight:600">${_t('toast_err')}${a.last_error}</span>
     </div>`);
   }
 
@@ -895,7 +1179,7 @@ function updateNotifRow(){
       ?`<span style="color:#555"> → </span><b style="color:#ffd700">${a.running_cmd.dest_node}</b>`
       :'';
     const qBadge=a.queue_size>0
-      ?`<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(255,183,0,.12);color:#ffb700;border:1px solid rgba(255,183,0,.2);margin-left:4px">+${a.queue_size} chờ</span>`
+      ?`<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(255,183,0,.12);color:#ffb700;border:1px solid rgba(255,183,0,.2);margin-left:4px">+${a.queue_size} ${_t('agv_wait_q')}</span>`
       :'';
     lines.push(`<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
       <span class="material-symbols-outlined" style="color:#eab308;font-size:13px">play_arrow</span>
@@ -908,11 +1192,11 @@ function updateNotifRow(){
     }
   } else {
     const qBadge=a.queue_size>0
-      ?`<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(255,183,0,.12);color:#ffb700;border:1px solid rgba(255,183,0,.2);margin-left:4px">+${a.queue_size} chờ</span>`
+      ?`<span style="font-size:9px;padding:1px 5px;border-radius:4px;background:rgba(255,183,0,.12);color:#ffb700;border:1px solid rgba(255,183,0,.2);margin-left:4px">+${a.queue_size} ${_t('agv_wait_q')}</span>`
       :'';
     lines.push(`<div style="display:flex;align-items:center;gap:4px">
       <span class="material-symbols-outlined" style="color:#22c55e;font-size:13px">check_circle</span>
-      <span style="font-size:10px;color:#22c55e">Sẵn sàng nhận lệnh</span>${qBadge}
+      <span style="font-size:10px;color:#22c55e">${_t('toast_ready')}</span>${qBadge}
     </div>`);
   }
 
@@ -927,16 +1211,16 @@ function updateNotifRow(){
 }
 
 async function assignAgvPosition(mode){
-  if(!selAgv){ toast('Chưa chọn AGV','warn'); return; }
+  if(!selAgv){ toast(_t('sel_agv_warn'),'warn'); return; }
   const selId = mode==='override'
     ? document.getElementById('override-node-select')?.value
     : document.getElementById('start-node-select')?.value;
-  if(!selId){ toast('Hãy chọn node trên map hoặc dropdown','warn'); return; }
+  if(!selId){ toast(_t('sel_node_warn'),'warn'); return; }
 
   const btnId = mode==='override' ? 'btn-override-pos' : 'btn-assign-pos';
   const btn = document.getElementById(btnId);
   const oldHtml = btn?.innerHTML;
-  if(btn){ btn.disabled=true; btn.textContent='Đang gán…'; }
+  if(btn){ btn.disabled=true; btn.textContent=_t('assigning'); }
   try{
     const r=await fetch(`${API}/api/agv/set-tag`,{
       method:'POST',
@@ -946,7 +1230,7 @@ async function assignAgvPosition(mode){
     const d=await r.json();
     if(!r.ok) throw new Error(d?.detail||`HTTP ${r.status}`);
     const nodeName = mapNodes.find(n=>String(n.name_id)===String(selId))?.name || selId;
-    toast(`✓ Đã gán ${selAgv.agv_id} → node ${nodeName}`,'success');
+    toast(`${_t('toast_pos_ok')} ${selAgv.agv_id} ${_t('toast_pos_to')} ${nodeName}`,'success');
     // Cập nhật local state để UI phản ánh ngay
     selAgv.current_node = String(selId);
     if(mode==='start'){
@@ -954,7 +1238,7 @@ async function assignAgvPosition(mode){
     }
     updateStartNodeRow(); renderMap(); updateSummary(); updateStartBtn();
   }catch(e){
-    toast(`✗ Gán vị trí thất bại: ${e.message}`,'error');
+    toast(`${_t('toast_pos_err')}${e.message}`,'error');
   }finally{
     if(btn){ btn.disabled=false; if(oldHtml) btn.innerHTML=oldHtml; }
   }
@@ -969,17 +1253,16 @@ function onStartNodeSelect(){
 async function pingAgv(){
   if(!selAgv) return;
   const btn=document.getElementById('btn-ping-agv');
-  btn.disabled=true; btn.textContent='Đang gửi…';
+  btn.disabled=true; btn.textContent=_t('ping_sending');
   try{
     const r=await fetch(`${API}/api/execute/request-position/${encodeURIComponent(selAgv.agv_id)}`,{method:'POST'});
     const d=await r.json();
     if(d.sent){
-      toast('Đã gửi lệnh ping — chờ AGV báo vị trí (~3s)','success');
-      // Chờ 3 giây rồi refresh AGV list để lấy vị trí mới
+      toast(_t('ping_ok'),'success');
       setTimeout(async ()=>{ await loadAgvs(); updateStartNodeRow(); },3000);
-    } else { toast('Gửi ping thất bại (MQTT chưa kết nối?)','warn'); }
-  }catch(e){ toast('Lỗi kết nối server','error'); }
-  finally{ btn.disabled=false; btn.innerHTML='<span class="material-symbols-outlined" style="font-size:12px">sensors</span>Ping AGV'; }
+    } else { toast(_t('ping_fail'),'warn'); }
+  }catch(e){ toast(_t('toast_conn_err'),'error'); }
+  finally{ btn.disabled=false; btn.innerHTML=`<span class="material-symbols-outlined" style="font-size:12px">sensors</span>${_t('ping_agv')}`; }
 }
 
 // ── Workflows ──────────────────────────────────────────────────────────────
@@ -989,11 +1272,11 @@ async function loadWorkflows(){
     const d=await r.json();
     workflows=Array.isArray(d)?d:[];
     const sel=document.getElementById('wf-select');
-    sel.innerHTML='<option disabled selected value="">-- Chọn quy trình --</option>';
+    sel.innerHTML=`<option disabled selected value="">${_t('sel_wf')}</option>`;
     workflows.forEach(w=>{
       const o=document.createElement('option');
       o.value=w.template_id;
-      o.textContent=`${w.name}  (${w.step_count||0} bước)`;
+      o.textContent=`${w.name}  (${w.step_count||0} ${_t('sim_step_lbl')})`;
       sel.appendChild(o);
     });
   }catch(e){ console.error('[WF]',e); }
@@ -1022,10 +1305,10 @@ function parseWfSteps(wf){
   if(!raw.length){
     // Workflow không có bước → suy diễn 1 bước đơn từ tên
     const n=(wf.name||'').toLowerCase();
-    let cmd='go_to', label=wf.name||'Đi đến điểm';
-    if(n.includes('sạc')||n.includes('charge')){ cmd='go_charge'; label='Đi sạc'; }
-    else if(n.includes('khu chờ')||n.includes('park')){ cmd='go_wait'; label='Về khu chờ'; }
-    else if(n.includes('dừng')||n.includes('stop')){ cmd='stop'; label='Dừng khẩn cấp'; }
+    let cmd='go_to', label=wf.name||_t('step_go');
+    if(n.includes('sạc')||n.includes('charge')){ cmd='go_charge'; label=_t('step_charge_lbl'); }
+    else if(n.includes('khu chờ')||n.includes('park')){ cmd='go_wait'; label=_t('step_wait_zone_lbl'); }
+    else if(n.includes('dừng')||n.includes('stop')){ cmd='stop'; label=_t('step_stop_lbl'); }
     return [{idx:0,type:'move',cmd,needsDest:cmd==='go_to',label}];
   }
   const result=[];
@@ -1043,9 +1326,9 @@ function parseWfSteps(wf){
     else{cmd='go_to';needsDest=true;}
     if(cmd===null) continue;  // bỏ qua timer-wait
     result.push({idx:ri++, rawIdx:i, type:t, cmd, needsDest,
-      label:s.label||s.notes||(cmd==='go_to'?'Đi đến điểm':
-            cmd==='go_charge'?'Đi sạc pin':
-            cmd==='go_wait'?'Về khu chờ':'Bước '+(ri))});
+      label:s.label||s.notes||(cmd==='go_to'?_t('step_go'):
+            cmd==='go_charge'?_t('step_charge_lbl'):
+            cmd==='go_wait'?_t('step_wait_zone_lbl'):_t('toast_step')+' '+(ri))});
   }
   return result;
 }
@@ -1057,8 +1340,8 @@ function renderStepSelectors(){
   if(!selWf||!wfSteps.length){
     inner.innerHTML=`<div style="display:flex;align-items:center;gap:8px">
       <span class="material-symbols-outlined" style="color:#ddb7ff;font-size:15px">pin_drop</span>
-      <span class="sec-label">Điểm đến</span>
-      <span style="font-size:10px;color:#424754">— chọn quy trình trước</span></div>`;
+      <span class="sec-label">${_t('step_dest_lbl')}</span>
+      <span style="font-size:10px;color:#424754">${_t('step_dest_hint')}</span></div>`;
     return;
   }
   const needCount=wfSteps.filter(s=>s.needsDest).length;
@@ -1067,7 +1350,7 @@ function renderStepSelectors(){
     const isActive=s.idx===activeStepIdx;
     const selN=selNodes[s.idx];
     if(!s.needsDest){
-      const badge={go_charge:'⚡ Đi sạc (tự động)',go_wait:'⏸ Về khu chờ (tự động)',stop:'🛑 Dừng',resume:'▶ Tiếp tục'};
+      const badge={go_charge:_t('step_auto_charge'),go_wait:_t('step_auto_wait'),stop:_t('step_auto_stop'),resume:_t('step_auto_resume')};
       return `<div style="display:flex;align-items:center;gap:6px;padding:4px 7px;border-radius:7px;background:rgba(66,71,84,.2);border:1px solid rgba(66,71,84,.3)">
         <span style="width:15px;height:15px;border-radius:50%;background:rgba(${c.r},.15);border:1px solid rgba(${c.r},.4);font-size:9px;display:flex;align-items:center;justify-content:center;color:${c.h};font-weight:700;flex-shrink:0">${s.idx+1}</span>
         <span style="font-size:10px;color:#555;flex:1">${badge[s.cmd]||s.label}</span>
@@ -1075,16 +1358,16 @@ function renderStepSelectors(){
     }
     // Nhóm 1: Các Tổ (DROPOFF nodes có mapping) — hiển thị cho người dùng
     const teamOpts = teamNodes.length
-      ? `<optgroup label="🏭 Điểm giao hàng (Tổ)">`
+      ? `<optgroup label="${_t('step_team_grp')}">`
         + teamNodes.map(t=>{
             const sel = selN && String(selN.name_id)===String(t.node_id) ? ' selected' : '';
-            return `<option value="${t.node_id}"${sel}>Tổ ${t.team}${t.name?' — '+t.name:''}</option>`;
+            return `<option value="${t.node_id}"${sel}>${_t('team_prefix')} ${t.team}${t.name?' — '+t.name:''}</option>`;
           }).join('')
         + `</optgroup>`
       : '';
     // Nhóm 2: Điểm lấy hàng theo tổ cấp
     const supplyOpts = supplyGroupNodes.length
-      ? `<optgroup label="📦 Điểm lấy hàng (Tổ cấp)">`
+      ? `<optgroup label="${_t('step_supply_grp')}">`
         + supplyGroupNodes.map(sg=>{
             const sel = selN && String(selN.name_id)===String(sg.node_id) ? ' selected' : '';
             return `<option value="${sg.node_id}"${sel}>${sg.supply_group}${sg.node_name?' — '+sg.node_name:''}</option>`;
@@ -1101,7 +1384,7 @@ function renderStepSelectors(){
       return `<option value="${nid}"${selN&&String(selN.name_id)===nid?' selected':''}>${lbl}</option>`;
     }).join('');
     const allNodeOpts = (teamNodes.length||supplyGroupNodes.length)
-      ? `<optgroup label="— Tất cả node —">${nodeOpts}</optgroup>`
+      ? `<optgroup label="${_t('step_all_nodes')}">${nodeOpts}</optgroup>`
       : nodeOpts;
     const opts = teamOpts + supplyOpts + allNodeOpts;
     const done=!!selN;
@@ -1112,7 +1395,7 @@ function renderStepSelectors(){
       <div style="position:relative;flex:1">
         <select onchange="onStepSelect(${s.idx},this.value)" onclick="event.stopPropagation()"
           style="background:#ffffff;border:1px solid #c0c8d8;border-radius:6px;color:#111111;padding:4px 22px 4px 7px;font-size:11px;appearance:none;cursor:pointer;outline:none;width:100%">
-          <option value="">— bấm map hoặc chọn —</option>
+          <option value="">${_t('step_dest_ph')}</option>
           ${opts}
         </select>
         <span class="material-symbols-outlined" style="position:absolute;right:4px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:12px;color:#8c909f">expand_more</span>
@@ -1177,7 +1460,7 @@ async function loadMapList(){
     const r=await fetch(`${API}/api/maps/list`);
     const d=await r.json();
     const sel=document.getElementById('map-select');
-    sel.innerHTML='<option value="">-- Chọn bản đồ --</option>';
+    sel.innerHTML=`<option value="">${_t('sel_map')}</option>`;
     (Array.isArray(d)?d:[]).forEach(m=>{
       const o=document.createElement('option');
       o.value=m.id; o.textContent=m.name||`Map ${m.id}`; sel.appendChild(o);
@@ -1190,7 +1473,7 @@ async function onMapChange(){
   const mapId=document.getElementById('map-select').value;
   if(!mapId) return;
   currentMapId=mapId; agvPositions=[];
-  document.getElementById('map-badge').textContent='Đang tải…';
+  document.getElementById('map-badge').textContent=_lang==='en'?'Loading…':'Đang tải…';
   document.getElementById('map-empty').style.display='none';
   try{
     const r=await fetch(`${API}/api/maps/${mapId}`);
@@ -1236,7 +1519,7 @@ async function onMapChange(){
 
     autoFit(); renderMap();
     loadAgvPositions(); loadAgvRoutes();
-  }catch(e){ console.error('[MAPLOAD]',e); toast('Không tải được bản đồ','error'); }
+  }catch(e){ console.error('[MAPLOAD]',e); toast(_t('no_map'),'error'); }
 }
 
 function populateNodeDropdown(){
@@ -1250,7 +1533,7 @@ function pickNode(n){
   if(needStart && !selStartNode){
     selStartNode=n;
     document.getElementById('start-node-select').value=String(n.name_id);
-    toast(`Vị trí xuất phát: ${n.name||n.name_id}`,'success');
+    toast(`${_t('toast_pos_start')}${n.name||n.name_id}`,'success');
     renderMap(); updateSummary(); updateStartBtn();
     return;
   }
@@ -1262,7 +1545,7 @@ function pickNode(n){
       // Tự động chuyển sang bước tiếp theo chưa có destination
       const next=wfSteps.find(s=>s.needsDest&&!selNodes[s.idx]&&s.idx!==activeStepIdx);
       if(next) activeStepIdx=next.idx;
-      toast(`Bước ${step.idx+1}: ${n.name||n.name_id}`,'success');
+      toast(`${_t('toast_step')} ${step.idx+1}: ${n.name||n.name_id}`,'success');
       renderStepSelectors(); renderMap(); updateSummary(); updateStartBtn();
       return;
     }
@@ -1738,7 +2021,7 @@ function updateFsAgvPanel(){
   if(badge) badge.textContent=`${onlineCount}/${agvs.length} online`;
 
   if(!agvs.length){
-    list.innerHTML='<div style="padding:10px 12px;font-size:10px;color:#555">Không có AGV</div>';
+    list.innerHTML=`<div style="padding:10px 12px;font-size:10px;color:#555">${_t('fs_no_agv')}</div>`;
     return;
   }
 
@@ -1749,7 +2032,7 @@ function updateFsAgvPanel(){
 
     // Trạng thái
     const dotCol=!online?'#4b5563':driving?'#eab308':'#22c55e';
-    const stText=!online?'OFFLINE':driving?'ĐANG CHẠY':'SẴN SÀNG';
+    const stText=!online?_t('agv_offline'):driving?_t('agv_busy'):_t('agv_ready');
     const stCol=!online?'#6b7280':driving?'#eab308':'#22c55e';
 
     // Điểm đến tiếp theo
@@ -1786,8 +2069,8 @@ function updateSummary(){
   if(selAgv){
     ae.textContent=selAgv.agv_id; te.textContent=selAgv.agv_type; te.style.display='inline';
     te.style.cssText+=(selAgv.agv_type==='LINE'?';background:rgba(0,212,255,.12);border:1px solid rgba(0,212,255,.3);color:#00d4ff':';background:rgba(179,102,255,.12);border:1px solid rgba(179,102,255,.3);color:#c77dff');
-  } else { ae.textContent='Chưa chọn'; te.style.display='none'; }
-  document.getElementById('sum-wf').textContent=selWf?selWf.name:'Chưa chọn';
+  } else { ae.textContent=_t('agv_not_sel'); te.style.display='none'; }
+  document.getElementById('sum-wf').textContent=selWf?selWf.name:_t('wf_not_sel');
   // Điểm đến — tóm tắt multi-step
   const ne=document.getElementById('sum-node');
   const needSteps=wfSteps.filter(s=>s.needsDest);
@@ -1797,11 +2080,11 @@ function updateSummary(){
     const done=needSteps.filter(s=>selNodes[s.idx]);
     ne.textContent=done.length===needSteps.length
       ? needSteps.map(s=>selNodes[s.idx]?.name||selNodes[s.idx]?.name_id).join(' → ')
-      : `${done.length}/${needSteps.length} điểm`;
+      : `${done.length}/${needSteps.length} ${_t('sum_pts')}`;
   }
   // Queue badge
   const qd=document.getElementById('sum-queue');
-  if(selAgv?.is_busy){ qd.style.display='flex'; document.getElementById('sum-qtxt').textContent=`Bận — hàng #${selAgv.queue_size+1}`; }
+  if(selAgv?.is_busy){ qd.style.display='flex'; document.getElementById('sum-qtxt').textContent=`${_t('sum_busy_pre')} #${selAgv.queue_size+1}`; }
   else { qd.style.display='none'; }
 }
 
@@ -1822,11 +2105,11 @@ function updateStartBtn(){
     btn.disabled=false;
     btn.style.cssText='padding:8px 20px;border-radius:9px;background:rgba(34,197,94,.3);border:1px solid rgba(34,197,94,.5);color:#fff;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;letter-spacing:.04em;transition:all .2s;box-shadow:0 0 16px rgba(34,197,94,.25)';
     const n=wfSteps.length;
-    btn.innerHTML=`BẮT ĐẦU${n>1?' ('+n+' bước)':''} <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span>`;
+    btn.innerHTML=`${_t('start_mission_n')}${n>1?' ('+n+' '+_t('sim_step_lbl')+')':''} <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span>`;
   } else {
     btn.disabled=true;
     btn.style.cssText='padding:8px 20px;border-radius:9px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.15);color:rgba(255,255,255,.25);font-weight:700;font-size:12px;cursor:not-allowed;display:flex;align-items:center;gap:6px;letter-spacing:.04em;transition:all .2s';
-    btn.innerHTML='BẮT ĐẦU NHIỆM VỤ <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span>';
+    btn.innerHTML=`${_t('start_mission')} <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span>`;
   }
 }
 
@@ -1838,7 +2121,7 @@ function startMission(){
   document.getElementById('confirm-sub').textContent=`${selAgv.agv_id} (${selAgv.agv_type}) — ${selWf.name}`;
   const stepsHtml = wfSteps.map(s=>{
     const c=sc(s.idx);
-    const dest=s.needsDest?(selNodes[s.idx]?.name||`Node ${selNodes[s.idx]?.name_id}`):'tự động';
+    const dest=s.needsDest?(selNodes[s.idx]?.name||`${_t('node_prefix')} ${selNodes[s.idx]?.name_id}`):_t('toast_auto');
     return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
       <span style="width:14px;height:14px;border-radius:50%;background:${c.h}33;border:1px solid ${c.h};font-size:8px;display:flex;align-items:center;justify-content:center;color:${c.h};font-weight:700;flex-shrink:0">${s.idx+1}</span>
       <span style="color:#8c909f;font-size:11px">${s.label}:</span>
@@ -1846,9 +2129,9 @@ function startMission(){
     </div>`;
   }).join('');
   document.getElementById('confirm-body').innerHTML=`<div style="line-height:1.8">
-    ${needStart?`<div style="margin-bottom:6px"><span style="color:#8c909f">Xuất phát:</span> <b style="color:#ffb700">${selStartNode.name||selStartNode.name_id}</b></div>`:''}
+    ${needStart?`<div style="margin-bottom:6px"><span style="color:#8c909f">${_t('depart_from')}</span> <b style="color:#ffb700">${selStartNode.name||selStartNode.name_id}</b></div>`:''}
     ${stepsHtml}
-    ${selAgv.is_busy?`<div style="margin-top:7px;font-size:10px;padding:4px 8px;border-radius:6px;background:rgba(255,183,0,.08);color:#ffb700">⚠ AGV đang bận — các lệnh sẽ xếp hàng chờ</div>`:''}</div>`;
+    ${selAgv.is_busy?`<div style="margin-top:7px;font-size:10px;padding:4px 8px;border-radius:6px;background:rgba(255,183,0,.08);color:#ffb700">${_t('busy_warn')}</div>`:''}</div>`;
   document.getElementById('confirm-modal').classList.add('open');
 }
 
@@ -1873,10 +2156,10 @@ async function doDispatch(){
     try{
       const r=await fetch(`${API}/api/execute/dispatch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const d=await r.json();
-      if(!r.ok){ toast(`✗ Bước ${i+1}: ${d.detail||'Lỗi'}`,'error'); failCount++; continue; }
+      if(!r.ok){ toast(`✗ ${_t('toast_step')} ${i+1}: ${d.detail||'Error'}`,'error'); failCount++; continue; }
       sentCount++;
       if(d.status==='queued'&&!firstQueued) firstQueued=d;
-    }catch(e){ toast(`✗ Bước ${i+1}: mất kết nối server`,'error'); failCount++; }
+    }catch(e){ toast(`✗ ${_t('toast_step')} ${i+1}: ${_t('toast_err_conn')}`,'error'); failCount++; }
   }
   // Tự động về trạm sạc sau khi hoàn thành tất cả điểm đích
   if(sentCount>0 && hasMoveStep && !lastStepIsCharge){
@@ -1887,11 +2170,11 @@ async function doDispatch(){
     }catch(e){ console.warn('[AUTO_CHARGE]',e); }
   }
   if(firstQueued){
-    document.getElementById('queue-body').innerHTML=`<b>${firstQueued.agv_id}</b>: ${selWf?selWf.name:'Lệnh thủ công'}<br/>
-      <span style="opacity:.6">${sentCount} lệnh — hàng chờ: <b>#${firstQueued.queue_size}</b></span>`;
+    document.getElementById('queue-body').innerHTML=`<b>${firstQueued.agv_id}</b>: ${selWf?selWf.name:'Manual'}<br/>
+      <span style="opacity:.6">${sentCount} ${_t('multi_cmds')} — ${_t('queue_lbl')}: <b>#${firstQueued.queue_size}</b></span>`;
     document.getElementById('queue-modal').classList.add('open');
   } else if(sentCount>0 && failCount===0){
-    toast(`✓ Đã gửi ${sentCount} lệnh đến ${selAgv.agv_id}`,'success');
+    toast(`${_t('toast_sent_ok')} ${sentCount} ${_t('toast_to')} ${selAgv.agv_id}`,'success');
   }
   // Xóa highlight điểm đến sau khi gửi lệnh thành công (ít nhất 1 lệnh đi qua)
   if(sentCount>0){
@@ -1906,14 +2189,14 @@ async function doDispatch(){
 
 async function emergencyStop(){
   const id=selAgv?.agv_id;
-  if(!id){toast('Chọn AGV trước','warn');return;}
-  if(!confirm(`Dừng khẩn cấp ${id}?`)) return;
+  if(!id){toast(_t('sel_agv_warn'),'warn');return;}
+  if(!confirm(`${_t('emg_confirm_pre')} ${id}?`)) return;
   try{
     const r=await fetch(`${API}/api/execute/dispatch`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agv_id:id,command:'stop',dest_node:null})});
     const d=await r.json();
-    toast(r.ok?`⚠ DỪNG → ${id}`:'✗ '+(d.detail||'Lỗi'),r.ok?'warn':'error');
+    toast(r.ok?`⚠ ${_t('emg_stop')} → ${id}`:'✗ '+(d.detail||'Error'),r.ok?'warn':'error');
     if(r.ok) setTimeout(loadAgvs,500);
-  }catch{toast('✗ Không kết nối server','error');}
+  }catch{toast(_t('toast_conn_err'),'error');}
 }
 
 // ── Config mode và manual control đã chuyển sang Quản lý AGV ─────────────
@@ -1935,7 +2218,7 @@ async function refreshQueueManager(){
   }catch(e){ console.warn('[QUEUE]',e); }
 }
 
-const CMD_LABEL = {go_to:'Đi đến điểm',go_charge:'Đi sạc',go_wait:'Về khu chờ',stop:'Dừng',resume:'Tiếp tục'};
+const CMD_LABEL_FN = ()=>({go_to:_t('cmd_go_to'),go_charge:_t('cmd_charge'),go_wait:_t('cmd_wait_zone'),stop:_t('cmd_stop'),resume:_t('cmd_resume')});
 const STATUS_COLOR = {running:'#ffb700',queued:'#adc6ff',failed:'#ef4444',cancelled:'#555',completed:'#22c55e'};
 
 function renderQueueManager(d){
@@ -1945,7 +2228,7 @@ function renderQueueManager(d){
   if(running){
     runEl.innerHTML = cmdRowHtml(running, false);
   } else {
-    runEl.innerHTML = '<div style="font-size:11px;color:#8c909f">Không có lệnh đang chạy</div>';
+    runEl.innerHTML = `<div style="font-size:11px;color:#8c909f">${_t('modal_no_running')}</div>`;
   }
   document.getElementById('btn-cancel-running').style.opacity = running ? '1' : '0.4';
   document.getElementById('btn-cancel-running').disabled = !running;
@@ -1954,7 +2237,7 @@ function renderQueueManager(d){
   const qEl = document.getElementById('qmgr-queue-list');
   const queue = d.queue || [];
   if(!queue.length){
-    qEl.innerHTML = '<div style="font-size:11px;color:#8c909f;padding:8px 0">Hàng chờ trống</div>';
+    qEl.innerHTML = `<div style="font-size:11px;color:#8c909f;padding:8px 0">${_t('modal_queue_empty')}</div>`;
   } else {
     qEl.innerHTML = queue.map((c,i)=>cmdRowHtml(c, true, i+1)).join('');
   }
@@ -1967,10 +2250,11 @@ function cmdRowHtml(cmd, canCancel, pos){
   const dest = cmd.dest_node ? ` → <b>${cmd.dest_node}</b>` : '';
   const posStr = pos ? `<span style="color:#555;font-size:9px">#${pos}</span> ` : '';
   const age  = cmd.started_at ? `${Math.round(Date.now()/1000 - cmd.started_at)}s` :
-               cmd.queued_at  ? `chờ ${Math.round(Date.now()/1000 - cmd.queued_at)}s` : '';
+               cmd.queued_at  ? `${_t('queue_wait')} ${Math.round(Date.now()/1000 - cmd.queued_at)}s` : '';
   const cancelBtn = canCancel ?
     `<button onclick="cancelSingle('${cmd.cmd_id}')"
-      style="padding:2px 8px;border-radius:5px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ffb4ab;font-size:10px;cursor:pointer;flex-shrink:0">Hủy</button>` : '';
+      style="padding:2px 8px;border-radius:5px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ffb4ab;font-size:10px;cursor:pointer;flex-shrink:0">${_t('cancel_btn')}</button>` : '';
+  const CMD_LABEL = CMD_LABEL_FN();
   return `<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(66,71,84,.3);margin-bottom:5px">
     <span style="width:7px;height:7px;border-radius:50%;background:${col};flex-shrink:0"></span>
     <div style="flex:1;font-size:11px;color:#c2c6d6">${posStr}<b>${CMD_LABEL[cmd.command]||cmd.command}</b>${dest}</div>
@@ -1982,10 +2266,10 @@ function cmdRowHtml(cmd, canCancel, pos){
 
 async function cancelRunning(){
   if(!selAgv) return;
-  if(!confirm(`Hủy lệnh đang chạy của ${selAgv.agv_id}?\nAGV sẽ được giải phóng nhưng có thể đang ở giữa đường.`)) return;
+  if(!confirm(`${_t('cancel_run_confirm')} ${selAgv.agv_id}?\n${_t('cancel_run_warn')}`)) return;
   const r = await fetch(`${API}/api/execute/cancel-running/${encodeURIComponent(selAgv.agv_id)}`,{method:'DELETE'});
   const d = await r.json();
-  toast(d.cancelled ? `✓ Đã hủy lệnh đang chạy — ${selAgv.agv_id} rảnh` : 'Không có lệnh để hủy','warn');
+  toast(d.cancelled ? `${_t('cancel_run_ok')} — ${selAgv.agv_id}` : _t('cancel_run_empty'),'warn');
   await refreshQueueManager(); setTimeout(loadAgvs,300);
 }
 
@@ -1993,24 +2277,24 @@ async function cancelAllQueue(){
   if(!selAgv) return;
   const r = await fetch(`${API}/api/execute/cancel-queue/${encodeURIComponent(selAgv.agv_id)}`,{method:'DELETE'});
   const d = await r.json();
-  toast(`✓ Đã xóa ${d.cancelled_count} lệnh trong hàng chờ`,'warn');
+  toast(`${_t('cancel_q_ok')} ${d.cancelled_count} ${_t('cancel_q_cmds')}`,'warn');
   await refreshQueueManager(); setTimeout(loadAgvs,300);
 }
 
 async function cancelEverything(){
   if(!selAgv) return;
-  if(!confirm(`Hủy TẤT CẢ lệnh của ${selAgv.agv_id}?\n(lệnh đang chạy + toàn bộ hàng chờ)`)) return;
+  if(!confirm(`${_t('cancel_all_confirm')} ${selAgv.agv_id}?\n${_t('cancel_all_detail')}`)) return;
   const r = await fetch(`${API}/api/execute/cancel-all/${encodeURIComponent(selAgv.agv_id)}`,{method:'DELETE'});
   const d = await r.json();
   const n = d.cancelled_queued || 0;
-  toast(`✓ Đã hủy tất cả — ${selAgv.agv_id} rảnh (${n} lệnh chờ đã xóa)`,'warn');
+  toast(`${_t('cancel_all_ok')} (${n} ${_t('cancel_all_cmds')})`,'warn');
   closeModal('qmgr-modal'); setTimeout(loadAgvs,300);
 }
 
 async function cancelSingle(cmdId){
   const r = await fetch(`${API}/api/execute/cancel-cmd/${encodeURIComponent(cmdId)}`,{method:'DELETE'});
-  if(r.ok){ toast('✓ Đã hủy lệnh','warn'); await refreshQueueManager(); setTimeout(loadAgvs,300); }
-  else { toast('✗ Không tìm thấy lệnh này','error'); }
+  if(r.ok){ toast(_t('cancel_ok'),'warn'); await refreshQueueManager(); setTimeout(loadAgvs,300); }
+  else { toast(_t('cancel_fail'),'error'); }
 }
 
 // ── Manual controls đã chuyển sang Quản lý AGV → agv_manager.html ─────────
@@ -2048,16 +2332,16 @@ async function confirmLifecycle(){
   const btn = lc === 'picking'
     ? document.getElementById('lc-picking-btn')
     : document.getElementById('lc-delivering-btn');
-  if(btn){ btn.disabled = true; btn.textContent = 'Đang xác nhận…'; }
+  if(btn){ btn.disabled = true; btn.textContent = _t('lc_confirming'); }
   try{
     const r = await fetch(`${API}/api/execute/lifecycle-ack/${encodeURIComponent(selAgv.agv_id)}`,{method:'POST'});
     const d = await r.json();
     if(!r.ok){ toast('✗ '+(d.detail||'Lỗi xác nhận'),'error'); }
     else {
-      const msg = lc === 'picking' ? '✓ Xác nhận lấy hàng — AGV tiếp tục' : '✓ Xác nhận giao hàng — AGV tiếp tục';
+      const msg = lc === 'picking' ? _t('lc_pick_ack') : _t('lc_del_ack');
       toast(msg, 'success');
     }
-  }catch(e){ toast('✗ Mất kết nối server','error'); }
+  }catch(e){ toast(_t('lc_confirm_err'),'error'); }
   finally{
     if(btn){ btn.disabled = false; }
     await loadAgvs();
@@ -2161,7 +2445,7 @@ if (_MONITOR_VIEW) {
   _hideEl('te-header'); _hideEl('te-tabbar'); _hideEl('left-panel');
   const _bg = document.getElementById('body-grid');
   if (_bg) _bg.style.gridTemplateColumns = '1fr';   // bản đồ chiếm trọn chiều ngang
-  document.title = 'Bản đồ theo dõi';
+  document.title = _t('map_monitor');
 }
 
 loadAll().then(() => {
@@ -2237,17 +2521,17 @@ let simPollTimer = null;
 const SIM_GUIDES = {
   loop: {
     color: 'rgba(99,102,241,.12)', border: 'rgba(99,102,241,.3)', icon: '🔁',
-    title: 'Loop — Vòng tròn',
-    desc: 'AGV chạy lần lượt qua từng node theo thứ tự bạn chọn, rồi quay lại node đầu tiên và lặp lại.',
-    example: 'Ví dụ: A→B→C→D → A→B→C→D → ...',
-    tips: ['Phù hợp cho đường một chiều hoặc đường vòng kín.', 'Thêm node theo đúng chiều xe sẽ đi.', 'Nếu có 4 node, 1 vòng = 4 chặng đi.'],
+    get title(){ return _t('sim_loop_title'); },
+    get desc(){ return _t('sim_loop_desc'); },
+    get example(){ return _t('sim_loop_ex'); },
+    get tips(){ return [_t('sim_loop_t1'),_t('sim_loop_t2'),_t('sim_loop_t3')]; },
   },
   pingpong: {
     color: 'rgba(14,165,233,.12)', border: 'rgba(14,165,233,.3)', icon: '↔',
-    title: 'Ping-pong — Qua lại',
-    desc: 'AGV đi từ đầu đến cuối lộ trình, rồi quay ngược lại từ cuối về đầu, cứ thế lặp lại.',
-    example: 'Ví dụ: A→B→C→D → D→C→B→A → A→B→... (1 vòng = đi và về)',
-    tips: ['Phù hợp cho hành lang thẳng 2 chiều.', 'Chọn các node từ điểm đầu đến điểm cuối.', 'Điểm đầu và cuối không bị lặp khi quay đầu.'],
+    get title(){ return _t('sim_pp_title'); },
+    get desc(){ return _t('sim_pp_desc'); },
+    get example(){ return _t('sim_pp_ex'); },
+    get tips(){ return [_t('sim_pp_t1'),_t('sim_pp_t2'),_t('sim_pp_t3')]; },
   },
 };
 
@@ -2270,7 +2554,7 @@ function simUpdateGuide() {
 function simPopulateAgvs() {
   const sel = document.getElementById('sim-agv');
   const cur = sel.value;
-  sel.innerHTML = '<option value="">-- Chọn AGV --</option>' +
+  sel.innerHTML = `<option value="">${_t('sel_agv')}</option>` +
     agvs.filter(a => a.connection === 'ONLINE').map(a =>
       `<option value="${a.agv_id}"${a.agv_id===cur?' selected':''}>${a.agv_id}</option>`
     ).join('');
@@ -2310,7 +2594,7 @@ function simRenderRoute() {
   const cnt = document.getElementById('sim-route-count');
   cnt.textContent = `(${simRoute.length} node)`;
   if (!simRoute.length) {
-    el.innerHTML = `<div style="color:#555;font-size:11px;text-align:center;padding:12px">Chưa có node nào</div>`;
+    el.innerHTML = `<div style="color:#555;font-size:11px;text-align:center;padding:12px">${_t('sim_no_nodes')}</div>`;
     return;
   }
   el.innerHTML = simRoute.map((nid, i) => {
@@ -2336,8 +2620,8 @@ async function simStart() {
   const delay  = parseFloat(document.getElementById('sim-delay').value) || 1;
   const type   = document.getElementById('sim-type').value;
 
-  if (!agvId)           { toast('Chọn AGV trước', 'warn'); return; }
-  if (simRoute.length < 2) { toast('Cần ít nhất 2 node trong lộ trình', 'warn'); return; }
+  if (!agvId)           { toast(_t('sim_need_agv'), 'warn'); return; }
+  if (simRoute.length < 2) { toast(_t('sim_need_nodes'), 'warn'); return; }
 
   try {
     const r = await fetch(`${API}/api/simulation/start`, {
@@ -2346,12 +2630,12 @@ async function simStart() {
                              total_cycles: cycles, delay_s: delay }),
     });
     const d = await r.json();
-    if (!r.ok) { toast('✗ ' + (d.detail||'Lỗi khởi động'), 'error'); return; }
+    if (!r.ok) { toast('✗ ' + (d.detail||'Error'), 'error'); return; }
     simSessionId = d.session.session_id;
-    toast(`✓ Bắt đầu mô phỏng ${agvId} — ${cycles} vòng`, 'success');
+    toast(`${_t('sim_start_ok')} ${agvId} — ${cycles} ${_t('sim_n_cycles')}`, 'success');
     simUpdateControls('running');
     simStartPolling(agvId);
-  } catch(e) { toast('✗ Mất kết nối server', 'error'); }
+  } catch(e) { toast(_t('sim_conn_err'), 'error'); }
 }
 
 async function simPause() {
@@ -2375,7 +2659,7 @@ async function simStop() {
   simStopPolling();
   simUpdateControls('idle');
   document.getElementById('sim-status-box').style.display = 'none';
-  toast('⏹ Đã dừng mô phỏng', 'warn');
+  toast(_t('sim_stopped_toast'), 'warn');
 }
 
 function simUpdateControls(status) {
@@ -2396,10 +2680,10 @@ function simUpdateControls(status) {
 
   // Toggle pause/resume label
   if (paused) {
-    btnPause.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">play_arrow</span>Tiếp tục';
+    btnPause.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px">play_arrow</span>${_t('sim_resume')}`;
     btnPause.onclick = simResume;
   } else {
-    btnPause.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">pause</span>Tạm dừng';
+    btnPause.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px">pause</span>${_t('sim_pause')}`;
     btnPause.onclick = simPause;
   }
 }
@@ -2442,7 +2726,7 @@ function simStartPolling(agvId) {
           simSessionId = null;
           simRouteData = null;
           renderMap();
-          if (d.session.status === 'completed') toast('✅ Mô phỏng hoàn thành!', 'success');
+          if (d.session.status === 'completed') toast(_t('sim_completed_toast'), 'success');
         }
       } else {
         simStopPolling();
@@ -2468,25 +2752,25 @@ function simRenderStatus(s) {
   const box = document.getElementById('sim-status-box');
   box.style.display = 'block';
 
-  const STATUS_LABELS = {running:'▶ Đang chạy', paused:'⏸ Tạm dừng',
-                         completed:'✅ Hoàn thành', stopped:'⏹ Đã dừng', error:'❌ Lỗi'};
+  const STATUS_LABELS = {running:_t('sim_status_running'), paused:_t('sim_status_paused'),
+                         completed:_t('sim_status_completed'), stopped:_t('sim_status_stopped'), error:_t('sim_status_error')};
   const STATUS_COLORS = {running:'#4ade80', paused:'#fde047',
                          completed:'#4ade80', stopped:'#94a3b8', error:'#f87171'};
 
   document.getElementById('sim-status-label').textContent = STATUS_LABELS[s.status] || s.status;
   document.getElementById('sim-status-label').style.color = STATUS_COLORS[s.status] || '#fff';
   document.getElementById('sim-status-cycles').textContent =
-    `Vòng ${s.current_cycle+1}/${s.total_cycles}`;
+    `${_t('sim_cycles_lbl2')} ${s.current_cycle+1}/${s.total_cycles}`;
   document.getElementById('sim-progress-bar').style.width = s.progress_pct + '%';
 
   const nd = mapNodes.find(n => String(n.name_id) === String(s.current_dest || ''));
   const destLabel = nd?.name ? `${nd.name} (${s.current_dest})` : `Node ${s.current_dest}`;
   document.getElementById('sim-status-dest').textContent =
-    s.current_dest ? `→ Đang đến: ${destLabel} (bước ${s.current_step+1}/${s.sequence_len})` : '';
+    s.current_dest ? `${_t('sim_going_to')}${destLabel} (${_t('sim_step_lbl')} ${s.current_step+1}/${s.sequence_len})` : '';
 
-  document.getElementById('sim-stat-dispatch').textContent = `✓ ${s.dispatch_count} lệnh`;
-  document.getElementById('sim-stat-error').textContent    = s.error_count ? `⚠ ${s.error_count} lỗi` : '';
-  document.getElementById('sim-stat-eta').textContent      = s.eta_s != null ? `⏱ ~${fmtETA(s.eta_s)}` : '';
+  document.getElementById('sim-stat-dispatch').textContent = `${_t('sim_dispatch_ok')} ${s.dispatch_count} ${_t('sim_cmds')}`;
+  document.getElementById('sim-stat-error').textContent    = s.error_count ? `⚠ ${s.error_count} ${_t('sim_err_count')}` : '';
+  document.getElementById('sim-stat-eta').textContent      = s.eta_s != null ? `${_t('sim_eta')}${fmtETA(s.eta_s)}` : '';
 }
 
 function fmtETA(sec) {
@@ -2528,12 +2812,12 @@ async function schedLoadAgvs() {
     const d = await r.json();
     const sel = document.getElementById('sched-agv');
     const cur = sel.value;
-    sel.innerHTML = '<option value="">-- Chọn AGV --</option>';
+    sel.innerHTML = `<option value="">${_t('sel_agv')}</option>`;
     (d.agvs || []).forEach(a => {
       const online = a.connection === 'ONLINE';
       const icon = !online ? '🔴' : a.is_busy ? '🟡' : '🟢';
       const bat  = a.battery != null ? ` · ${Math.round(a.battery)}%🔋` : '';
-      const mode = online ? (a.is_busy ? ' [đang bận]' : ' [sẵn sàng]') : ' [offline]';
+      const mode = online ? (a.is_busy ? ` ${_t('sched_agv_busy')}` : ` ${_t('sched_agv_ready')}`) : ` ${_t('sched_agv_offline')}`;
       const o = document.createElement('option');
       o.value = a.agv_id;
       o.textContent = `${icon} ${a.agv_id}${bat}${mode}`;
@@ -2549,7 +2833,7 @@ async function schedLoadMaps() {
     const d = await r.json();
     const sel = document.getElementById('sched-map');
     const cur = sel.value;
-    sel.innerHTML = '<option value="">-- Chọn bản đồ --</option>';
+    sel.innerHTML = `<option value="">${_t('sel_map')}</option>`;
     (d.maps || d || []).forEach(m => {
       const o = document.createElement('option');
       o.value = m.id;
@@ -2568,7 +2852,7 @@ async function schedLoadTeams() {
   const mapId = document.getElementById('sched-map')?.value;
   const sel = document.getElementById('sched-team');
   if (!mapId) {
-    sel.innerHTML = '<option value="">-- Chọn bản đồ trước --</option>';
+    sel.innerHTML = `<option value="">${_t('sched_sel_map_first')}</option>`;
     return;
   }
   try {
@@ -2576,18 +2860,18 @@ async function schedLoadTeams() {
     const d = await r.json();
     const teams = d.teams || [];
     if (!teams.length) {
-      sel.innerHTML = '<option value="">Chưa có tổ nào trong bản đồ này</option>';
+      sel.innerHTML = `<option value="">${_t('sched_no_team')}</option>`;
       return;
     }
-    sel.innerHTML = '<option value="">-- Chọn tổ --</option>';
+    sel.innerHTML = `<option value="">${_t('sched_sel_team')}</option>`;
     teams.forEach(t => {
       const o = document.createElement('option');
       o.value = t.team;
-      o.textContent = `Tổ ${t.team}${t.name ? ' — ' + t.name : ''}`;
+      o.textContent = `${_t('team_prefix')} ${t.team}${t.name ? ' — ' + t.name : ''}`;
       sel.appendChild(o);
     });
   } catch(e) {
-    sel.innerHTML = '<option value="">Lỗi tải danh sách tổ</option>';
+    sel.innerHTML = `<option value="">${_t('sched_err_team')}</option>`;
   }
 }
 
@@ -2616,9 +2900,9 @@ async function schedSave() {
   const cmd    = document.getElementById('sched-cmd').value;
   const mapId  = document.getElementById('sched-map').value;
   const teamId = document.getElementById('sched-team').value;
-  if (!agv)  return toast('Chọn AGV trước', 'error');
-  if (!cmd)  return toast('Chọn tác vụ trước', 'error');
-  if (!mapId) return toast('Chọn bản đồ trước', 'error');
+  if (!agv)  return toast(_t('sched_sel_agv'), 'error');
+  if (!cmd)  return toast(_t('sched_sel_task'), 'error');
+  if (!mapId) return toast(_t('sched_sel_map'), 'error');
 
   const body = {
     agv_id:        agv,
@@ -2632,17 +2916,17 @@ async function schedSave() {
 
   if (_schedType === 'once') {
     const dt = document.getElementById('sched-datetime').value;
-    if (!dt) return toast('Chọn ngày giờ', 'error');
+    if (!dt) return toast(_t('sched_sel_dt'), 'error');
     body.scheduled_at = dt;
   } else if (_schedType === 'daily') {
     const t = document.getElementById('sched-time').value;
-    if (!t) return toast('Chọn giờ', 'error');
-    if (!_schedDays.size) return toast('Chọn ít nhất 1 ngày', 'error');
+    if (!t) return toast(_t('sched_sel_time'), 'error');
+    if (!_schedDays.size) return toast(_t('sched_sel_day'), 'error');
     body.time_of_day  = t;
     body.days_of_week = [..._schedDays].sort((a,b)=>a-b);
   } else {
     const mins = parseInt(document.getElementById('sched-interval').value);
-    if (!mins || mins < 5) return toast('Tối thiểu 5 phút', 'error');
+    if (!mins || mins < 5) return toast(_t('sched_min_mins'), 'error');
     body.interval_minutes = mins;
   }
 
@@ -2652,7 +2936,7 @@ async function schedSave() {
       body: JSON.stringify(body)
     });
     if (!r.ok) throw new Error(await r.text());
-    toast('✅ Đã lưu lịch', 'success');
+    toast(_t('sched_save_ok'), 'success');
     document.getElementById('sched-label').value = '';
     schedLoad();
   } catch(e) { toast('Lỗi: ' + e.message, 'error'); }
@@ -2666,7 +2950,7 @@ async function schedToggle(sid) {
 }
 
 async function schedDelete(sid) {
-  if (!confirm('Xóa lịch này?')) return;
+  if (!confirm(_t('sched_delete'))) return;
   try {
     await fetch(`${API}/api/schedule/${sid}`, {method:'DELETE'});
     schedLoad();
@@ -2680,7 +2964,7 @@ async function schedLoad() {
     schedRender(d.schedules || []);
   } catch(e) {
     document.getElementById('sched-list').innerHTML =
-      '<div style="color:#f87171;font-size:11px;padding:12px">Lỗi tải lịch</div>';
+      `<div style="color:#f87171;font-size:11px;padding:12px">${_t('sched_err_load')}</div>`;
   }
 }
 
@@ -2692,8 +2976,8 @@ function schedRender(list) {
   if (!list.length) {
     el.innerHTML = `<div style="text-align:center;padding:48px 24px;color:#8c909f;font-size:10px;font-family:'JetBrains Mono',monospace;letter-spacing:.08em">
       <div style="font-size:28px;margin-bottom:12px;opacity:.3">📅</div>
-      Chưa có lịch nào được đặt<br>
-      <span style="color:#555">Dùng form bên trái để tạo lịch mới</span>
+      ${_t('sched_empty_msg')}<br>
+      <span style="color:#555">${_t('sched_empty_hint')}</span>
     </div>`;
     return;
   }
@@ -2713,12 +2997,15 @@ function schedRender(list) {
   const sortedKeys = Object.keys(groups).sort();
   sortedKeys.forEach(day => {
     let dayTag = '';
-    if (day === today)         dayTag = '⚡ HÔM_NAY';
-    else if (day === tomorrow) dayTag = '→ NGÀY_MAI';
-    else if (day === '__none') dayTag = '∞ LẶP LẠI KHÔNG XÁC ĐỊNH';
+    if (day === today)         dayTag = _t('sched_today');
+    else if (day === tomorrow) dayTag = _t('sched_tomorrow');
+    else if (day === '__none') dayTag = _t('sched_repeat_undef');
     else {
       const dt2 = new Date(day + 'T00:00:00');
-      dayTag = `◈ ${dt2.toLocaleDateString('vi-VN',{weekday:'short',day:'2-digit',month:'2-digit'}).toUpperCase()}`;
+      const locTag = _lang==='en'
+        ? dt2.toLocaleDateString('en-US',{weekday:'short',day:'2-digit',month:'2-digit'}).toUpperCase()
+        : dt2.toLocaleDateString('vi-VN',{weekday:'short',day:'2-digit',month:'2-digit'}).toUpperCase();
+      dayTag = `◈ ${locTag}`;
     }
     html += `<div class="sched-date-sep" style="padding:8px 20px 4px">${dayTag}</div>`;
     groups[day].forEach(s => { html += schedCardHTML(s); });
@@ -2733,18 +3020,18 @@ function schedCardHTML(s) {
 
   // Time display
   const timeStr = s.next_run
-    ? new Date(s.next_run).toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})
+    ? new Date(s.next_run).toLocaleTimeString(_lang==='en'?'en-US':'vi-VN',{hour:'2-digit',minute:'2-digit'})
     : '--:--';
   const dayStr = s.next_run
     ? (()=>{ const d=new Date(s.next_run),t=_fmtDay(d),to=_fmtDay(new Date()),tm=_fmtDay(new Date(Date.now()+86400000));
-              return t===to?'HÔM NAY':t===tm?'NGÀY MAI':d.toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'}); })()
-    : 'LẶP LẠI';
+              return t===to?_t('sched_today').replace('⚡ ',''):t===tm?_t('sched_tomorrow').replace('→ ',''):d.toLocaleDateString(_lang==='en'?'en-US':'vi-VN',{day:'2-digit',month:'2-digit'}); })()
+    : _t('sched_repeat_undef').replace('∞ ','');
 
   // Countdown
   const countdown = s.mins_left == null ? ''
-    : s.mins_left === 0 ? `<span style="color:#facc15;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace">▶ NGAY BÂY GIỜ</span>`
-    : s.mins_left < 60  ? `<span style="color:#facc15;font-size:9px;font-family:'JetBrains Mono',monospace">còn ${s.mins_left} phút</span>`
-    : `<span style="color:#8c909f;font-size:9px;font-family:'JetBrains Mono',monospace">còn ${Math.floor(s.mins_left/60)}g${String(s.mins_left%60).padStart(2,'0')}p</span>`;
+    : s.mins_left === 0 ? `<span style="color:#facc15;font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace">${_t('sched_now')}</span>`
+    : s.mins_left < 60  ? `<span style="color:#facc15;font-size:9px;font-family:'JetBrains Mono',monospace">${_t('sched_in')} ${s.mins_left} ${_t('sched_min')}</span>`
+    : `<span style="color:#8c909f;font-size:9px;font-family:'JetBrains Mono',monospace">${_t('sched_in')} ${Math.floor(s.mins_left/60)}h${String(s.mins_left%60).padStart(2,'0')}m</span>`;
 
   // Priority bars (5 bars)
   const priColors = {1:'#f87171',2:'#fb923c',3:'#60a5fa',4:'#94a3b8',5:'#475569'};
@@ -2755,7 +3042,7 @@ function schedCardHTML(s) {
   }
 
   // Task info
-  const cmdLabel = {go_to:'GIAO HÀNG',go_charge:'SẠC PIN',go_wait:'CHỜ TẠI TRẠM'}[s.command]||(s.command||'').toUpperCase();
+  const cmdLabel = {go_to:_t('sched_cmd_go'),go_charge:_t('sched_cmd_charge'),go_wait:_t('sched_cmd_wait')}[s.command]||(s.command||'').toUpperCase();
   const dest     = s.team_id ? `→ TỔ_${s.team_id}` : '';
   const repeat   = schedRepeatLabel(s);
   const labelStr = s.label ? `<span style="color:#475569;font-size:9px;font-family:'JetBrains Mono',monospace">// ${s.label}</span>` : '';
@@ -2793,33 +3080,33 @@ function schedCardHTML(s) {
   <!-- Priority + Toggle + Delete -->
   <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex-shrink:0">
     <div>
-      <div style="font-size:8px;color:#8c909f;font-family:'JetBrains Mono',monospace;letter-spacing:.06em;text-align:right;margin-bottom:3px">ƯU TIÊN</div>
+      <div style="font-size:8px;color:#8c909f;font-family:'JetBrains Mono',monospace;letter-spacing:.06em;text-align:right;margin-bottom:3px">${_t('sched_pri_badge')}</div>
       <div class="pri-bars">${bars}</div>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
-      <label class="sched-toggle" title="${s.active?'Tạm dừng':'Kích hoạt'}">
+      <label class="sched-toggle" title="${s.active?_t('sched_toggle_pause'):_t('sched_toggle_act')}">
         <input type="checkbox" ${togChecked} onchange="schedToggle('${s.id}')">
         <span class="sched-toggle-slider"></span>
       </label>
       <button onclick="schedDelete('${s.id}')"
         style="border:1px solid rgba(248,113,113,.2);background:transparent;color:#f87171;width:24px;height:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s"
         onmouseover="this.style.background='rgba(248,113,113,.1)'" onmouseout="this.style.background='transparent'"
-        title="Xóa">
+        title="${_t('cancel_btn')}">
         <span class="material-symbols-outlined" style="font-size:13px">delete</span>
       </button>
     </div>
-    ${s.run_count>0 ? `<span style="font-size:8px;color:#555;font-family:'JetBrains Mono',monospace">Đã chạy: ${s.run_count} lần</span>` : ''}
+    ${s.run_count>0 ? `<span style="font-size:8px;color:#555;font-family:'JetBrains Mono',monospace">${_t('sched_run_count')} ${s.run_count} ${_t('sched_times')}</span>` : ''}
   </div>
 </div>`;
 }
 
 function schedRepeatLabel(s) {
-  if (s.schedule_type === 'once')     return '📌 Một lần';
-  if (s.schedule_type === 'interval') return `⏱ Lặp mỗi ${s.interval_minutes} phút`;
+  if (s.schedule_type === 'once')     return _t('sched_rep_once');
+  if (s.schedule_type === 'interval') return `${_t('sched_rep_interval_pre')} ${s.interval_minutes} ${_t('sched_rep_interval_post')}`;
   if (s.schedule_type === 'daily') {
-    const dayNames = {1:'T2',2:'T3',3:'T4',4:'T5',5:'T6',6:'T7',7:'CN'};
+    const dayNames = _t('sched_day_names')||{1:'T2',2:'T3',3:'T4',4:'T5',5:'T6',6:'T7',7:'CN'};
     const days = (s.days_of_week || []).map(d => dayNames[d] || d).join(' ');
-    return `🔁 Hàng ngày · ${days || 'Tất cả các ngày'}`;
+    return `${_t('sched_rep_daily')} · ${days || _t('sched_all_days')}`;
   }
   return '';
 }
@@ -2831,9 +3118,9 @@ async function schedLoadWorkflows() {
     const d = await r.json();
     const templates = d.templates || d || [];
     const sel = document.getElementById('sched-cmd');
-    sel.innerHTML = '<option value="">-- Chọn tác vụ --</option>';
+    sel.innerHTML = `<option value="">${_t('sched_sel_task_opt')}</option>`;
     if (!templates.length) {
-      sel.innerHTML += '<option value="" disabled>Chưa có tác vụ nào</option>';
+      sel.innerHTML += `<option value="" disabled>${_t('sched_no_task')}</option>`;
       return;
     }
     templates.forEach(t => {
@@ -2844,7 +3131,7 @@ async function schedLoadWorkflows() {
     });
   } catch(e) {
     const sel = document.getElementById('sched-cmd');
-    if (sel) sel.innerHTML = '<option value="">Lỗi tải danh sách tác vụ</option>';
+    if (sel) sel.innerHTML = `<option value="">${_t('sched_err_task')}</option>`;
   }
 }
 
@@ -2870,7 +3157,7 @@ async function multiInit() {
   const sel = document.getElementById('multi-agv-select');
   if (sel) {
     const cur = sel.value;
-    sel.innerHTML = '<option value="">— Chọn AGV —</option>'
+    sel.innerHTML = `<option value="">${_t('multi_sel_agv')}</option>`
       + agvs.filter(a => a.online !== false)
             .map(a => `<option value="${a.agv_id}"${a.agv_id === cur ? ' selected' : ''}>${a.agv_id}</option>`)
             .join('');
@@ -2900,7 +3187,7 @@ function multiRenderTeamList() {
   const el = document.getElementById('multi-team-list');
   if (!el) return;
   if (!teamNodes.length) {
-    el.innerHTML = '<div style="color:#8c909f;font-size:12px;text-align:center;padding:12px">Chưa có tổ nào được cấu hình trong bản đồ</div>';
+    el.innerHTML = `<div style="color:#8c909f;font-size:12px;text-align:center;padding:12px">${_t('sched_no_team')}</div>`;
     return;
   }
   el.innerHTML = teamNodes.map(t => {
@@ -2912,14 +3199,14 @@ function multiRenderTeamList() {
       return !isNaN(sg_t) && sg_t === tNum;
     });
     const supplyInfo = sg
-      ? `<span style="font-size:10px;color:#06b6d4;margin-left:6px">📦 Lấy tại Node ${sg.node_id}</span>`
-      : `<span style="font-size:10px;color:#f87171;margin-left:6px">⚠ Chưa có node lấy hàng</span>`;
+      ? `<span style="font-size:10px;color:#06b6d4;margin-left:6px">📦 ${_t('multi_supply_node')} ${sg.node_id}</span>`
+      : `<span style="font-size:10px;color:#f87171;margin-left:6px">${_t('multi_no_supply_node')}</span>`;
     return `<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer;
         background:${checked ? 'rgba(77,142,255,.12)' : 'rgba(255,255,255,.03)'};
         border:1px solid ${checked ? 'rgba(77,142,255,.4)' : 'rgba(66,71,84,.3)'};transition:all .15s">
       <input type="checkbox" ${checked ? 'checked' : ''} onchange="multiToggleTeam(${tNum},this.checked)"
         style="width:14px;height:14px;accent-color:#4d8eff;cursor:pointer;flex-shrink:0"/>
-      <span style="font-size:13px;font-weight:600;color:${checked ? '#adc6ff' : '#c8d0e7'}">Tổ ${tNum}</span>
+      <span style="font-size:13px;font-weight:600;color:${checked ? '#adc6ff' : '#c8d0e7'}">${_t('multi_team_prefix')} ${tNum}</span>
       ${t.name ? `<span style="font-size:11px;color:#8c909f">— ${t.name}</span>` : ''}
       ${supplyInfo}
       <span style="font-size:11px;color:#8c909f;margin-left:auto">→ Node ${t.node_id}</span>
@@ -2952,7 +3239,7 @@ function multiRenderPriority() {
       background:rgba(255,255,255,.04);border:1px solid rgba(66,71,84,.3)">
       <span style="width:18px;height:18px;border-radius:50%;background:rgba(77,142,255,.2);border:1px solid rgba(77,142,255,.4);
         font-size:10px;display:flex;align-items:center;justify-content:center;color:#adc6ff;font-weight:700;flex-shrink:0">${i+1}</span>
-      <span style="flex:1;font-size:12px;font-weight:600;color:#adc6ff">Tổ ${t}</span>
+      <span style="flex:1;font-size:12px;font-weight:600;color:#adc6ff">${_t('multi_team_prefix')} ${t}</span>
       <button onclick="multiMoveUp(${i})" ${i===0?'disabled':''} style="background:none;border:none;color:${i===0?'#3a3f50':'#adc6ff'};cursor:${i===0?'default':'pointer'};font-size:16px;padding:0 3px">↑</button>
       <button onclick="multiMoveDown(${i})" ${i===multiTeamOrder.length-1?'disabled':''} style="background:none;border:none;color:${i===multiTeamOrder.length-1?'#3a3f50':'#adc6ff'};cursor:${i===multiTeamOrder.length-1?'default':'pointer'};font-size:16px;padding:0 3px">↓</button>
     </div>`).join('');
@@ -2984,13 +3271,13 @@ function multiRenderRoute() {
     let icon, color, label;
     if (s.type === 'pickup') {
       icon = '📦'; color = '#06b6d4';
-      label = `Đến Node ${s.node} — lấy hàng cho Tổ ${s.teams.join(', ')}`;
+      label = `${_t('multi_pickup_to')} ${s.node} ${_t('multi_pickup_for')} ${s.teams.join(', ')}`;
     } else {
       icon = '🏭'; color = '#4d8eff';
-      label = `Giao hàng Tổ ${s.team} tại Node ${s.node}`;
-      if (!s.node) { icon = '⚠'; color = '#f87171'; label = `Tổ ${s.team} — chưa có node giao (bỏ qua)`; hasWarn = true; }
+      label = `${_t('multi_deliver_to')} ${s.team} → ${_t('node_prefix')} ${s.node}`;
+      if (!s.node) { icon = '⚠'; color = '#f87171'; label = `${_t('multi_team_prefix')} ${s.team} ${_t('multi_no_node')}`; hasWarn = true; }
     }
-    if (!s.node && s.type === 'pickup') { icon = '⚠'; color = '#f87171'; label = `Tổ ${s.teams.join(',')} — chưa có node lấy hàng`; hasWarn = true; }
+    if (!s.node && s.type === 'pickup') { icon = '⚠'; color = '#f87171'; label = `${_t('multi_team_prefix')} ${s.teams.join(',')} ${_t('multi_no_supply_node')}`; hasWarn = true; }
     return `<div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05)">
       <span style="width:18px;font-size:12px;color:${color};flex-shrink:0">${icon}</span>
       <span style="font-size:11px;color:${color}">${i+1}.</span>
@@ -3000,7 +3287,7 @@ function multiRenderRoute() {
   + `<div style="display:flex;align-items:center;gap:8px;padding:5px 0">
       <span style="width:18px;font-size:12px;color:#22c55e">⚡</span>
       <span style="font-size:11px;color:#22c55e">${steps.length+1}.</span>
-      <span style="font-size:12px;color:#c8d0e7">Về trạm sạc</span>
+      <span style="font-size:12px;color:#c8d0e7">${_t('multi_return')}</span>
     </div>`;
 
   if (warn) warn.style.display = hasWarn ? 'inline' : 'none';
@@ -3063,16 +3350,16 @@ async function multiDispatch() {
   if (!agvId || !multiTeamOrder.length) return;
 
   const steps = multiBuildSteps().filter(s => s.node); // skip steps without node
-  if (!steps.length) { alert('Không có bước hợp lệ. Hãy kiểm tra cấu hình tổ và node lấy hàng.'); return; }
+  if (!steps.length) { alert(_t('multi_no_steps')); return; }
 
   const btn = document.getElementById('multi-dispatch-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Đang gửi lệnh…'; }
+  if (btn) { btn.disabled = true; btn.textContent = _t('multi_sending'); }
 
   // session_id chung cho cả lượt cấp hàng này → backend chỉ lấy hàng MỘT lần mỗi
   // supply node trong lượt; các lệnh giao hàng sau đi một mạch qua điểm lấy hàng.
   const sessionId = (crypto.randomUUID ? crypto.randomUUID()
                      : Date.now().toString(36) + Math.random().toString(36).slice(2));
-  const sessionLabel = `Cấp Tổ ${multiTeamOrder.join(', ')}`;
+  const sessionLabel = `${_t('multi_supply_lbl')} ${multiTeamOrder.join(', ')}`;
 
   let ok = 0, fail = 0;
   // Send all steps sequentially — backend queues them
@@ -3089,8 +3376,8 @@ async function multiDispatch() {
           session_id:    sessionId,
           session_label: sessionLabel,
           label:     step.type === 'pickup'
-            ? `Lấy hàng Tổ ${step.teams.join(',')}`
-            : `Giao Tổ ${step.team}`,
+            ? `${_t('multi_pickup_cmd')} ${step.teams.join(',')}`
+            : `${_t('multi_deliver_cmd')} ${step.team}`,
         })
       });
       if (r.ok) ok++; else fail++;
@@ -3102,19 +3389,19 @@ async function multiDispatch() {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ agv_id: agvId, command: 'go_charge', map_id: currentMapId,
-                             session_id: sessionId, session_label: sessionLabel, label: 'Về sạc' })
+                             session_id: sessionId, session_label: sessionLabel, label: _t('multi_charge_cmd') })
     });
   } catch(e) {}
 
   if (btn) {
-    btn.textContent = ok > 0 ? `✓ Đã gửi ${ok} lệnh` : '✗ Lỗi gửi lệnh';
+    btn.textContent = ok > 0 ? `${_t('multi_sent_ok')} ${ok} ${_t('multi_cmds')}` : '✗ Error';
     setTimeout(() => {
       btn.disabled = false;
-      btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:15px;vertical-align:middle;margin-right:4px">play_arrow</span>Bắt đầu thực hiện';
+      btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:15px;vertical-align:middle;margin-right:4px">play_arrow</span>${_t('multi_start_btn')}`;
       multiUpdateBtn();
     }, 2500);
   }
-  if (fail > 0) alert(`${fail} bước gửi thất bại. Kiểm tra kết nối server.`);
+  if (fail > 0) alert(`${fail} ${_t('multi_fail_pre')}`);
 }
 </script>
 </body>

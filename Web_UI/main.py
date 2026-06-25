@@ -4,7 +4,8 @@ import dash_bootstrap_components as dbc
 
 from i18n import DEFAULT_LANG, normalize_lang
 from login import login_layout
-from home import home_layout, make_sidebar, make_topbar
+from home import (home_layout, make_sidebar, make_topbar,
+                  settings_language_layout, settings_broker_layout)
 from create_map import layout as create_map_layout
 from map_view import layout as map_view_layout
 from agv_manager import layout as agv_manager_layout
@@ -14,6 +15,17 @@ from task_execute import layout as task_execute_layout
 from journal_history import layout as journal_history_layout
 from journal_logs import layout as journal_logs_layout
 from statistics_page import layout as statistics_layout
+
+
+def _integration_iframe_layout(lang="vi"):
+    return html.Div(
+        html.Iframe(
+            src=f"/assets/integration.html?lang={lang}",
+            style={"width": "100%", "height": "calc(100vh - 64px)",
+                   "border": "none", "display": "block"},
+        ),
+        style={"height": "100%"},
+    )
 
 
 # Dash app
@@ -32,7 +44,6 @@ app.title = "TOT ACS"
 app.layout = html.Div(
     [
         dcc.Location(id="url", refresh=False),
-        dcc.Store(id="lang-menu-open", data=False, storage_type="memory"),
         dcc.Store(id="lang-store", data=DEFAULT_LANG, storage_type="local"),
         dbc.Toast(
             id="lang-toast",
@@ -70,26 +81,6 @@ app.layout = html.Div(
             storage_type="memory",
         ),
         html.Div(id="page-wrapper"),
-        html.Div(
-            id="lang-menu-panel",
-            children=[
-                html.Div("VIE", id="lang-item-vi", n_clicks=0, style={"padding": "10px 14px", "cursor": "pointer"}),
-                html.Div("ENG", id="lang-item-en", n_clicks=0, style={"padding": "10px 14px", "cursor": "pointer"}),
-            ],
-            style={
-                "display": "none",
-                "position": "fixed",
-                "top": "60px",
-                "left": "0px",
-                "minWidth": "160px",
-                "background": "rgba(30, 41, 59, 0.98)",
-                "border": "1px solid rgba(255,255,255,0.12)",
-                "borderRadius": "12px",
-                "boxShadow": "0 10px 28px rgba(0,0,0,0.35)",
-                "zIndex": "2147483647",
-                "overflow": "hidden",
-            },
-        ),
     ]
 )
 
@@ -115,6 +106,12 @@ def _route_content(pathname, lang: str):
         return journal_logs_layout(lang)
     if pathname in ["/statistics", "/home/statistics"]:
         return statistics_layout(lang)
+    if pathname in ["/integration", "/home/integration"]:
+        return _integration_iframe_layout(lang)
+    if pathname in ["/settings-language", "/home/settings-language"]:
+        return settings_language_layout(lang)
+    if pathname in ["/settings-broker", "/home/settings-broker"]:
+        return settings_broker_layout(lang)
 
     return html.Div(
         html.H3(
@@ -157,19 +154,19 @@ def display_page(pathname, lang):
     Output("lang-toast", "is_open"),
     Output("lang-toast", "header"),
     Output("lang-toast-msg", "children"),
-    Input("lang-item-vi", "n_clicks"),
-    Input("lang-item-en", "n_clicks"),
+    Input("settings-lang-vi", "n_clicks"),
+    Input("settings-lang-en", "n_clicks"),
     State("lang-store", "data"),
     prevent_initial_call=True,
 )
-def set_language_from_menu(n_vi, n_en, current):
+def set_language_from_settings(n_vi, n_en, current):
     trig = dash.callback_context.triggered_id
 
-    if trig == "lang-item-vi":
+    if trig == "settings-lang-vi":
         if not n_vi or n_vi < 1:
             raise dash.exceptions.PreventUpdate
         new_lang = "vi"
-    elif trig == "lang-item-en":
+    elif trig == "settings-lang-en":
         if not n_en or n_en < 1:
             raise dash.exceptions.PreventUpdate
         new_lang = "en"
@@ -177,7 +174,7 @@ def set_language_from_menu(n_vi, n_en, current):
         raise dash.exceptions.PreventUpdate
 
     new_lang = normalize_lang(new_lang)
-    current = normalize_lang(current)
+    current  = normalize_lang(current)
 
     if new_lang == current:
         raise dash.exceptions.PreventUpdate
@@ -187,54 +184,10 @@ def set_language_from_menu(n_vi, n_en, current):
         msg = "Đã đổi sang Tiếng Việt. Vui lòng tải lại trang (F5 / Ctrl+R) để đảm bảo toàn bộ giao diện cập nhật đúng."
     else:
         header = "Language changed"
-        msg = "Switched to English. Please reload the page (F5 / Ctrl+R) to ensure the entire UI updates correctly."
+        msg = "Switched to English. Please reload (F5 / Ctrl+R) to apply the new language across the UI."
 
     return new_lang, True, header, msg
 
 
-@app.callback(
-    Output("lang-menu-panel", "style"),
-    Output("lang-menu-open", "data"),
-    Input("lang-toggle", "n_clicks"),
-    Input("lang-item-vi", "n_clicks"),
-    Input("lang-item-en", "n_clicks"),
-    State("lang-menu-open", "data"),
-    prevent_initial_call=True,
-)
-def toggle_lang_menu(n_toggle, n_vi, n_en, is_open):
-    trig = dash.callback_context.triggered_id
-    is_open = bool(is_open)
-
-    if trig == "lang-toggle" and (not n_toggle or n_toggle < 1):
-        raise dash.exceptions.PreventUpdate
-    if trig == "lang-item-vi" and (not n_vi or n_vi < 1):
-        raise dash.exceptions.PreventUpdate
-    if trig == "lang-item-en" and (not n_en or n_en < 1):
-        raise dash.exceptions.PreventUpdate
-
-    if trig == "lang-toggle":
-        is_open = not is_open
-    elif trig in ("lang-item-vi", "lang-item-en"):
-        is_open = False
-    else:
-        raise dash.exceptions.PreventUpdate
-
-    style = {
-        "display": "block" if is_open else "none",
-        "position": "absolute",
-        "top": "calc(100% + 8px)",
-        "right": "0",
-        "minWidth": "160px",
-        "background": "rgba(30, 41, 59, 0.98)",
-        "border": "1px solid rgba(255,255,255,0.12)",
-        "borderRadius": "12px",
-        "boxShadow": "0 10px 28px rgba(0,0,0,0.35)",
-        "zIndex": "20000",
-        "overflow": "hidden",
-    }
-
-    return style, is_open
-
-
 if __name__ == "__main__":
-    app.run(host="192.168.1.13", port=8050, debug=True, dev_tools_ui=False)
+    app.run(host="192.168.0.89", port=8050, debug=True, dev_tools_ui=False)
