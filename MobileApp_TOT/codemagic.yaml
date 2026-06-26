@@ -1,0 +1,35 @@
+workflows:
+  flutter-ios-workflow:
+    name: Flutter iOS Workflow
+    max_build_duration: 60
+
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          cd app_tot
+          flutter pub get
+
+      - name: Install CocoaPods dependencies
+        script: |
+          cd app_tot/ios
+          pod install
+          cd ../..
+
+      - name: Build iOS (no code signing)
+        script: |
+          cd app_tot
+          flutter build ios --release --no-codesign
+
+    artifacts:
+      - app_tot/build/ios/iphoneos/*.app
+
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - ~/.cocoapods/repos
+        - app_tot/ios/Pods

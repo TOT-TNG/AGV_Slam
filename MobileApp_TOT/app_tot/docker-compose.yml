@@ -1,0 +1,20 @@
+version: '3.9'
+
+services:
+  agv-mobile:
+    image: ${DOCKER_IMAGE:-ducmanh1801/agv-mobile:latest}
+    container_name: agv-mobile-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

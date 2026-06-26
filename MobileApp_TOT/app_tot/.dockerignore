@@ -1,0 +1,39 @@
+# Build outputs (sẽ build lại bên trong Docker)
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Pub cache
+.pub-cache/
+.pub/
+
+# Platform-specific (chỉ cần web)
+android/
+ios/
+linux/
+macos/
+windows/
+
+# Test files
+test/
+integration_test/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Docs
+*.md
+README*
+CHANGELOG*
+
+# CI/CD
+.github/
+codemagic.yaml
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db
