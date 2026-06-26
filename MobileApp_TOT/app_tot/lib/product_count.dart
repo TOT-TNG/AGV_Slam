@@ -30,7 +30,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
     try {
       final today = DateTime.now().toLocal();
       final dateStr = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
-      final url = 'http://appmobile.tng.vn/production/api/cat/lenh_cap_btp?maChiNhanh=12';
+      final url = 'https://appmobile.tng.vn/production/api/cat/lenh_cap_btp?maChiNhanh=12';
       print('Fetching orders from API: $url');
 
       final response = await http.get(

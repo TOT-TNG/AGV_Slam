@@ -79,7 +79,7 @@ class _TaskExecutedScreenState extends State<TaskExecutedScreen> with TickerProv
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token') ?? '';
       final response = await http.get(
-        Uri.parse('http://appmobile.tng.vn/production/api/cat/lenh_cap_btp?maChiNhanh=12'),
+        Uri.parse('https://appmobile.tng.vn/production/api/cat/lenh_cap_btp?maChiNhanh=12'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'JWT $token',

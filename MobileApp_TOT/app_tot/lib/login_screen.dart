@@ -25,7 +25,7 @@ class _LoginScreenState extends State<LoginScreen>
   bool _isLoading = false;
 
   static const _hrLoginUrl =
-      'http://appmobile.tng.vn/production/api/auth/login';
+      'https://appmobile.tng.vn/production/api/auth/login';
 
   @override
   void initState() {
