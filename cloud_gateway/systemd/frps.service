@@ -1,0 +1,12 @@
+# Đặt tại: /etc/systemd/system/frps.service
+[Unit]
+Description=frp Server (AGV Cloud Tunnel)
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/frps -c /etc/frp/frps.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

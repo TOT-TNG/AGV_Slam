@@ -23,7 +23,7 @@ Hệ thống quản lý **hai loại AGV** hoàn toàn khác nhau song song:
 - **Database:** PostgreSQL — tên DB: `TOT_AGV`, user: `postgres`
 - **Ngôn ngữ UI:** Tiếng Việt (mặc định) + Tiếng Anh (i18n)
 
-**Server IP mặc định:** `192.168.0.89` (local broker, FastAPI)
+**Server IP mặc định:** `192.168.0.86` (local broker, FastAPI)
 
 ---
 

@@ -1086,7 +1086,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.0.89:8050/home")
+    return RedirectResponse(url="http://192.168.0.86:8050/home")
 
 # ==========================
 # DEBUG ROUTES

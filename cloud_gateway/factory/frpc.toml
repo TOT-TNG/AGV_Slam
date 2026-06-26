@@ -1,0 +1,24 @@
+# ─── frp Client config — chạy trên Server Nhà Máy (Windows) ─────────────────
+# Mỗi nhà máy có 1 file này, chỉ khác nhau ở "subdomain" bên dưới
+
+# Địa chỉ Cloud VPS
+serverAddr = "iot.tot360.com.vn"
+serverPort = 7500
+
+# Token — PHẢI KHỚP với auth.token trong frps.toml trên cloud
+auth.token = "THAY_BANG_SECRET_TOKEN_NGAU_NHIEN"
+
+# Tự kết nối lại khi tunnel đứt
+transport.heartbeatInterval = 10
+transport.heartbeatTimeout  = 30
+
+[[proxies]]
+name      = "agv-local"
+type      = "http"
+localIP   = "127.0.0.1"
+localPort = 8000           # port FastAPI local (mqtt_Server)
+
+subdomain  = "vietduc"
+# *** THAY ĐỔI CHO MỖI NHÀ MÁY ***
+# Phải khớp với "frp_host" trong factories.json trên cloud
+

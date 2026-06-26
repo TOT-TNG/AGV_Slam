@@ -1,0 +1,19 @@
+# ─── frp Server config ───────────────────────────────────────────────────────
+# Đặt tại: /etc/frp/frps.toml trên Cloud VPS
+
+# Port các factory client kết nối vào
+bindPort = 7000
+
+# Port frp dùng nội bộ để phân phối HTTP đến đúng factory
+vhostHTTPPort = 8090
+
+# Host ảo — gateway.py dùng "{frp_host}.tot360.internal" làm Host header
+subdomainHost = "tot360.internal"
+
+# Token xác thực — PHẢI KHỚP với auth.token trong frpc.toml tại nhà máy
+# Thay bằng chuỗi ngẫu nhiên trước khi deploy (ví dụ: openssl rand -hex 32)
+auth.token = "THAY_BANG_SECRET_TOKEN_NGAU_NHIEN"
+
+# Log
+log.to    = "/var/log/frps.log"
+log.level = "info"
