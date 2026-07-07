@@ -67,6 +67,9 @@ def _ensure_table():
             )
             cur.execute("ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS map_id TEXT;")
             cur.execute("ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS factory TEXT;")
+            # Khả năng lùi (MỚI — cho xe đầu kéo/rơ-moóc chỉ đi 1 chiều tiến).
+            # DEFAULT TRUE → mọi AGV hiện có (carry) giữ nguyên hành vi cũ.
+            cur.execute("ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS can_reverse BOOLEAN DEFAULT TRUE;")
             cur.execute(
                 """
                 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -145,30 +148,33 @@ def load_agvs():
         return []
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT name, agv_type, CAST(ip AS TEXT), port, map_id, factory, last_seen "
+            "SELECT name, agv_type, CAST(ip AS TEXT), port, map_id, factory, last_seen, "
+            "COALESCE(can_reverse, TRUE) "
             "FROM agv_devices ORDER BY name"
         )
         rows = cur.fetchall()
     conn.close()
     result = []
-    for name, agv_type, ip, port, map_id, factory, last_seen in rows:
+    for name, agv_type, ip, port, map_id, factory, last_seen, can_reverse in rows:
         result.append(
             {
-                "name":     name,
-                "ip":       ip or "",
-                "port":     str(port) if port else "",
-                "map_id":   map_id or "",
-                "factory":  factory or "",
-                "status":   _status_from_last_seen(last_seen),
-                "icon":     _icon_for_type(agv_type),
-                "agv_type": agv_type or "",
+                "name":        name,
+                "ip":          ip or "",
+                "port":        str(port) if port else "",
+                "map_id":      map_id or "",
+                "factory":     factory or "",
+                "status":      _status_from_last_seen(last_seen),
+                "icon":        _icon_for_type(agv_type),
+                "agv_type":    agv_type or "",
+                "can_reverse": bool(can_reverse),
             }
         )
     return result
 
 
-def upsert_agv(name, agv_type, ip, port, map_id=None, factory=None):
-    """Insert/update AGV without touching last_seen (stays NULL until real heartbeat)."""
+def upsert_agv(name, agv_type, ip, port, map_id=None, factory=None, can_reverse=True):
+    """Insert/update AGV without touching last_seen (stays NULL until real heartbeat).
+    can_reverse mặc định True (carry) — xe đầu kéo/rơ-moóc (chỉ tiến) truyền False."""
     _ensure_table()
     conn = _db_conn()
     if not conn:
@@ -177,16 +183,17 @@ def upsert_agv(name, agv_type, ip, port, map_id=None, factory=None):
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO agv_devices (name, agv_type, ip, port, map_id, factory, last_seen)
-            VALUES (%s, %s, %s, %s, %s, %s, NULL)
+            INSERT INTO agv_devices (name, agv_type, ip, port, map_id, factory, can_reverse, last_seen)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NULL)
             ON CONFLICT (name) DO UPDATE
-              SET agv_type = EXCLUDED.agv_type,
-                  ip       = EXCLUDED.ip,
-                  port     = EXCLUDED.port,
-                  map_id   = EXCLUDED.map_id,
-                  factory  = EXCLUDED.factory
+              SET agv_type    = EXCLUDED.agv_type,
+                  ip          = EXCLUDED.ip,
+                  port        = EXCLUDED.port,
+                  map_id      = EXCLUDED.map_id,
+                  factory     = EXCLUDED.factory,
+                  can_reverse = EXCLUDED.can_reverse
             """,
-            (name, agv_type or "trailer", ip, port, map_id or None, factory or None),
+            (name, agv_type or "trailer", ip, port, map_id or None, factory or None, can_reverse),
         )
     conn.close()
 
@@ -233,6 +240,10 @@ def agv_card(row, lang: str = "vi"):
                         style={"fontSize": "12px"},
                     ),
                     dbc.Badge(row["status"], color=badge_color, className="px-2 py-1"),
+                    dbc.Badge(
+                        t(lang, "agv.forward_only_badge", "⇢ Chỉ 1 chiều tiến"),
+                        color="warning", className="px-2 py-1 ms-1",
+                    ) if not row.get("can_reverse", True) else None,
                 ],
                 style={"textAlign": "center"},
             ),
@@ -342,14 +353,23 @@ def layout(lang: str = "vi"):
                     dcc.Dropdown(
                         id="add-agv-type",
                         options=[
-                            {"label": t(lang, "agv.type.carry",   "🤖 AGV Carry (tow load — Line)"),    "value": "carry"},
-                            {"label": t(lang, "agv.type.tow",     "🚜 AGV Tow (tow cart — Line)"),      "value": "tow"},
-                            {"label": t(lang, "agv.type.trailer", "🛒 AGV Trailer (tow trailer — Line)"), "value": "trailer"},
-                            {"label": t(lang, "agv.type.slam",    "📷 AGV Slam / QR Code (VDA5050)"),   "value": "slam_qr"},
+                            {"label": t(lang, "agv.type.carry",   "AGV Carry (tow load — Line)"),    "value": "carry"},
+                            {"label": t(lang, "agv.type.tow",     "AGV Tow (tow cart — Line)"),      "value": "tow"},
+                            {"label": t(lang, "agv.type.trailer", "AGV Trailer (tow trailer — Line)"), "value": "trailer"},
+                            {"label": t(lang, "agv.type.slam",    "AGV Slam / QR Code (VDA5050)"),   "value": "slam_qr"},
                         ],
                         placeholder=t(lang, "agv.placeholder.type", "Select AGV type..."),
-                        className="mb-4",
+                        className="mb-3",
                         style={"color": "#000"},
+                    ),
+
+                    dbc.Switch(
+                        id="add-agv-cannot-reverse",
+                        label=t(lang, "agv.cannot_reverse_label",
+                                "Xe chỉ đi 1 chiều tiến (đầu kéo/rơ-moóc — không lùi được)"),
+                        value=False,
+                        className="mb-4",
+                        label_style={"color": "#fff", "fontSize": "12px"},
                     ),
 
                     dbc.Label(t(lang, "agv.map_label", "Map"), className="mb-1",
@@ -459,6 +479,7 @@ def populate_map_dropdown(_):
     Output("add-agv-port", "value"),
     Output("add-agv-type", "value"),
     Output("add-agv-map", "value"),
+    Output("add-agv-cannot-reverse", "value"),
     Input("btn-save-agv", "n_clicks"),
     State("add-agv-name", "value"),
     State("add-agv-factory", "value"),
@@ -466,11 +487,12 @@ def populate_map_dropdown(_):
     State("add-agv-port", "value"),
     State("add-agv-type", "value"),
     State("add-agv-map", "value"),
+    State("add-agv-cannot-reverse", "value"),
     State("agv-store", "data"),
     State("add-agv-panel", "style"),
     prevent_initial_call=True,
 )
-def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, data, style):
+def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, cannot_reverse, data, style):
     if not n_clicks:
         raise dash.exceptions.PreventUpdate
     if not agv_type:
@@ -484,7 +506,8 @@ def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, data, style):
     auto_factory = "tot"
 
     upsert_agv(auto_name, agv_type, ip=None, port=None,
-               map_id=map_id or None, factory=auto_factory)
+               map_id=map_id or None, factory=auto_factory,
+               can_reverse=not bool(cannot_reverse))
     # Reload registry trên server để AGV mới ngay lập tức được nhận diện
     try:
         import requests as _req
@@ -495,7 +518,7 @@ def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, data, style):
     if style is None:
         style = {}
     style["right"] = "-420px"
-    return data, style, "", "", "", "", None, None
+    return data, style, "", "", "", "", None, None, False
 
 
 # ── Callback: mở modal khi click nút "Cấu hình" ─────────────────────────────

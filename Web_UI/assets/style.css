@@ -839,6 +839,14 @@ body.dragging * {
     color: #212529 !important;
 }
 
+/* MỚI: chữ nhãn (label) trong panel "Thêm AGV" luôn trắng — nền panel tối
+   (đè rule .form-label tối màu ở trên, chỉ áp trong #add-agv-panel). KHÔNG
+   đụng vào dropdown/input bên trong (nền trắng, cần giữ chữ đen như cũ). */
+#add-agv-panel .form-label,
+#add-agv-panel .form-check-label {
+    color: #ffffff !important;
+}
+
 /* PROPERTIES PANEL - SCROLL MƯỢT */
 #properties-panel > div[style*="flex: 1"] {
     scrollbar-width: thin;

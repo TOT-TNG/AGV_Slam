@@ -762,7 +762,7 @@ Future<void> _authenticateAndAddMapping() async {
                                 autofocus: true,
                                 decoration: InputDecoration(
                                   labelText: 'URL máy chủ AGVmqtt',
-                                  hintText: 'http://192.168.0.86:8000',
+                                  hintText: 'http://192.168.0.124:8000',
                                   prefixIcon: const Icon(Icons.dns_outlined),
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                                   filled: true,

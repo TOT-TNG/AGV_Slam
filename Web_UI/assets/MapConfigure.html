@@ -592,7 +592,7 @@ select option:checked {
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const API_BASE = 'http://' + (window.location.hostname || '192.168.0.86') + ':8000';
+      const API_BASE = 'http://' + (window.location.hostname || '192.168.0.124') + ':8000';
 
       const RES_DEFAULT = 0.05;
 
@@ -676,7 +676,7 @@ select option:checked {
         const btns = document.getElementById('supply-quickpick-btns');
         if (!qp || !btns || !currentMapId) return;
         try {
-          const API_BASE2 = 'http://' + (window.location.hostname || '192.168.0.86') + ':8000';
+          const API_BASE2 = 'http://' + (window.location.hostname || '192.168.0.124') + ':8000';
           const res = await fetch(`${API_BASE2}/api/execute/team-nodes?map_id=${currentMapId}`);
           const data = await res.json();
           const teams = (data.team_nodes || []).map(t => String(t.team)).filter(Boolean);

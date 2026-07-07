@@ -34,6 +34,7 @@ class AgvRegistry:
         self._type:     dict[str, str]  = {}   # agv_id → "LINE" | "VDA5050"
         self._config:   dict[str, dict] = {}   # agv_id → raw config dict
         self._ip_index: dict[str, str]  = {}   # ip_str → agv_id
+        self._can_reverse: dict[str, bool] = {}   # agv_id → có lùi được không (mặc định True nếu không có)
 
     # ── Load từ DB (agv_devices) ──────────────────────────────────────────────
     def load_from_db(self, db_url: str = _DB_URL) -> None:
@@ -156,6 +157,39 @@ class AgvRegistry:
         return (f"AgvRegistry(line={self.line_agv_ids()}, "
                 f"vda5050={self.vda5050_agv_ids()}, "
                 f"ip_count={len(self._ip_index)})")
+
+
+    # ── Khả năng lùi (MỚI — hoàn toàn độc lập với load_from_db/load_from_config
+    # ở trên để KHÔNG đụng logic nạp registry đang chạy ổn định). AGV không có
+    # dữ liệu / cột chưa tồn tại trong DB → mặc định can_reverse=True, tức giữ
+    # nguyên hành vi hiện tại cho MỌI AGV đang có (chỉ carry, đều lùi được). ──
+    def load_reverse_capability(self, db_url: str = _DB_URL) -> None:
+        """Nạp cột agv_devices.can_reverse (nếu có). Lỗi/cột chưa tồn tại → bỏ
+        qua im lặng, mọi agv_id giữ mặc định can_reverse=True."""
+        try:
+            import psycopg2
+        except ImportError:
+            return
+        try:
+            conn = psycopg2.connect(db_url)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("SELECT name, can_reverse FROM agv_devices")
+                rows = cur.fetchall()
+            conn.close()
+        except Exception as e:
+            print(f"[REGISTRY] load_reverse_capability skipped: {e}")
+            return
+        for name, can_rev in rows:
+            if can_rev is not None:
+                self._can_reverse[str(name).strip()] = bool(can_rev)
+        print(f"[REGISTRY] can_reverse=False cho: "
+              f"{[k for k, v in self._can_reverse.items() if not v]}")
+
+    def can_reverse(self, agv_id: str) -> bool:
+        """True (mặc định) trừ khi AGV được đánh dấu rõ ràng KHÔNG lùi được
+        (xe đầu kéo/rơ-moóc — chỉ đi 1 chiều tiến)."""
+        return self._can_reverse.get(str(agv_id).strip(), True)
 
 
 # ── Module-level singleton ────────────────────────────────────────────────────

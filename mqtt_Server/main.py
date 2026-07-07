@@ -785,6 +785,18 @@ async def lifespan(app: FastAPI):
                         f"ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS {_col}"
                     )
                 print("[DB] Columns agv_devices.last_tag / subnet / gateway / dns ensured")
+                # Cột khả năng lùi (MỚI — cho xe đầu kéo/rơ-moóc chỉ đi 1 chiều
+                # tiến). DEFAULT TRUE → mọi AGV hiện có (carry) tự động giữ
+                # nguyên hành vi cũ, không cần khai báo gì thêm.
+                await _conn.execute(
+                    "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS can_reverse BOOLEAN DEFAULT TRUE"
+                )
+                print("[DB] Column agv_devices.can_reverse ensured")
+                try:
+                    from agv_registry import agv_registry as _registry_rev
+                    _registry_rev.load_reverse_capability()
+                except Exception as _rre:
+                    print(f"[REGISTRY] load_reverse_capability warning (non-fatal): {_rre}")
                 # Cột LIDAR cho map roads / benziers
                 await _conn.execute(
                     "ALTER TABLE agv_map_roads ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE"
@@ -903,9 +915,25 @@ async def lifespan(app: FastAPI):
         except Exception as _se:
             print(f"[SCHEDULER] init error: {_se}")
 
+    # ── Telegram Bot ───────────────────────────────────────────────────────────
+    try:
+        from telegram_bot import start_bot as _start_bot, set_pool as _tg_set_pool
+        if app.state.db_pool:
+            _tg_set_pool(app.state.db_pool)
+        asyncio.create_task(_start_bot())
+    except Exception as _tge:
+        print(f"[TELEGRAM] init error (non-fatal): {_tge}")
+
     yield
     app.state.shutting_down = True
     stop_mqtt()
+
+    # ── Dừng Telegram Bot ──────────────────────────────────────────────────────
+    try:
+        from telegram_bot import stop_bot as _stop_bot
+        await _stop_bot()
+    except Exception as _tge:
+        print(f"[TELEGRAM] stop error (non-fatal): {_tge}")
 
     print("[LIFESPAN] Đang tắt ứng dụng...")
     if getattr(app.state, "offline_stop", None):
@@ -1086,7 +1114,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.0.86:8050/home")
+    return RedirectResponse(url="http://192.168.0.124:8050/home")
 
 # ==========================
 # DEBUG ROUTES
@@ -4990,6 +5018,7 @@ async def api_reload_registry():
     from agv_registry import agv_registry as _reg
     def _reload():
         _reg.load_from_db()
+        _reg.load_reverse_capability()   # MỚI — nạp lại can_reverse cùng lúc
         return {"line": _reg.line_agv_ids(), "vda5050": _reg.vda5050_agv_ids()}
     result = await asyncio.to_thread(_reload)
     print(f"[REGISTRY] Reloaded via API: {result}")

@@ -30,7 +30,7 @@ RUN flutter pub get
 COPY . .
 
 # API URL mặc định — override bằng --build-arg khi docker build
-ARG API_BASE_URL=http://192.168.0.86:8000
+ARG API_BASE_URL=http://192.168.0.124:8000
 
 RUN flutter build web \
     --release \

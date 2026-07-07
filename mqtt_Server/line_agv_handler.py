@@ -2045,6 +2045,11 @@ class LineAGVHandler:
         (xe đến node hiện tại TỪ prev_tag nên lùi lại được). KHÔNG đỗ sang node tùy
         ý (gây ra khỏi line). Sau khi lùi, re-queue đích gốc để đi lại khi thông.
         """
+        # MỚI: xe không lùi được (đầu kéo/rơ-moóc) → bỏ qua, để caller rơi xuống
+        # fallback khác (đứng chờ). Mọi AGV khác (mặc định can_reverse=True) không
+        # bị ảnh hưởng — chạy tiếp y như cũ.
+        if not agv_registry.can_reverse(agv_id):
+            return False
         cur  = str(state.current_tag) if state.current_tag is not None else None
         prev = str(state.prev_tag)    if state.prev_tag    else None
         dest_final = route.full_path[-1] if route.full_path else None
@@ -2123,6 +2128,10 @@ class LineAGVHandler:
         thay thế tới đích (né hành lang xe thắng), rồi queue lại đích để planner
         reroute từ đó. Không node nào có nhánh rẽ → lùi về node NGOÀI hành lang xe
         thắng để đứng chờ (nhả đường). Trả True nếu đã gửi plan lùi."""
+        # MỚI: xe không lùi được (đầu kéo/rơ-moóc) → bỏ qua, để caller rơi xuống
+        # fallback khác (đứng chờ). Không ảnh hưởng AGV khác (mặc định True).
+        if not agv_registry.can_reverse(agv_id):
+            return False
         if current_idx <= 0 or not route.full_path:
             return False
         try:
@@ -2225,6 +2234,11 @@ class LineAGVHandler:
         tiếp lệnh cũ. Định tuyến tới siding QUA HÀNG ĐỢI (go_to → planner đã validated
         — đúng rẽ/hướng/window-cap), KHÔNG build plan thủ công (tránh off-track).
         Trả True nếu đã đỗ né; False nếu không có siding → để gọi wait-based."""
+        # MỚI: xe không lùi được (đầu kéo/rơ-moóc) → bỏ qua đỗ né siding (việc
+        # rời siding sau này có thể cần lùi), để caller rơi xuống wait-based.
+        # Không ảnh hưởng AGV khác (mặc định can_reverse=True).
+        if not agv_registry.can_reverse(agv_id):
+            return False
         try:
             parking = traffic_coordinator.find_parking_node(
                 agv_id, route.full_path, conflict_at, other_agv)
@@ -3104,6 +3118,39 @@ class LineAGVHandler:
                     print(f"[LINE_AGV] {agv_id}: off_route → re-dispatch cmd={cmd} dest={dest_node}")
                 except Exception as e:
                     print(f"[LINE_AGV] {agv_id}: off_route re-dispatch error: {e}")
+            return
+
+        # ── HMI VẬT LÝ TRÊN XE (kênh lệnh thứ 3, ngoài Web UI/Mobile App) ────
+        # Nút bấm cấu hình CỨNG trên màn hình xe → firmware gửi event này kèm
+        # 'dest' cố định trong chính message state. HMI 1 CHIỀU (không có màn
+        # hình phản hồi) nên: validate chặt dest trước khi dispatch, và nếu bị
+        # từ chối/lỗi thì chỉ log lại (không có gì để trả về HMI).
+        # Đi qua ĐÚNG agv_task_queue.dispatch_or_queue() mà Web UI/App đang dùng
+        # → được TrafficEngine điều phối/xếp hàng y hệt, KHÔNG thêm logic riêng.
+        # Đây là bổ sung THUẦN TÚY: mọi event khác ở trên/dưới giữ nguyên hành vi.
+        if event_name == "hmi_request":
+            _dest_hmi = str(data.get("dest", "") or "").strip()
+            if not _dest_hmi:
+                print(f"[LINE_AGV] {agv_id}: hmi_request thiếu 'dest' — bỏ qua")
+                return
+            try:
+                from mqtt_client import map_manager as _mm_hmi
+                _g_hmi = _mm_hmi.line_graph if _mm_hmi.line_graph else _mm_hmi.graph
+                if not _g_hmi or _dest_hmi not in _g_hmi:
+                    print(f"[LINE_AGV] {agv_id}: hmi_request dest='{_dest_hmi}' "
+                          f"không tồn tại trên map hiện tại — từ chối")
+                    return
+            except Exception as _e_hmi:
+                print(f"[LINE_AGV] {agv_id}: hmi_request validate map error: {_e_hmi} — từ chối")
+                return
+            try:
+                from task_queue import agv_task_queue as _atq_hmi, CMD_GO_TO as _CGT_hmi
+                _cmd_hmi, _dispatched_now = _atq_hmi.dispatch_or_queue(
+                    agv_id, _CGT_hmi, dest_node=_dest_hmi)
+                print(f"[LINE_AGV] {agv_id}: hmi_request dest={_dest_hmi} → "
+                      f"{'dispatch ngay' if _dispatched_now else 'đã xếp hàng (xe đang bận)'}")
+            except Exception as _e_hmi2:
+                print(f"[LINE_AGV] {agv_id}: hmi_request dispatch error: {_e_hmi2}")
             return
 
         # Bước 4: thông báo task_queue hoàn thành

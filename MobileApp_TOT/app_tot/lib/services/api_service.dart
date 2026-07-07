@@ -10,7 +10,7 @@ class ApiService {
   // Có thể ghi đè lúc build: flutter build web --dart-define=API_BASE_URL=https://...
   static const String defaultBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://192.168.0.86:8000',
+    defaultValue: 'http://192.168.0.124:8000',
   );
 
   static Future<String> get baseUrl async {
