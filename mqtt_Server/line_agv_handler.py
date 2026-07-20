@@ -30,6 +30,7 @@ Cross-type integration:
 from __future__ import annotations
 
 import json
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Optional, Callable, Union
@@ -40,6 +41,7 @@ from line_agv_plan_builder import (
     first_window_end,
     LOOKAHEAD,
     RETRY_TIMEOUT,
+    ACTION_HOOK_RAISE,
 )
 
 # Ngưỡng thời gian không nhận state → coi là OFFLINE
@@ -50,7 +52,15 @@ OBSTACLE_REROUTE_TIMEOUT = 5.0   # giây
 
 # Xe phải đứng yên GIỮA route đủ lâu (đường phía trước thông) mới gửi-lại cửa sổ cứu
 # kẹt — đủ dài để KHÔNG ghi đè plan vừa dispatch (xe mới tới node chưa kịp chạy).
-STUCK_RESEND_GRACE = 4.0   # giây
+STUCK_RESEND_GRACE = 8.0   # giây — tăng từ 4.0 để giảm tần suất gửi lại khi kẹt
+STUCK_RESEND_COOLDOWN = 7.0   # giây giữa các lần gửi lại liên tiếp — tăng từ 3.0
+
+# Lệnh NÂNG MÓC ('action' rời rạc, KHÔNG nằm trong cơ chế resend plan/rolling-window
+# ở trên) — nếu gói MQTT bị rớt giữa đường, xe không hề nhận được lệnh, không có
+# hook_raised/hook_raise_failed nào quay về → đứng chờ vô thời hạn. Gửi lại tối đa
+# HOOK_RAISE_MAX_RETRIES lần nếu không thấy phản hồi sau HOOK_RAISE_TIMEOUT giây.
+HOOK_RAISE_TIMEOUT     = 6.0
+HOOK_RAISE_MAX_RETRIES = 2
 
 # Số node nhìn trước để phát hiện conflict chủ động (tách khỏi LOOKAHEAD window)
 # Yêu cầu an toàn: xe phải PHÁT HIỆN và XỬ LÝ né tránh khi còn cách nhau 5-6 node
@@ -165,6 +175,19 @@ class LineAGVState:
     yield_winner:  Optional[str]  = None   # xe THẮNG cần chờ đi qua
     yield_path:    "Optional[list]" = None # path gốc (đang conflict) — resume khi winner rời hẳn
 
+    # ── Móc hàng (xe rơ-moóc/đầu kéo) — MỚI ──────────────────────────────────
+    hook_state:   Optional[str] = None   # "raised" | "lowered" | None (chưa rõ)
+    hook_pending: Optional[str] = None   # "pickup" | "dropoff" | None — đang chờ kết quả nâng/hạ ở đâu
+    hook_raise_sent_at:  float = 0.0   # time.monotonic() lúc gửi lệnh NÂNG móc gần nhất (0 = chưa gửi/đã xong)
+    hook_raise_retries:  int   = 0     # số lần đã gửi lại do không thấy phản hồi
+
+    # ── Chạy thử thủ công đến 1 tag (không cần map) — MỚI ────────────────────
+    test_drive_target: Optional[str] = None   # tag cần dừng khi tới, None = không có chạy thử đang chờ
+    test_drive_seq:    int = 0   # tăng mỗi lần bắt đầu chạy thử mới — vòng lặp gửi lại "deba" cũ tự thoát khi lệch seq
+
+    # ── Lidar khi lái thủ công (D-pad / Chạy thử đến node) — MỚI ─────────────
+    manual_lidar_off: Optional[bool] = None   # trạng thái Lidar đã gửi lần gần nhất khi lái thủ công (None = chưa rõ)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # LineAGVRoute — rolling plan state cho 1 Line AGV
@@ -185,6 +208,14 @@ class LineAGVRoute:
     # Conflict-aware stop: node cuối cùng được gửi trước vùng tranh chấp
     # Khi != None → AGV đang chờ tại node này, chưa được phép tiến vào path tiếp theo
     waiting_before_conflict: Optional[str] = None
+
+    # True khi dispatch ban đầu (main.py:_dispatch_go_to) có prepend các bước
+    # 1-LẦN-DUY-NHẤT tại full_path[0] (vd _trailer_exit_steps: tắt Lidar + lùi mù +
+    # quay đầu cho xe rơ-moóc rời trạm sạc) KHÔNG nằm trong build_plan_window —
+    # resend window trong lúc AGV còn ở full_path[0] sẽ làm MẤT các bước đó (xe hiểu
+    # nhầm thành tiến thẳng). Dùng để watchdog cứu-kẹt biết KHÔNG được resend khi
+    # current_idx == 0 cho route này (xem _on_state, khối "CỨU KẸT: DỪNG GIỮA route").
+    has_exit_steps: bool = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -260,6 +291,199 @@ def _release_all_line_edges(agv_id: str) -> None:
         del _line_blocked_edges[k]
     if keys:
         print(f"[LINE_AGV] {agv_id}: released all edges {keys}")
+
+
+# ── Chặng "lấy hàng rỗng cố định gần trạm" (đầu quy trình, trước khi ra Tổ) ──
+# Đánh dấu tại DISPATCH TIME (agv_id, node_id) đang chờ ĐÚNG chặng đặc biệt
+# này — vì node đó có thể ĐỒNG THỜI được đánh dấu 'trailer_staging=yes' (thả
+# đầy — dùng ở chặng CUỐI, đường về) khi 1 node dùng chung cho cả 2 chức năng;
+# nếu chỉ dựa vào cấu hình tĩnh của node sẽ không phân biệt được đang ở chặng
+# nào. Discard ngay khi tới nơi (dùng 1 lần).
+_pending_empty_pickup_legs: set[tuple[str, str]] = set()
+
+# ── Chặng "lấy hàng đầy nhiều Tổ trong 1 chuyến" (milk run) — điểm KHÔNG phải
+# Tổ gần nhất (không móc cơ khí, chỉ dừng chờ xác nhận thủ công vì hàng được
+# công nhân chuyển tay từ xe của Tổ đó sang xe đang kéo theo AGV). Đánh dấu
+# tại DISPATCH TIME (agv_id, node_id) để arrival handler BỎ QUA hoàn toàn logic
+# móc (mặc định mọi node trailer_role='pickup' đều tự vào luồng móc) — rơi
+# xuống nhánh "chờ xác nhận" giống hệt AGV carry. Dùng 1 lần rồi bỏ đánh dấu.
+_pending_confirm_only_legs: set[tuple[str, str]] = set()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HMI onboard — nút bấm vật lý trên AGV gửi event 'line_X' (đi tới Tổ X) hoặc
+# 'station' (về trạm sạc). Chạy trong MQTT thread (sync) nên không dùng asyncpg
+# (async) như main.py — viết lại bản sync (psycopg2) tương đương
+# _resolve_team_node()/_find_trailer_staging_node() trong main.py.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _hmi_resolve_team_node_sync(map_id: str, team: int, agv_type: str, want_pickup: bool) -> Optional[str]:
+    import psycopg2, os, json as _j
+    _DB = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+    role = "pickup" if want_pickup else "drop"
+    conn = psycopg2.connect(_DB)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT name_id, action FROM agv_map_points
+                   WHERE CAST(map_id AS TEXT) = %s
+                     AND action->>'trailer_role' = %s
+                     AND (action->>'team')::int = %s""",
+                (str(map_id), role, team),
+            )
+            rows = cur.fetchall()
+            if not rows:
+                # Node thả rỗng/lấy đầy dùng chung nhiều Tổ — khai tường minh qua
+                # 'trailer_pickup_teams'/'trailer_drop_teams' (mảng), không suy
+                # luận qua supply_group.
+                _shared_field = "trailer_pickup_teams" if want_pickup else "trailer_drop_teams"
+                cur.execute(
+                    f"""SELECT name_id, action FROM agv_map_points
+                       WHERE CAST(map_id AS TEXT) = %s
+                         AND action->>'trailer_role' = %s
+                         AND action->'{_shared_field}' ? %s""",
+                    (str(map_id), role, str(team)),
+                )
+                rows = cur.fetchall()
+            if not rows:
+                if want_pickup:
+                    cur.execute(
+                        """SELECT name_id, action FROM agv_map_points
+                           WHERE CAST(map_id AS TEXT) = %s
+                             AND action->>'arrival_action' = 'wait_sys'
+                             AND action->'supply_group' ? %s""",
+                        (str(map_id), str(team)),
+                    )
+                else:
+                    cur.execute(
+                        """SELECT name_id, action FROM agv_map_points
+                           WHERE CAST(map_id AS TEXT) = %s
+                             AND (action->>'locationType' = 'DROPOFF'
+                                  OR action->>'arrival_action' = 'wait_user')
+                             AND (action->>'team')::int = %s""",
+                        (str(map_id), team),
+                    )
+                rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    exact, generic = [], []
+    for name_id, action in rows:
+        act = action or {}
+        if isinstance(act, str):
+            act = _j.loads(act)
+        tat = str(act.get("team_agv_type") or "").strip().lower()
+        if tat == agv_type:
+            exact.append(str(name_id))
+        elif not tat:
+            generic.append(str(name_id))
+    if exact:
+        return exact[0]
+    if generic:
+        return generic[0]
+    return None
+
+
+def _hmi_find_trailer_staging_node_sync(map_id: str) -> Optional[str]:
+    import psycopg2, os
+    _DB = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+    conn = psycopg2.connect(_DB)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT name_id FROM agv_map_points
+                   WHERE CAST(map_id AS TEXT) = %s
+                     AND action->>'trailer_staging' = 'yes'
+                   LIMIT 1""",
+                (str(map_id),),
+            )
+            row = cur.fetchone()
+            return str(row[0]) if row else None
+    finally:
+        conn.close()
+
+
+def _hmi_find_trailer_empty_staging_node_sync(map_id: str) -> Optional[str]:
+    """Node đánh dấu 'trailer_empty_staging=yes' — điểm lấy hàng rỗng cố định
+    gần trạm (đầu quy trình, trước khi ra Tổ). Có thể trùng với node
+    trailer_staging (1 node dùng chung cả 2 chức năng) — không xung đột vì
+    2 field độc lập nhau."""
+    import psycopg2, os
+    _DB = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+    conn = psycopg2.connect(_DB)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """SELECT name_id FROM agv_map_points
+                   WHERE CAST(map_id AS TEXT) = %s
+                     AND action->>'trailer_empty_staging' = 'yes'
+                   LIMIT 1""",
+                (str(map_id),),
+            )
+            row = cur.fetchone()
+            return str(row[0]) if row else None
+    finally:
+        conn.close()
+
+
+def _handle_hmi_line_event(agv_id: str, team: int) -> None:
+    """HMI bấm nút 'Tổ X' — trailer: chạy đủ chu trình 4 chặng (giống
+    /api/execute/trailer-roundtrip); carry: đi thẳng tới node của Tổ đó."""
+    from agv_registry import agv_registry
+    from mqtt_client import get_agv_runtime_info
+    from task_queue import agv_task_queue, CMD_GO_TO, CMD_GO_CHARGE
+
+    agv_type = str(agv_registry.get_config(agv_id).get('agv_type') or '').strip().lower()
+    info = get_agv_runtime_info(agv_id)
+    map_id = info.get('map_id')
+    if not map_id:
+        print(f"[HMI] {agv_id}: chưa có map hiện tại — bỏ qua sự kiện line_{team}")
+        return
+
+    if agv_type == 'trailer':
+        drop_node = _hmi_resolve_team_node_sync(map_id, team, agv_type, want_pickup=False)
+        if not drop_node:
+            print(f"[HMI] {agv_id}: không tìm thấy node thả rỗng cho Tổ {team}")
+            return
+        pickup_node = _hmi_resolve_team_node_sync(map_id, team, agv_type, want_pickup=True)
+        if not pickup_node:
+            print(f"[HMI] {agv_id}: không tìm thấy node lấy đầy cho Tổ {team}")
+            return
+        staging_node = _hmi_find_trailer_staging_node_sync(map_id)
+        if not staging_node:
+            print(f"[HMI] {agv_id}: chưa đánh dấu node Staging (thả hàng đầy cố định) trên map")
+            return
+        # Điểm lấy hàng rỗng cố định gần trạm — TUỲ CHỌN, bỏ qua chặng này nếu
+        # map chưa cấu hình (giữ đúng hành vi 4 chặng cũ, không bắt buộc).
+        empty_staging_node = _hmi_find_trailer_empty_staging_node_sync(map_id)
+        # Chèn theo thứ tự NGƯỢC — insert_next luôn chèn vào ĐẦU hàng đợi.
+        agv_task_queue.insert_next(agv_id, CMD_GO_CHARGE, dest_node=None)
+        agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=staging_node)
+        agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=pickup_node)
+        agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=drop_node)
+        if empty_staging_node:
+            _pending_empty_pickup_legs.add((agv_id, str(empty_staging_node)))
+            agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=empty_staging_node)
+        if not agv_task_queue.is_busy(agv_id):
+            agv_task_queue.on_agv_completed(agv_id, notes="hmi_line_trigger", auto_dispatch=True)
+        print(f"[HMI] {agv_id}: kích hoạt chu trình rơ-moóc Tổ {team} "
+              f"(lấy rỗng={empty_staging_node or '(không cấu hình)'}, thả={drop_node}, "
+              f"lấy={pickup_node}, staging={staging_node})")
+    else:
+        dest_node = _hmi_resolve_team_node_sync(map_id, team, agv_type, want_pickup=False)
+        if not dest_node:
+            print(f"[HMI] {agv_id}: không tìm thấy node cho Tổ {team}")
+            return
+        agv_task_queue.dispatch_or_queue(agv_id, CMD_GO_TO, dest_node=dest_node,
+                                          session_label="hmi_line_trigger")
+        print(f"[HMI] {agv_id}: đi tới Tổ {team} (node {dest_node})")
+
+
+def _handle_hmi_station_event(agv_id: str) -> None:
+    """HMI bấm nút 'Về trạm' — về trạm sạc đã cấu hình trên map."""
+    from task_queue import agv_task_queue, CMD_GO_CHARGE
+    agv_task_queue.dispatch_or_queue(agv_id, CMD_GO_CHARGE, session_label="hmi_station_trigger")
+    print(f"[HMI] {agv_id}: về trạm sạc (yêu cầu từ HMI)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1100,6 +1324,11 @@ class LineAGVHandler:
         self._mid_resend_ts: dict[str, float] = {}
         # Thời điểm xe BẮT ĐẦU đứng yên tại tag hiện tại (để chờ đủ lâu mới cứu kẹt).
         self._stopped_since: dict[str, float] = {}
+        # True khi xe từng báo error_code != 0 và CHƯA được "tiêu thụ" bởi 1 lần
+        # cứu-kẹt — watchdog "DỪNG GIỮA route" chỉ được phép resend khi cờ này đang
+        # True (tức xe THỰC SỰ từng lỗi rồi mới hết lỗi), KHÔNG resend cho mọi ca
+        # đứng yên bình thường (tránh polling/spam liên tục không cần thiết).
+        self._had_error: dict[str, bool] = {}
         # Lần cuối xe LÙI nhường đường (chống ping-pong lùi↔tiến liên tục).
         self._backup_ts: dict[str, float] = {}
         # Lần cuối xe REROUTE-do-obstacle (avoid_all) — chống flip-flop lật nhánh vòng.
@@ -1314,6 +1543,8 @@ class LineAGVHandler:
         state.paused          = bool(data.get("paused",  False))
         state.operating_mode  = str(data.get("operatingMode", "MANUAL"))
         state.error_code      = int(data.get("error_code", 0) or 0)
+        if state.error_code != 0:
+            self._had_error[agv_id] = True   # đánh dấu — cứu-kẹt watchdog sẽ dùng khi lỗi hết
         state.battery_low     = bool(data.get("battery_low", False))
         state.battery_blocking = bool(data.get("battery_blocking", False))
         state.last_update     = time.time()
@@ -1365,6 +1596,35 @@ class LineAGVHandler:
             # Cập nhật vị trí trong TrafficCoordinator
             if new_tag is not None:
                 traffic_coordinator.update_position(agv_id, str(new_tag))
+            # ── Chạy thử thủ công: tới đúng tag mục tiêu → dừng ngay, không cần map ──
+            if state.test_drive_target and str(new_tag) == state.test_drive_target:
+                from mqtt_client import send_line_command as _sdlc_stop
+                _sdlc_stop(agv_id, "stop")
+                state.test_drive_target = None
+                try:
+                    from main import _sync_manual_lidar as _sml_stop
+                    _sml_stop(agv_id, force_on=True)
+                except Exception:
+                    pass
+                print(f"[LINE_AGV] {agv_id}: chạy thử — đã tới tag {new_tag}, dừng xe")
+            # ── Cửa tự động: xe VỪA BĂNG QUA cửa (tag mới là 1 node của cửa,
+            # tag cũ là node CÒN LẠI cùng cửa đó) → báo dùng xong, có thể đóng
+            # (nếu không còn xe khác đang qua). KHÔNG cần xe dừng — chạy nền,
+            # dựa thuần vào tag report nên không phụ thuộc arrival_action/split.
+            # Xem door_coordinator.py + PROTOCOL_GUIDE.md mục "Cửa tự động".
+            if old_tag is not None:
+                try:
+                    from mqtt_client import map_manager as _mm_door_exit
+                    _na_all_door = getattr(_mm_door_exit, 'node_actions', {}) or {}
+                    _na_exit = _na_all_door.get(str(new_tag)) or {}
+                    _door_id_exit = str(_na_exit.get('door_id') or '').strip()
+                    if _door_id_exit:
+                        from door_coordinator import find_paired_door_node, door_coordinator
+                        _paired_exit = find_paired_door_node(_na_all_door, _door_id_exit, str(new_tag))
+                        if _paired_exit and str(old_tag) == str(_paired_exit):
+                            door_coordinator.notify_exit(_door_id_exit, agv_id)
+                except Exception as _e_door_exit:
+                    print(f"[LINE_AGV] {agv_id}: door exit-check lỗi: {_e_door_exit}")
         elif old_tag is None and new_tag is None:
             print(f"[LINE_AGV] {agv_id}: state received (no tag in payload)")
 
@@ -1400,38 +1660,92 @@ class LineAGVHandler:
             if elapsed >= OBSTACLE_REROUTE_TIMEOUT:
                 self._handle_obstacle_timeout(agv_id, state)
 
-        # ── CỨU KẸT: AGV DỪNG GIỮA route (firmware lỡ dừng / mất gói plan) ────
-        # Xe đứng yên (driving=False) tại node ĐANG trên route, chưa tới biên cửa sổ
-        # → đáng lẽ RUN qua. Nhưng PHẢI thận trọng (lưới này từng gây hại):
-        #   • KHÔNG kích khi đang CHỜ hợp lệ (waiting_before_conflict / obstacle / event).
-        #   • KHÔNG kích khi node KẾ bị xe khác giữ (đẩy vào sẽ đâm) — chỉ khi đường thông.
-        #   • CHỜ ĐỦ LÂU (≥STUCK_GRACE) mới cứu → không ghi đè plan vừa dispatch (xe mới
-        #     tới node, chưa kịp chạy). _send_window đã truyền prev_tag nên GIỮ lệnh rẽ.
-        if new_tag != old_tag or state.driving:
+        # ── Cửa tự động: kiểm tra định kỳ có cửa nào xin mở mà chưa thấy xác
+        # nhận sau timeout không (tự gửi lại) — chạy mỗi state message của BẤT
+        # KỲ AGV nào (cửa không thuộc riêng 1 xe). Xem door_coordinator.py.
+        try:
+            from door_coordinator import door_coordinator as _door_co_tick
+            _door_co_tick.check_retries()
+        except Exception as _e_door_tick:
+            print(f"[LINE_AGV] door check_retries lỗi: {_e_door_tick}")
+
+        # ── CỨU KẸT MÓC: gửi lại lệnh NÂNG móc nếu không thấy phản hồi ───────
+        # Lệnh 'action' nâng móc là 1 lệnh RỜI RẠC, KHÔNG nằm trong cơ chế resend
+        # plan/rolling-window ở dưới — nếu gói MQTT bị rớt (đã xảy ra thực tế: publish
+        # rc=0 nhưng không có hook_raised/hook_raise_failed nào quay về), xe đứng chờ
+        # MÃI MÃI vì không có gì tự phát hiện. Theo dõi qua hook_raise_sent_at (set khi
+        # gửi, xoá khi có phản hồi hook_raised/lỗi rõ ràng) — quá HOOK_RAISE_TIMEOUT
+        # giây mà vẫn treo (hook_pending còn set, hook_state chưa 'raised') → gửi lại,
+        # tối đa HOOK_RAISE_MAX_RETRIES lần rồi thôi (tránh spam vô hạn nếu móc thật
+        # sự hỏng cơ khí — cần người can thiệp).
+        if (state.hook_pending is not None and state.hook_state != "raised"
+                and state.hook_raise_sent_at > 0):
+            _hook_elapsed = time.monotonic() - state.hook_raise_sent_at
+            if _hook_elapsed >= HOOK_RAISE_TIMEOUT:
+                if state.hook_raise_retries < HOOK_RAISE_MAX_RETRIES:
+                    state.hook_raise_retries += 1
+                    print(f"[LINE_AGV] {agv_id}: không thấy phản hồi NÂNG móc sau "
+                          f"{_hook_elapsed:.1f}s → GỬI LẠI lần "
+                          f"{state.hook_raise_retries}/{HOOK_RAISE_MAX_RETRIES}")
+                    self._send_hook_raise_delayed(agv_id, delay=0.0)
+                else:
+                    print(f"[LINE_AGV] {agv_id}: đã gửi lại {HOOK_RAISE_MAX_RETRIES} lần "
+                          f"vẫn không có phản hồi NÂNG móc — dừng thử tự động, "
+                          f"cần kiểm tra thủ công")
+                    state.hook_raise_sent_at = 0.0   # tránh lặp lại log này mỗi tick
+
+        # ── CỨU KẸT: AGV DỪNG GIỮA route (nghi ngờ firmware lỡ dừng/mất gói) ─────
+        # Từng bị TẮT HẲN (comment) vì có thể ghi đè mất _trailer_exit_steps (tắt
+        # Lidar + lùi mù + quay đầu, chèn 1 LẦN DUY NHẤT lúc dispatch ban đầu, KHÔNG
+        # nằm trong build_plan_window) nếu resend rơi đúng lúc xe còn ở full_path[0]
+        # đang dở thao tác đó — xe hiểu nhầm resend thành "tiến thẳng từ tag hiện
+        # tại", bỏ mất hẳn lùi/quay (lỗi thực tế đã xảy ra ở tag 10).
+        #
+        # BẬT LẠI vì phát sinh vấn đề khác nghiêm trọng hơn: khi xe lỗi giữa route
+        # (vd lệch line) rồi được can thiệp THỦ CÔNG đưa về đúng line nhưng KHÔNG
+        # băng qua tag RFID mới (vẫn đứng yên tại tag cũ) → _check_rolling_plan()
+        # không tự kích (chỉ chạy khi new_tag != old_tag) → xe đứng yên MÃI dù lỗi
+        # đã hết, không có cách nào tự phục hồi. Đây là cơ chế DUY NHẤT xử lý ca đó.
+        #
+        # AN TOÀN: chỉ chặn ĐÚNG trường hợp rủi ro gốc — resend khi xe còn ở node
+        # ĐẦU route (current_idx==0) VÀ route đó có has_exit_steps=True (xem
+        # LineAGVRoute, được main.py:_dispatch_go_to gán ngay sau set_route).
+        #
+        # CHỈ KÍCH HOẠT SAU KHI XE TỪNG BÁO LỖI (self._had_error, set khi error_code
+        # != 0) — KHÔNG chạy cho mọi ca đứng yên bình thường (đứng chờ hợp lệ vì lý
+        # do khác không phải lỗi thì KHÔNG cần "cứu", tự có cơ chế riêng xử lý —
+        # tránh polling/resend tràn lan không cần thiết). Chỉ resend ĐÚNG 1 LẦN cho
+        # mỗi đợt lỗi (xoá cờ _had_error ngay sau khi gửi) — nếu vẫn kẹt sau lần đó,
+        # KHÔNG tự lặp lại nữa (không "spam" 7s/lần), cần người can thiệp tiếp.
+        if new_tag != old_tag or state.driving or state.operating_mode == "SEMIAUTOMATIC":
             self._stopped_since.pop(agv_id, None)   # nhúc nhích/đi tiếp → reset
             self._mid_resend_ts.pop(agv_id, None)
         try:
             _route_s = self._routes.get(agv_id)
             if (_route_s and _route_s.full_path and state.current_tag is not None
                     and not state.driving and not state.task_lifecycle
+                    and state.operating_mode != "SEMIAUTOMATIC"
                     and state.obstacle_since is None and not event_name
-                    and not _route_s.waiting_before_conflict):
+                    and not _route_s.waiting_before_conflict
+                    and state.error_code == 0
+                    and self._had_error.get(agv_id, False)):
                 _ct_s = str(state.current_tag)
                 _ci_s = _route_s.full_path.index(_ct_s) if _ct_s in _route_s.full_path else -1
+                _unsafe_exit_s = (_ci_s == 0 and _route_s.has_exit_steps)
                 _next_s = (_route_s.full_path[_ci_s + 1]
                            if 0 <= _ci_s < len(_route_s.full_path) - 1 else None)
                 _blocked_s = (traffic_coordinator.node_reserved_by_other(agv_id, _next_s)
                               if _next_s else None)
-                if 0 <= _ci_s < _route_s.window_end and not _blocked_s:
+                if 0 <= _ci_s < _route_s.window_end and not _blocked_s and not _unsafe_exit_s:
                     _now_s = time.monotonic()
                     self._stopped_since.setdefault(agv_id, _now_s)
-                    # chỉ cứu khi đã đứng yên ĐỦ LÂU (không phải vừa tới node)
                     if (_now_s - self._stopped_since[agv_id] >= STUCK_RESEND_GRACE
-                            and _now_s - self._mid_resend_ts.get(agv_id, 0.0) >= 3.0):
+                            and _now_s - self._mid_resend_ts.get(agv_id, 0.0) >= STUCK_RESEND_COOLDOWN):
                         self._mid_resend_ts[agv_id] = _now_s
-                        print(f"[LINE_AGV] {agv_id}: DỪNG GIỮA route tại {_ct_s} "
+                        self._had_error[agv_id] = False   # tiêu thụ — chỉ resend 1 lần/đợt lỗi
+                        print(f"[LINE_AGV] {agv_id}: vừa hết lỗi, đứng yên tại {_ct_s} "
                               f"(đường thông tới {_route_s.full_path[_route_s.window_end]}) "
-                              f"— firmware lỡ dừng → GỬI LẠI cửa sổ để đi tiếp")
+                              f"— GỬI LẠI cửa sổ để đi tiếp (1 lần)")
                         self._send_window(agv_id, _route_s, _ci_s,
                                           _route_s.window_end, _route_s.is_complete,
                                           force=True)
@@ -1443,12 +1757,14 @@ class LineAGVHandler:
         # hoàn tất → kẹt HẲN, dispatch lệnh kế không chạy (chính lỗi AGV02 kẹt ở node 2).
         # GIỚI HẠN ở segment 'transit' (staging/đi giữa) để KHÔNG đụng lifecycle giao/sạc.
         # Sau grace → tự sinh arrived_wait_sys để hoàn tất đoạn + dispatch kế.
+        # KHÔNG kích khi error_code != 0 (xem giải thích ở watchdog phía trên).
         try:
             _route_b = self._routes.get(agv_id)
             if (_route_b and _route_b.full_path and state.current_tag is not None
                     and not state.driving and not state.task_lifecycle
                     and state.obstacle_since is None and not event_name
                     and not _route_b.waiting_before_conflict
+                    and state.error_code == 0
                     and getattr(_route_b, 'task_type', '') == 'transit'):
                 _ct_b = str(state.current_tag)
                 _ci_b = (_route_b.full_path.index(_ct_b)
@@ -1463,7 +1779,7 @@ class LineAGVHandler:
                     _now_b = time.monotonic()
                     self._stopped_since.setdefault(agv_id, _now_b)
                     if (_now_b - self._stopped_since[agv_id] >= STUCK_RESEND_GRACE
-                            and _now_b - self._mid_resend_ts.get(agv_id, 0.0) >= 3.0):
+                            and _now_b - self._mid_resend_ts.get(agv_id, 0.0) >= STUCK_RESEND_COOLDOWN):
                         self._mid_resend_ts[agv_id] = _now_b
                         print(f"[LINE_AGV] {agv_id}: KẸT tại node biên {_ct_b} (đích đoạn "
                               f"transit) — KHÔNG nhận arrived_wait_sys → TỰ SINH để hoàn tất")
@@ -1906,17 +2222,30 @@ class LineAGVHandler:
             return
 
         # Thử 2: reroute hướng ngược (đường dài hơn nhưng hợp lý — bwd→fwd hay fwd→bwd)
+        # CHỈ áp dụng nếu opposite == "fwd" (đảo bwd→fwd luôn an toàn), hoặc xe
+        # thực sự lùi được — xe rơ-moóc/đầu kéo (can_reverse=False) TUYỆT ĐỐI
+        # không được thử chuyển sang bwd, kể cả khi né vật cản.
         opposite = "fwd" if orig_dir == "bwd" else "bwd"
-        print(f"[LINE_AGV] {agv_id}: switching {orig_dir}→{opposite}, trying reroute")
-        route.direction          = opposite
-        state.obstacle_direction = opposite
-        if self._try_line_reroute(agv_id, state, route, current_idx, blocked_ahead,
-                                  avoid_all=True):
-            print(f"[LINE_AGV] {agv_id}: rerouted (opposite dir={opposite})")
-            return
-        # Restore direction nếu thử 2 thất bại
-        route.direction          = orig_dir
-        state.obstacle_direction = orig_dir
+        _can_reverse_obs = True
+        if opposite == "bwd":
+            try:
+                _can_reverse_obs = agv_registry.can_reverse(agv_id)
+            except Exception:
+                pass
+        if opposite == "bwd" and not _can_reverse_obs:
+            print(f"[LINE_AGV] {agv_id}: xe không lùi được — BỎ QUA thử reroute "
+                  f"{orig_dir}→bwd, đi thẳng tới wait-based")
+        else:
+            print(f"[LINE_AGV] {agv_id}: switching {orig_dir}→{opposite}, trying reroute")
+            route.direction          = opposite
+            state.obstacle_direction = opposite
+            if self._try_line_reroute(agv_id, state, route, current_idx, blocked_ahead,
+                                      avoid_all=True):
+                print(f"[LINE_AGV] {agv_id}: rerouted (opposite dir={opposite})")
+                return
+            # Restore direction nếu thử 2 thất bại
+            route.direction          = orig_dir
+            state.obstacle_direction = orig_dir
 
         # WAIT-BASED: KHÔNG flex-park sang node tùy ý (gây ra khỏi line). Reroute
         # (đường line khác) đã thử ở trên — nếu không có thì ĐỨNG YÊN CHỜ vật cản
@@ -2869,6 +3198,192 @@ class LineAGVHandler:
             route.is_complete,
         )
 
+    # ── Cửa tự động (gate) — helper dùng chung, MỚI ────────────────────────────
+    # Xem door_coordinator.py (thiết kế đầy đủ) + PROTOCOL_GUIDE.md mục
+    # "Cửa tự động (Gate Controller)" (giao thức MQTT với bộ điều khiển cửa).
+
+    def _handle_door_arrival(self, agv_id: str, state: "LineAGVState") -> bool:
+        """Xe tới node có door_id (cửa tự động) — xin mở cửa, xe đứng chờ (đã
+        dừng sẵn nhờ WAIT_SYS/WAIT_USER trong plan) tới khi cửa xác nhận mở
+        xong (door_coordinator.resume_after_door sẽ gọi ngược lại để đi tiếp).
+        Trả về True nếu node này LÀ cửa (caller phải return ngay), False nếu
+        không phải cửa (rơi xuống xử lý cũ — móc hàng/lifecycle picking...).
+
+        CHỈ được gọi khi xe ĐANG TIẾN VÀO cửa — main.py:_dispatch_go_to đã lo
+        việc TÁCH route (split) để node này luôn là đích thật của 1 chặng nhỏ
+        khi đó là hướng tiến vào (xem vòng lặp split_idx). Hướng THOÁT cửa
+        (đã băng qua) không đi qua đây — được xử lý riêng, không cần dừng, xem
+        _on_state (kiểm tra tag mới có door_id + tag cũ là node cặp)."""
+        _na_door = {}
+        try:
+            from mqtt_client import map_manager as _mm_door
+            _na_door = (getattr(_mm_door, 'node_actions', {}) or {}).get(str(state.current_tag)) or {}
+        except Exception:
+            pass
+        _door_id = str(_na_door.get('door_id') or '').strip()
+        if not _door_id:
+            return False
+        print(f"[LINE_AGV] {agv_id}: tới node cửa tự động '{_door_id}' "
+              f"({state.current_tag}) — xin mở, chờ xác nhận")
+        from door_coordinator import door_coordinator
+        door_coordinator.request_open(_door_id, agv_id)
+        return True
+
+    def resume_after_door(self, agv_id: str) -> None:
+        """Cửa đã xác nhận MỞ (hoặc đã mở sẵn) — cho xe đi tiếp. Route hiện tại
+        (chặng nhỏ TỚI node cửa, do split_idx tạo ra) coi như hoàn tất, hàng
+        đợi tự dispatch chặng kế (đã insert_next sẵn ở main.py lúc split) —
+        giống hệt pattern _complete_hook_leg()."""
+        self._routes.pop(agv_id, None)
+        traffic_coordinator.deregister(agv_id)
+        try:
+            from task_queue import agv_task_queue as _atq_door
+            _atq_door.on_agv_completed(agv_id, notes="door_opened")
+            print(f"[LINE_AGV] {agv_id}: cửa đã mở → tự động đi tiếp")
+        except Exception as e:
+            print(f"[LINE_AGV] {agv_id}: resume sau cửa lỗi: {e}")
+
+    # ── Móc hàng (xe rơ-moóc/đầu kéo) — helper dùng chung, MỚI ─────────────────
+
+    def _send_hook_raise_delayed(self, agv_id: str, delay: float = 0.3) -> None:
+        """Gửi lệnh NÂNG móc sau 1 khoảng trễ ngắn, KHÔNG block thread MQTT (dùng
+        threading.Timer). Gửi ngay sát lúc arrived_wait_sys/arrived_wait_user vừa
+        ACK xong (2 message liên tiếp gần như tức thời) khiến firmware không kịp
+        xử lý — publish rc=0 (broker nhận) nhưng móc không nhô lên thực tế. Trễ
+        nhẹ để firmware xử lý xong ACK/arrival trước khi nhận action tiếp theo."""
+        def _fire():
+            try:
+                from mqtt_client import send_line_command
+                send_line_command(agv_id, "action", a=ACTION_HOOK_RAISE, v=0)
+                print(f"[LINE_AGV] {agv_id}: (trễ {delay}s) đã gửi NÂNG móc")
+                _st_hk = self.state_store.get(agv_id)
+                if _st_hk:
+                    _st_hk.hook_raise_sent_at = time.monotonic()
+            except Exception as e:
+                print(f"[LINE_AGV] {agv_id}: gửi NÂNG móc (trễ) lỗi: {e}")
+        threading.Timer(delay, _fire).start()
+
+    def _complete_hook_leg(self, agv_id: str, notes: str) -> None:
+        """Hoàn tất chặng hiện tại NGAY (tự động, không chờ xác nhận web) sau khi
+        nâng móc xong (thả hàng) — pop route + deregister + để task_queue tự
+        dispatch chặng kế tiếp đã được xếp sẵn (insert_next)."""
+        self._routes.pop(agv_id, None)
+        traffic_coordinator.deregister(agv_id)
+        try:
+            from task_queue import agv_task_queue as _atq_hk
+            _atq_hk.on_agv_completed(agv_id, notes=notes)
+            print(f"[LINE_AGV] {agv_id}: hoàn tất chặng qua {notes} → tự động đi tiếp")
+        except Exception as _e_hk:
+            print(f"[LINE_AGV] {agv_id}: hook complete queue error: {_e_hk}")
+
+    def _handle_trailer_hook_arrival(self, agv_id: str, state: "LineAGVState", route) -> None:
+        """Xử lý xe rơ-moóc/đầu kéo tới 1 node có vai trò móc hàng (lấy/thả) —
+        DÙNG CHUNG cho cả arrived_wait_sys VÀ arrived_wait_user, vì map có thể
+        cấu hình node lấy/thả bằng arrival_action nào cũng được (wait_sys hay
+        wait_user tuỳ người tạo map). Trước đây logic phân biệt lấy/thả CHỈ
+        được viết ở nhánh wait_sys — node cấu hình wait_user (vd điểm lấy hàng
+        rỗng gần trạm) rơi vào 1 đoạn code RIÊNG, cũ, luôn mặc định là "thả
+        hàng" — khiến xe tới điểm LẤY hàng lại tự nhả (không chờ) rồi đi thẳng,
+        gây lệch route/vật cản ở đoạn tiếp theo.
+        """
+        if route and route.direction == 'bwd':
+            state.last_transit_direction = 'bwd'
+        _na_hook = {}
+        try:
+            from mqtt_client import map_manager as _mm_hk
+            _na_hook = (getattr(_mm_hk, 'node_actions', {}) or {}).get(str(state.current_tag)) or {}
+        except Exception:
+            pass
+        # Ưu tiên 0: đang trong CHẶNG "lấy hàng rỗng gần trạm" đã đánh dấu lúc
+        # dispatch (_pending_empty_pickup_legs) — cao hơn CẢ trailer_staging,
+        # vì 1 node có thể dùng chung cho cả 2 chức năng (lấy rỗng lúc đi,
+        # thả đầy lúc về) — chỉ dispatch-context mới biết đang ở chặng nào,
+        # cấu hình tĩnh của node không đủ phân biệt. Dùng 1 lần rồi bỏ đánh dấu.
+        _empty_pickup_key = (agv_id, str(state.current_tag))
+        _is_empty_pickup_leg = _empty_pickup_key in _pending_empty_pickup_legs
+        if _is_empty_pickup_leg:
+            _pending_empty_pickup_legs.discard(_empty_pickup_key)
+        # Ưu tiên 1: 'trailer_staging' — điểm thả hàng đầy CỐ ĐINH LUÔN là vai
+        # trò "thả". Ưu tiên 2: field 'trailer_role' TƯỜNG MINH (drop/pickup).
+        # Ưu tiên 3: 'trailer_empty_staging' — dự phòng khi cờ tạm bị mất (off
+        # route re-dispatch, force-cancel...). Cuối cùng suy luận theo
+        # supply_group (map cũ, AGV carry).
+        _trailer_role = str(_na_hook.get('trailer_role') or '').strip().lower()
+        if _is_empty_pickup_leg:
+            _is_pickup_node = True
+        elif str(_na_hook.get('trailer_staging') or '').strip().lower() == 'yes':
+            _is_pickup_node = False
+        elif _trailer_role == 'pickup':
+            _is_pickup_node = True
+        elif _trailer_role == 'drop':
+            _is_pickup_node = False
+        elif str(_na_hook.get('trailer_empty_staging') or '').strip().lower() == 'yes':
+            _is_pickup_node = True
+        else:
+            _is_pickup_node = bool(_na_hook.get('supply_group'))
+        state.hook_pending = "pickup" if _is_pickup_node else "dropoff"
+        if state.hook_state == "raised":
+            if _is_pickup_node:
+                print(f"[LINE_AGV] {agv_id}: tới điểm lấy hàng {state.current_tag} "
+                      f"— móc đã nâng sẵn, chờ xe hàng")
+            else:
+                print(f"[LINE_AGV] {agv_id}: tới điểm thả hàng {state.current_tag} "
+                      f"— móc đã nâng sẵn, coi như đã nhả — tự động đi tiếp")
+                state.hook_pending = None
+                self._complete_hook_leg(agv_id, "hook_already_raised")
+        else:
+            state.hook_raise_retries = 0   # đợt nâng móc MỚI — reset đếm gửi-lại
+            self._send_hook_raise_delayed(agv_id)
+            if _is_pickup_node:
+                print(f"[LINE_AGV] {agv_id}: tới điểm lấy hàng {state.current_tag} "
+                      f"— gửi NÂNG móc, chờ xe hàng")
+            else:
+                print(f"[LINE_AGV] {agv_id}: tới điểm thả hàng {state.current_tag} "
+                      f"— gửi NÂNG móc để nhả xe hàng")
+        if _is_pickup_node:
+            # Đánh dấu pickup giống nhánh carry (tránh lấy hàng 2 lần khi re-dispatch)
+            try:
+                from task_queue import agv_task_queue as _atq_hkpk
+                _run_hkpk = _atq_hkpk._running.get(agv_id)
+                if _run_hkpk and getattr(_run_hkpk, 'session_id', None):
+                    _atq_hkpk.mark_session_pickup(_run_hkpk.session_id, state.current_tag)
+            except Exception as _e_hkpk:
+                print(f"[LINE_AGV] {agv_id}: mark pickup (hook) error: {_e_hkpk}")
+
+    def _notify_hook_error(self, agv_id: str, event_name: str) -> None:
+        """Lỗi cơ khí móc hàng (nâng/hạ timeout, hoặc hạ bị từ chối vì không có
+        xe hàng) — TRƯỚC ĐÂY chỉ in log + báo Telegram, KHÔNG hề gửi lệnh dừng
+        xe hay chặn hàng đợi. Nếu firmware không tự đứng yên khi báo lỗi này
+        (hoặc đã có sẵn 1 cửa sổ plan buffer từ trước), xe vẫn tiếp tục chạy
+        theo plan cũ — tức đi thẳng qua node lỗi luôn, bỏ qua bước móc hàng mà
+        KHÔNG hề dừng thật như thông báo "chờ can thiệp thủ công" đã ghi.
+        Giờ chủ động: (1) gửi lệnh dừng khẩn cấp thật sự, (2) xoá route +
+        reservation hiện tại để hệ thống KHÔNG coi như đang tiến triển bình
+        thường nữa (tránh watchdog "DỪNG GIỮA route" hiểu nhầm rồi tự gửi lại
+        lệnh chạy tiếp). Hàng đợi (task_queue._running) CỐ TÌNH không đóng —
+        để nó treo lại, chờ người dùng tự sửa phần cơ khí rồi Hủy lệnh + gửi
+        lại thủ công qua giao diện có sẵn."""
+        _msg = f"⚠️ AGV {agv_id}: LỖI móc hàng ({event_name}) — đã gửi lệnh DỪNG xe, cần kiểm tra thủ công."
+        print(f"[LINE_AGV] {agv_id}: {_msg}")
+        # Firmware đã báo lỗi RÕ RÀNG (không phải im lặng mất gói) → dừng hẳn watchdog
+        # retry nâng móc, tránh cứ gửi lại vô ích trong khi đang chờ người sửa cơ khí.
+        _st_err = self.state_store.get(agv_id)
+        if _st_err:
+            _st_err.hook_raise_sent_at = 0.0
+        try:
+            from mqtt_client import send_line_command
+            send_line_command(agv_id, "stop")
+        except Exception as _e_stop:
+            print(f"[LINE_AGV] {agv_id}: gửi lệnh dừng (do lỗi móc) thất bại: {_e_stop}")
+        self._routes.pop(agv_id, None)
+        traffic_coordinator.deregister(agv_id)
+        _release_all_line_edges(agv_id)
+        try:
+            from telegram_bot import notify_error as _tg_notify
+            _tg_notify(_msg)
+        except Exception as _e_tg:
+            print(f"[LINE_AGV] {agv_id}: gửi Telegram cảnh báo lỗi: {_e_tg}")
+
     # ── Event handler ─────────────────────────────────────────────────────────
 
     def _handle_event(
@@ -2895,6 +3410,21 @@ class LineAGVHandler:
                 print(f"[LINE_AGV] {agv_id}: ACK (fallback) event='{event_name}'")
             except Exception as e:
                 print(f"[LINE_AGV] {agv_id}: ACK fallback failed: {e}")
+
+        # Bước 1b: HMI vật lý trên AGV — nút "Tổ X" (event='line_X') hoặc
+        # "Về trạm" (event='station') — kênh lệnh thứ 3 ngoài Web UI/App di động.
+        if event_name.startswith("line_") and event_name[5:].isdigit():
+            try:
+                _handle_hmi_line_event(agv_id, int(event_name[5:]))
+            except Exception as e:
+                print(f"[HMI] {agv_id}: lỗi xử lý sự kiện '{event_name}': {e}")
+            return
+        if event_name == "station":
+            try:
+                _handle_hmi_station_event(agv_id)
+            except Exception as e:
+                print(f"[HMI] {agv_id}: lỗi xử lý sự kiện 'station': {e}")
+            return
 
         # Bước 2: xử lý battery event
         if event_name == "battery_need_charge":
@@ -2966,9 +3496,14 @@ class LineAGVHandler:
             if route and route.is_complete and route.task_type == "return_charge":
                 # Trạm sạc luôn dùng approach_dir=bwd → AGV luôn lùi vào trạm
                 # Buộc last_transit_direction="bwd" để dispatch tiếp theo dùng direction="fwd"
-                state.last_transit_direction = "bwd"
+                # MỚI: xe không lùi được → vừa tiến vào (không lùi), KHÔNG ép "bwd"
+                # (nếu ép sai sẽ làm dispatch RỜI trạm tiếp theo tính sai hướng).
+                _can_rev_chg = agv_registry.can_reverse(agv_id)
+                if _can_rev_chg:
+                    state.last_transit_direction = "bwd"
                 state.task_lifecycle = "charging"
-                print(f"[LINE_AGV] {agv_id}: lifecycle → charging (auto-confirm, force last_dir=bwd)")
+                print(f"[LINE_AGV] {agv_id}: lifecycle → charging (auto-confirm, "
+                      + ("force last_dir=bwd)" if _can_rev_chg else "xe tiến vào, giữ last_dir)"))
                 self._routes.pop(agv_id, None)
                 traffic_coordinator.deregister(agv_id)
                 try:
@@ -3005,6 +3540,30 @@ class LineAGVHandler:
                     is_final = (new_end == len(route.full_path) - 1)
                     self._send_window(agv_id, route, current_idx, new_end, is_final)
                     return
+            # ── CỬA TỰ ĐỘNG: node có door_id → xin mở cửa, chờ xác nhận rồi mới
+            # đi tiếp (KHÔNG vào lifecycle "picking", hoàn toàn tự động, không
+            # cần xác nhận web/HMI). Kiểm tra TRƯỚC móc hàng — 1 node không nên
+            # vừa là cửa vừa là điểm móc, ưu tiên cửa nếu trùng cấu hình.
+            # Xem door_coordinator.py + PROTOCOL_GUIDE.md mục "Cửa tự động".
+            if self._handle_door_arrival(agv_id, state):
+                return
+            # ── MÓC HÀNG (xe rơ-moóc/đầu kéo) — node wait_sys → tự động nâng
+            # móc, KHÔNG vào lifecycle "picking" (không cần HMI). Logic phân
+            # biệt lấy/thả DÙNG CHUNG với arrived_wait_user (xem
+            # _handle_trailer_hook_arrival) — map có thể cấu hình node lấy/thả
+            # bằng arrival_action nào cũng được. AGV carry/loại khác hoàn toàn
+            # không đụng — rơi xuống nhánh cũ bên dưới.
+            # NGOẠI LỆ: node được đánh dấu "chỉ xác nhận" (milk-run nhiều Tổ,
+            # xem _pending_confirm_only_legs) → BỎ QUA hoàn toàn logic móc, rơi
+            # xuống nhánh "chờ xác nhận" như AGV carry (không móc lại — hàng
+            # được chuyển tay từ xe Tổ đó sang xe đang kéo).
+            _confirm_only_key_ws = (agv_id, str(state.current_tag))
+            _is_confirm_only_ws = _confirm_only_key_ws in _pending_confirm_only_legs
+            if _is_confirm_only_ws:
+                _pending_confirm_only_legs.discard(_confirm_only_key_ws)
+            if agv_registry.get_config(agv_id).get('agv_type') == 'trailer' and not _is_confirm_only_ws:
+                self._handle_trailer_hook_arrival(agv_id, state, route)
+                return
             # Genuine wait: đến điểm dừng thực sự → chờ xác nhận.
             # Có 2 cách xác nhận:
             #   (1) HMI: người bấm nút → AGV gửi event 'confirm'
@@ -3044,7 +3603,10 @@ class LineAGVHandler:
         if event_name == "arrived_wait_charge":
             # Firmware gửi event riêng khi đến WAIT_CHARGE → server tự xác nhận
             # Trạm sạc luôn approach_dir=bwd → buộc last_transit_direction="bwd"
-            state.last_transit_direction = "bwd"
+            # MỚI: xe không lùi được → vừa tiến vào, KHÔNG ép "bwd" (tránh dispatch
+            # rời trạm kế tiếp tính sai hướng).
+            if agv_registry.can_reverse(agv_id):
+                state.last_transit_direction = "bwd"
             state.task_lifecycle = "charging"
             print(f"[LINE_AGV] {agv_id}: lifecycle → charging (auto-confirm, force last_dir=bwd)")
             self._routes.pop(agv_id, None)
@@ -3066,6 +3628,25 @@ class LineAGVHandler:
             return
         if event_name == "arrived_wait_user":
             _route_wu = self._routes.get(agv_id)
+            # ── CỬA TỰ ĐỘNG: xem giải thích đầy đủ ở nhánh arrived_wait_sys.
+            if self._handle_door_arrival(agv_id, state):
+                return
+            # ── MÓC HÀNG (xe rơ-moóc/đầu kéo) — node wait_user → tự động nâng
+            # móc, KHÔNG vào lifecycle "delivering" (không cần HMI). Logic phân
+            # biệt lấy/thả DÙNG CHUNG với arrived_wait_sys (xem
+            # _handle_trailer_hook_arrival) — trước đây nhánh này LUÔN mặc định
+            # là "thả hàng" bất kể trailer_empty_staging/trailer_role thật, nên
+            # node lấy hàng cấu hình wait_user (thay vì wait_sys) bị tự nhả và
+            # đi thẳng luôn, không chờ. AGV carry/loại khác hoàn toàn không đụng.
+            # NGOẠI LỆ: node "chỉ xác nhận" (milk-run nhiều Tổ) — xem giải thích
+            # đầy đủ ở nhánh arrived_wait_sys.
+            _confirm_only_key_wu = (agv_id, str(state.current_tag))
+            _is_confirm_only_wu = _confirm_only_key_wu in _pending_confirm_only_legs
+            if _is_confirm_only_wu:
+                _pending_confirm_only_legs.discard(_confirm_only_key_wu)
+            if agv_registry.get_config(agv_id).get('agv_type') == 'trailer' and not _is_confirm_only_wu:
+                self._handle_trailer_hook_arrival(agv_id, state, _route_wu)
+                return
             if _route_wu and _route_wu.direction == 'bwd':
                 state.last_transit_direction = 'bwd'
             state.task_lifecycle = "delivering"
@@ -3153,6 +3734,63 @@ class LineAGVHandler:
                 print(f"[LINE_AGV] {agv_id}: hmi_request dispatch error: {_e_hmi2}")
             return
 
+        # ── MÓC HÀNG (xe rơ-moóc/đầu kéo) — kết quả nâng/hạ móc từ firmware ──
+        # Hoàn toàn MỚI, không đụng các event khác. hook_state luôn được cập
+        # nhật (nguồn sự thật) bất kể context; hook_pending quyết định có cần
+        # dispatch tiếp hay chỉ tiếp tục chờ (đang chờ xe hàng ở điểm lấy hàng).
+        if event_name == "hook_raised":
+            state.hook_state = "raised"
+            state.hook_raise_sent_at = 0.0   # có phản hồi → dừng theo dõi retry
+            if state.hook_pending == "dropoff":
+                state.hook_pending = None
+                print(f"[LINE_AGV] {agv_id}: móc đã nâng (xe hàng đã nhả) — tự động đi tiếp")
+                self._complete_hook_leg(agv_id, "hook_raised")
+            elif state.hook_pending == "pickup":
+                # GIỮ NGUYÊN hook_pending='pickup' — KHÔNG tự động hạ móc nữa (theo
+                # yêu cầu: chỉ nâng tự động, hạ phải qua thao tác thủ công của người
+                # dùng trên Web UI). Web UI dựa vào hook_pending=='pickup' để hiện nút
+                # "Hạ móc" — chỉ event 'hook_lowered' (sau khi người dùng bấm nút, xem
+                # /api/execute/line-action action_code=31) mới clear field này.
+                print(f"[LINE_AGV] {agv_id}: móc đã nâng — chờ người dùng móc hàng vào "
+                      f"rồi bấm Hạ móc trên Web UI")
+            else:
+                state.hook_pending = None
+                print(f"[LINE_AGV] {agv_id}: móc đã nâng — chờ xe hàng được đưa vào")
+            return
+
+        if event_name == "hook_lowered":
+            state.hook_state = "lowered"
+            # Áp dụng CHUNG cho mọi điểm lấy hàng (Tổ lẫn điểm lấy hàng rỗng gần
+            # trạm) — luôn chờ xác nhận web trước khi đi tiếp, không tự động.
+            state.hook_pending = None
+            state.task_lifecycle = "picking"
+            print(f"[LINE_AGV] {agv_id}: móc đã hạ (xe hàng đã gắn) "
+                  f"— chờ xác nhận trên web để đi tiếp")
+            if self.on_state_changed:
+                try:
+                    self.on_state_changed(state)
+                except Exception as e:
+                    print(f"[LINE_AGV] on_state_changed error: {e}")
+            return
+
+        if event_name == "hook_raise_failed":
+            print(f"[LINE_AGV] {agv_id}: LỖI nâng móc (timeout, chưa chạm PIN_HOOK_UPLIM) "
+                  f"— dừng, chờ can thiệp thủ công")
+            self._notify_hook_error(agv_id, "hook_raise_failed")
+            return
+
+        if event_name == "hook_lower_failed":
+            print(f"[LINE_AGV] {agv_id}: LỖI hạ móc (timeout, chưa chạm PIN_HOOK_DNLIM) "
+                  f"— dừng, chờ can thiệp thủ công")
+            self._notify_hook_error(agv_id, "hook_lower_failed")
+            return
+
+        if event_name == "hook_lower_rejected_no_cargo":
+            print(f"[LINE_AGV] {agv_id}: LỖI hạ móc bị TỪ CHỐI (không phát hiện xe hàng) "
+                  f"— kiểm tra lại vị trí xe hàng trước khi hạ móc")
+            self._notify_hook_error(agv_id, "hook_lower_rejected_no_cargo")
+            return
+
         # Bước 4: thông báo task_queue hoàn thành
         # "continue" = AGV đến đích, chờ hệ thống (tương đương "confirm")
         # "confirm"  = người dùng bấm nút HMI xác nhận
@@ -3183,8 +3821,13 @@ class LineAGVHandler:
                 _resumed = False
                 try:
                     _ci_res = _completed_route.full_path.index(str(state.current_tag))
+                    # KHÔNG resend nếu xe còn ở node ĐẦU route của 1 dispatch có
+                    # has_exit_steps=True — có thể đang dở lùi mù + quay đầu (xem
+                    # giải thích đầy đủ ở watchdog "DỪNG GIỮA route" phía trên).
+                    _unsafe_exit_res = (_ci_res == 0 and _completed_route.has_exit_steps)
                     if _completed_route.is_complete \
-                            and _ci_res < len(_completed_route.full_path) - 1:
+                            and _ci_res < len(_completed_route.full_path) - 1 \
+                            and not _unsafe_exit_res:
                         _we_res = min(_ci_res + LOOKAHEAD,
                                       len(_completed_route.full_path) - 1)
                         _completed_route.window_start = _ci_res

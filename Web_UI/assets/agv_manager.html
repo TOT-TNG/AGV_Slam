@@ -205,6 +205,25 @@
         </div>
       </div>
 
+      <!-- Chạy thử đến 1 node (không cần map/route đúng — chỉ cần AGV online) -->
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">flag</span>Chạy thử đến node</div>
+        <div style="font-size:10px;color:#8c909f;margin-bottom:8px">
+          Nhập số thẻ (tag) cần dừng — xe chạy tiến tới khi đọc đúng thẻ đó thì tự dừng, không cần bản đồ/tuyến đường đã cấu hình đúng.
+        </div>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="test-drive-node" placeholder="Số thẻ, vd: 16"
+            style="flex:1;padding:7px 10px;border-radius:8px;background:rgba(15,20,32,.8);border:1px solid rgba(66,71,84,.5);color:#e1e2e7;font-size:12px;font-family:'JetBrains Mono',monospace"/>
+          <button class="action-btn btn-primary" onclick="testDriveGo()" style="margin:0;padding:7px 14px;font-size:12px;white-space:nowrap">
+            <span class="material-symbols-outlined" style="font-size:14px">play_arrow</span>Đi
+          </button>
+          <button class="action-btn btn-danger" onclick="testDriveCancel()" style="margin:0;padding:7px 14px;font-size:12px;white-space:nowrap">
+            <span class="material-symbols-outlined" style="font-size:14px">stop</span>Dừng
+          </button>
+        </div>
+        <div id="test-drive-status" style="font-size:11px;color:#555;text-align:center;margin-top:6px;min-height:16px"></div>
+      </div>
+
       <!-- Phím tắt hint -->
       <div style="background:rgba(173,198,255,.05);border:1px solid rgba(173,198,255,.1);border-radius:8px;padding:8px 10px;font-size:10px;color:#8c909f">
         <span class="material-symbols-outlined" style="font-size:12px;color:#adc6ff">keyboard</span>
@@ -278,6 +297,27 @@
       <div id="hook-status" style="font-size:11px;color:#555;text-align:center;margin-top:6px;min-height:16px"></div>
     </div>
 
+    <!-- ── Cửa tự động ── -->
+    <div class="section" id="gate-section">
+      <div class="section-title"><span class="material-symbols-outlined">sensor_door</span>Cửa tự động</div>
+      <div style="font-size:10px;color:#8c909f;margin-bottom:8px">
+        Mở/đóng thủ công 1 cửa tự động — không cần xe đang chờ. Dùng khi bảo trì hoặc kiểm tra cửa.
+      </div>
+      <input type="number" id="gate-door-num" min="1" step="1" placeholder="Số thứ tự cửa, vd: 1"
+        style="width:100%;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:8px;background:rgba(15,20,32,.8);border:1px solid rgba(66,71,84,.5);color:#e1e2e7;font-size:12px;font-family:'JetBrains Mono',monospace"/>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="action-btn btn-green" onclick="sendGateCommand('open')" style="margin:0;padding:10px;font-size:12px;font-weight:700">
+          <span class="material-symbols-outlined" style="font-size:18px">lock_open</span>
+          <div>MỞ cửa</div>
+        </button>
+        <button class="action-btn btn-warning" onclick="sendGateCommand('close')" style="margin:0;padding:10px;font-size:12px;font-weight:700">
+          <span class="material-symbols-outlined" style="font-size:18px">lock</span>
+          <div>ĐÓNG cửa</div>
+        </button>
+      </div>
+      <div id="gate-status" style="font-size:11px;color:#555;text-align:center;margin-top:6px;min-height:16px"></div>
+    </div>
+
     </div><!-- /tab-manual -->
 
     <!-- ══ TAB: CẤU HÌNH ══ -->
@@ -299,6 +339,19 @@
           <span class="material-symbols-outlined" style="font-size:15px">save</span>Lưu bản đồ
         </button>
         <div id="map-assign-status" style="font-size:11px;color:#555;text-align:center;min-height:16px"></div>
+      </div>
+
+      <!-- Khả năng lùi (xe đầu kéo/rơ-moóc chỉ đi 1 chiều tiến) -->
+      <div class="section">
+        <div class="section-title"><span class="material-symbols-outlined">sync_problem</span>Khả năng lùi</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#fff;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" id="cfg-cannot-reverse" style="width:16px;height:16px;cursor:pointer"/>
+          Xe chỉ đi 1 chiều tiến (đầu kéo/rơ-moóc — không lùi được)
+        </label>
+        <button onclick="saveAgvCapability()" class="action-btn btn-green" style="margin-bottom:4px">
+          <span class="material-symbols-outlined" style="font-size:15px">save</span>Lưu
+        </button>
+        <div id="capability-status" style="font-size:11px;color:#555;text-align:center;min-height:16px"></div>
       </div>
 
       <!-- Tên AGV + Nhà máy (dùng để cấu hình MQTT topic) -->
@@ -609,6 +662,13 @@ function populateConfigTab() {
     document.getElementById('map-assign-status').textContent = '';
   }
 
+  // Điền trạng thái khả năng lùi hiện tại
+  const cannotReverseEl = document.getElementById('cfg-cannot-reverse');
+  if (cannotReverseEl) {
+    cannotReverseEl.checked = curAgv.can_reverse === false;
+    document.getElementById('capability-status').textContent = '';
+  }
+
   // Điền danh tính hiện tại
   const agvIdEl  = document.getElementById('identity-agv-id');
   const factoryEl = document.getElementById('identity-factory');
@@ -731,6 +791,41 @@ async function sendManualAction(action) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// CHẠY THỬ ĐẾN NODE (không cần map — chỉ cần AGV online)
+// ════════════════════════════════════════════════════════════════
+async function testDriveGo() {
+  if (!curAgv) return;
+  const target = document.getElementById('test-drive-node').value.trim();
+  const st = document.getElementById('test-drive-status');
+  if (!target) { st.textContent = 'Nhập số thẻ trước đã'; st.style.color = '#f87171'; return; }
+  const speed = parseInt(document.getElementById('manual-speed').value) || 150;
+  st.textContent = `→ Đang chạy tới thẻ ${target}...`;
+  st.style.color = '#adc6ff';
+  try {
+    const r = await fetch(`${API}/api/execute/test-drive-to-node`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agv_id: curAgv.agv_id, target_node: target, speed}),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { st.textContent = '✗ ' + (d.detail || 'Lỗi'); st.style.color = '#f87171'; }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối'; st.style.color = '#f87171';
+  }
+}
+
+async function testDriveCancel() {
+  if (!curAgv) return;
+  const st = document.getElementById('test-drive-status');
+  try {
+    await fetch(`${API}/api/execute/test-drive-cancel/${encodeURIComponent(curAgv.agv_id)}`, {method: 'POST'});
+    st.textContent = '■ Đã dừng'; st.style.color = '#8c909f';
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối'; st.style.color = '#f87171';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 // LINE ACTION (âm thanh, đèn, móc hàng)
 // ════════════════════════════════════════════════════════════════
 const ACTION_LABELS = {
@@ -759,6 +854,44 @@ async function sendLineAction(actionCode, value = 0) {
     const d = await r.json();
     if (r.ok && d.ok) {
       stEl.textContent = `✓ ${label}`;
+      stEl.style.color = '#4ade80';
+    } else {
+      stEl.textContent = `✗ ${d.detail || 'Lỗi'}`;
+      stEl.style.color = '#f87171';
+    }
+  } catch(e) {
+    stEl.textContent = '✗ Mất kết nối';
+    stEl.style.color = '#f87171';
+  }
+  setTimeout(() => { stEl.textContent = ''; }, 3000);
+}
+
+// ════════════════════════════════════════════════════════════════
+// CỬA TỰ ĐỘNG (mở/đóng thủ công — không gắn với AGV cụ thể)
+// ════════════════════════════════════════════════════════════════
+async function sendGateCommand(cmd) {
+  const doorNum = document.getElementById('gate-door-num').value.trim();
+  const stEl    = document.getElementById('gate-status');
+  const label   = cmd === 'open' ? 'Mở cửa' : 'Đóng cửa';
+
+  if (!doorNum) {
+    stEl.textContent = '✗ Nhập số thứ tự cửa trước';
+    stEl.style.color = '#f87171';
+    return;
+  }
+
+  stEl.textContent = `⟳ ${label} gate${doorNum}…`;
+  stEl.style.color = '#adc6ff';
+
+  try {
+    const r = await fetch(`${API}/api/execute/gate-command`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ door_num: doorNum, cmd }),
+    });
+    const d = await r.json();
+    if (r.ok && d.success) {
+      stEl.textContent = `✓ ${label} ${d.door_id}`;
       stEl.style.color = '#4ade80';
     } else {
       stEl.textContent = `✗ ${d.detail || 'Lỗi'}`;
@@ -825,6 +958,35 @@ async function saveAgvMap() {
       st.textContent = mapId ? `✓ Đã gán bản đồ "${d.map_name || mapId}"` : '✓ Đã xóa bản đồ';
       st.style.color = '#4ade80';
       curAgv = {...curAgv, map_id: mapId || null};
+      setTimeout(() => loadAgvs(), 500);
+    } else {
+      st.textContent = '✗ ' + (d.detail || 'Lỗi');
+      st.style.color = '#f87171';
+    }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối';
+    st.style.color = '#f87171';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// KHẢ NĂNG LÙI (can_reverse) — xe đầu kéo/rơ-moóc chỉ đi 1 chiều tiến
+// ════════════════════════════════════════════════════════════════
+async function saveAgvCapability() {
+  if (!curAgv) return;
+  const st          = document.getElementById('capability-status');
+  const cannotRev   = document.getElementById('cfg-cannot-reverse').checked;
+  try {
+    const r = await fetch(`${API}/api/agv/update-capability`, {
+      method:  'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ agv_id: curAgv.agv_id, can_reverse: !cannotRev }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      st.textContent = cannotRev ? '✓ Đã đặt: chỉ đi 1 chiều tiến' : '✓ Đã đặt: xe lùi được bình thường';
+      st.style.color = '#4ade80';
+      curAgv = {...curAgv, can_reverse: !cannotRev};
       setTimeout(() => loadAgvs(), 500);
     } else {
       st.textContent = '✗ ' + (d.detail || 'Lỗi');

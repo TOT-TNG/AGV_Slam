@@ -23,6 +23,7 @@
 13. [API Python quan trọng](#13-api-python-quan-trọng)
 14. [Ví dụ code thực tế](#14-ví-dụ-code-thực-tế)
 15. [Debug và Troubleshooting](#15-debug-và-troubleshooting)
+16. [Cửa tự động (Gate Controller)](#16-cửa-tự-động-gate-controller)
 
 ---
 
@@ -973,6 +974,155 @@ mosquitto_sub -h iot.tot360.com.vn -p 8883 \
   --insecure -u iot_user -P d7xvk5pKkqsKKMd \
   -t "uagv/v2/VietDuc/+/state"
 ```
+
+---
+
+## 16. Cửa tự động (Gate Controller)
+
+> Đây là giao thức **RIÊNG, MỚI**, dành cho bộ điều khiển cửa tự động (thiết bị
+> ĐỘC LẬP với AGV — không phải ESP32-C5/Arduino gắn trên xe). Server (Python
+> Manager) giao tiếp thẳng với bộ điều khiển cửa qua MQTT, không đi qua AGV.
+
+### 16.1. Bối cảnh
+
+Một số đoạn đường trên bản đồ đi qua 1 cửa tự động (kho lạnh, khu vực kiểm
+soát ra/vào...). AGV phải dừng xin mở cửa trước khi băng qua, và server phải
+ra lệnh đóng lại sau khi AGV đã qua hẳn — **hoàn toàn tự động, không cần người
+xác nhận**. Cấu hình bản đồ: mỗi cửa gắn với **2 node liền kề** (2 phía của
+cửa); AGV dừng ở node phía đang tiến tới để xin mở, đi qua node còn lại thì
+server tự báo đóng.
+
+### 16.2. MQTT Topics
+
+```
+gate/v1/{factory}/{door_id}/cmd     Server → Bộ điều khiển cửa   (lệnh mở/đóng)
+gate/v1/{factory}/{door_id}/state   Bộ điều khiển cửa → Server   (trạng thái, RETAINED)
+```
+
+| Biến | Ví dụ | Ghi chú |
+|------|-------|---------|
+| `factory` | `VietDuc` | Cùng tên factory dùng cho AGV (biến môi trường `LINE_AGV_FACTORY`) |
+| `door_id` | `gate1`, `gate2`,... | Quy ước CỐ ĐỊNH: `"gate" + số thứ tự`. Người tạo bản đồ chỉ nhập SỐ (1, 2, 3...) trên Web UI — hệ thống tự ghép thành `gate1`, `gate2`,... khi lưu, tránh gõ nhầm chữ hoa/thường/chính tả. Bộ điều khiển cửa cần đặt `door_id` của mình khớp ĐÚNG định dạng này (`gate` viết thường + số, không dấu cách) |
+
+**`state` PHẢI publish với `retain=true`** — để server biết ngay trạng thái cửa
+hiện tại nếu server restart giữa lúc cửa đang mở/đóng.
+
+### 16.3. Lệnh MỞ/ĐÓNG — Server → Cửa
+
+```json
+{ "c": "open" }
+{ "c": "close" }
+```
+
+| Field | Kiểu | Mô tả |
+|-------|------|-------|
+| `c` | string | `"open"` hoặc `"close"` |
+
+### 16.4. Trạng thái cửa — Cửa → Server
+
+```json
+{ "state": "closed" }
+{ "state": "opening" }
+{ "state": "open" }
+{ "state": "closing" }
+{ "state": "error" }
+```
+
+| `state` | Khi nào publish |
+|---------|-----------------|
+| `closed` | Cửa đã đóng hoàn toàn (nghỉ, hoặc vừa đóng xong) |
+| `opening` | Đang trong quá trình mở (ngay khi nhận lệnh `open`, TRƯỚC khi mở xong) |
+| `open` | Đã mở HOÀN TOÀN (cảm biến/limit switch xác nhận) — **server chờ ĐÚNG tín hiệu này** để cho AGV băng qua |
+| `closing` | Đang trong quá trình đóng |
+| `error` | Kẹt, quá tải, cảm biến lỗi... — server sẽ DỪNG thử tự động, cần người kiểm tra |
+
+**Quan trọng:** server chỉ coi là "mở xong" khi nhận đúng `state: "open"` — nếu
+bộ điều khiển chỉ gửi `opening` mà không bao giờ gửi `open`, AGV sẽ đứng chờ
+mãi (có retry, xem 16.5, nhưng vẫn cần cảm biến thật báo được `open`).
+
+### 16.5. Timeout và Retry (phía server)
+
+Nếu server gửi `open` mà không nhận được `state: "open"` sau **6 giây**, server
+sẽ **gửi lại lệnh `open`** — tối đa **2 lần**. Bộ điều khiển cửa cần xử lý
+lệnh `open` lặp lại một cách **an toàn (idempotent)**:
+- Nếu đang mở dở (`opening`) mà nhận thêm `open` → có thể bỏ qua hoặc xác nhận
+  lại, KHÔNG được gây ra hành vi bất thường (đảo chiều động cơ, kẹt...).
+- Nếu đã `open` mà nhận thêm `open` → chỉ cần publish lại `state: "open"`.
+
+Sau 2 lần gửi lại vẫn không thấy `open`, server dừng tự động thử và báo cần
+kiểm tra thủ công — bộ điều khiển nên tận dụng `state: "error"` để báo lỗi
+sớm hơn nếu tự phát hiện được sự cố (kẹt động cơ, quá dòng...), thay vì để
+server phải chờ hết timeout.
+
+### 16.6. Nhiều xe cùng dùng 1 cửa
+
+Server tự theo dõi số AGV đang băng qua từng cửa — **chỉ gửi lệnh `close` khi
+không còn AGV nào đang qua**. Bộ điều khiển cửa KHÔNG cần tự theo dõi việc
+này, chỉ cần thực hiện đúng lệnh `open`/`close` server gửi và báo trạng thái
+trung thực.
+
+### 16.7. Sơ đồ luồng
+
+```
+AGV tiến gần cửa → dừng hẳn tại node trước cửa
+        ↓
+Server publish: gate/v1/{factory}/{door_id}/cmd = {"c":"open"}
+        ↓
+Cửa: publish state="opening" → (mở cơ khí) → publish state="open" (RETAINED)
+        ↓
+Server nhận state="open" → cho AGV đi tiếp, băng qua cửa
+        ↓
+AGV báo tag đã sang node phía bên kia cửa
+        ↓
+Server publish: gate/v1/{factory}/{door_id}/cmd = {"c":"close"}
+   (CHỈ khi không còn AGV nào khác đang băng qua cửa này)
+        ↓
+Cửa: publish state="closing" → (đóng cơ khí) → publish state="closed"
+```
+
+### 16.8. Ví dụ code (bộ điều khiển cửa, tham khảo)
+
+```python
+import paho.mqtt.client as mqtt
+import json
+
+FACTORY = "VietDuc"
+DOOR_ID = "gate1"
+CMD_TOPIC   = f"gate/v1/{FACTORY}/{DOOR_ID}/cmd"
+STATE_TOPIC = f"gate/v1/{FACTORY}/{DOOR_ID}/state"
+
+def publish_state(client, state: str):
+    client.publish(STATE_TOPIC, json.dumps({"state": state}), qos=1, retain=True)
+
+def on_message(client, userdata, msg):
+    data = json.loads(msg.payload)
+    cmd = data.get("c")
+    if cmd == "open":
+        publish_state(client, "opening")
+        # ... điều khiển động cơ mở cửa ...
+        # khi cảm biến xác nhận mở hoàn toàn:
+        publish_state(client, "open")
+    elif cmd == "close":
+        publish_state(client, "closing")
+        # ... điều khiển động cơ đóng cửa ...
+        publish_state(client, "closed")
+
+client = mqtt.Client()
+client.on_message = on_message
+client.connect("iot.tot360.com.vn", 8883)
+client.subscribe(CMD_TOPIC)
+publish_state(client, "closed")   # trạng thái ban đầu khi khởi động
+client.loop_forever()
+```
+
+### 16.9. Checklist cho đội firmware cửa
+
+- [ ] Subscribe đúng topic lệnh: `gate/v1/{factory}/{door_id}/cmd`
+- [ ] Publish trạng thái lên `gate/v1/{factory}/{door_id}/state` với `retain=true`
+- [ ] Publish `state="open"` CHỈ khi cảm biến xác nhận mở hoàn toàn (không phải ngay khi bắt đầu mở)
+- [ ] Xử lý lệnh `open`/`close` lặp lại an toàn (idempotent) — server có thể gửi lại
+- [ ] Publish `state="closed"` ngay khi khởi động (trạng thái mặc định an toàn)
+- [ ] Nếu phát hiện lỗi cơ khí, publish `state="error"` càng sớm càng tốt
 
 ---
 

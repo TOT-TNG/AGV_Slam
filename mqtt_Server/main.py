@@ -1114,7 +1114,7 @@ async def agv_map():
 
 @app.get("/home")
 async def home_redirect():
-    return RedirectResponse(url="http://192.168.0.124:8050/home")
+    return RedirectResponse(url="http://192.168.0.200:8050/home")
 
 # ==========================
 # DEBUG ROUTES
@@ -2824,6 +2824,46 @@ def _sort_supplies_by_distance(supplies: list[str], current_node) -> list[str]:
         return list(supplies)
 
 
+def _order_pickups_for_forward_loop(nodes: list[str], staging_node: str) -> list[str]:
+    """Sắp xếp các node lấy hàng cho xe rơ-moóc (CHỈ TIẾN, không lùi được)
+    theo đúng thứ tự BẮT BUỘC phải ghé trong 1 vòng — Tổ XA trạm nhất trước,
+    Tổ GẦN trạm nhất cuối cùng (rồi mới thả hàng đầy tại staging_node).
+
+    KHÔNG dùng shortest_path_length(vị_trí_hiện_tại → node) đơn thuần: bản đồ
+    đường vòng cho xe rơ-moóc thường có ĐƯỜNG TẮT ở đoạn đầu (vd tại 1 vài
+    node giao lộ) cho phép đi thẳng tới các Tổ GẦN trạm hơn, bỏ qua đoạn giữa
+    dẫn tới các Tổ XA hơn — khiến 1 Tổ XA thật sự lại tính RA khoảng cách
+    NGẮN hơn 1 Tổ gần (do có đường tắt), suy luận SAI thứ tự.
+    Cũng KHÔNG dùng "khả năng tới-được" (has_path) giữa các node — vì đoạn
+    gần trạm sạc thường có cạnh 2 chiều (approach_dir cả 2 hướng), tạo thành
+    1 vòng kín khiến MỌI node "tới được" lẫn nhau, không phân biệt được thứ tự.
+
+    Cách đúng và tổng quát: đo khoảng cách từ MỖI node NGƯỢC VỀ staging_node
+    (điểm chắc chắn phải quay về SAU KHI đã ghé het các Tổ) — Tổ càng XA
+    staging_node (phải đi qua nhiều node hơn để về tới đó) thì càng cần
+    ghé TRƯỚC; Tổ càng GẦN staging_node thì ghé SAU CÙNG. Hướng đo này không
+    bị ảnh hưởng bởi đường tắt ở đầu vòng (vì đường tắt chỉ có ích khi ĐI RA,
+    không phải khi tính từ 1 node cụ thể NGƯỢC VỀ đích cuối).
+    """
+    if len(nodes) <= 1:
+        return list(nodes)
+    try:
+        import networkx as _nx
+        g = getattr(map_manager, 'line_graph', None) or getattr(map_manager, 'graph', None)
+        if g is None or not staging_node:
+            return list(nodes)
+
+        def _d(n):
+            try:
+                return _nx.shortest_path_length(g, str(n), str(staging_node), weight='weight')
+            except Exception:
+                return -1.0   # không tính được → coi như gần nhất, xếp cuối
+
+        return sorted(nodes, key=_d, reverse=True)
+    except Exception:
+        return list(nodes)
+
+
 def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
                     session_id: str | None = None) -> bool:
     """Tính đường + gửi order (LINE hoặc VDA5050) từ vị trí hiện tại đến dest_node.
@@ -3047,9 +3087,114 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
     if agv_registry.is_line(agv_id):
         from line_agv_plan_builder import (
             build_line_plan, build_plan_window, build_edge_speeds, build_edge_lidar,
+            ACTION_REVERSE_BLIND, ACTION_TURN_L, ACTION_TURN_R,
+            ACTION_SPEED, ACTION_DIR_FWD, SPEED_SLOW,
+            ACTION_LIDAR_OFF, ACTION_LIDAR_ON,
         )
         from line_agv_handler import line_agv_handler, traffic_coordinator as _tc_dispatch
         path         = [str(n.get("nodeId") or n) for n in route_nodes]
+
+        # ── MỚI: xe KHÔNG lùi được (đầu kéo/rơ-moóc) — nếu path vừa lập cần
+        # LÙI ngay từ đầu (path[1]==prev_tag) mà KHÔNG phải trường hợp an toàn
+        # (vừa lùi vào/ở trạm sạc nên mặt đã quay sẵn hướng đó) → path này bất
+        # khả thi vật lý cho xe 1 chiều tiến. Reroute né cạnh đó tìm đường thay
+        # thế toàn tiến; không có → huỷ dispatch (KHÔNG gửi lệnh lùi xe không
+        # thực hiện được, tránh xe trôi tự do rồi off_route lặp vô hạn).
+        # AGV carry (can_reverse=True, mặc định) hoàn toàn không đụng.
+        if not agv_registry.can_reverse(agv_id) and len(path) >= 2:
+            _lstate_cr = line_agv_handler.state_store.get(agv_id)
+            _prev_cr   = str(_lstate_cr.prev_tag) if (_lstate_cr and _lstate_cr.prev_tag) else None
+            # "Cần lùi" KHÔNG chỉ xảy ra khi path[1] trùng hệt prev_tag (lùi kiểu
+            # ping-pong 1 bước) — trên 1 đoạn đường THẲNG (vd 21-81-82 nối tiếp
+            # nhau), xe vừa đi 21→82 (đi NGANG QUA 81) rồi dispatch quay LẠI 81 để
+            # thả hàng cũng là lùi thật, dù path[1]=81 ≠ prev_tag=21. Trước đây bỏ
+            # sót case này → xe cứ tiến thẳng (DIR_FWD) qua luôn điểm cần dừng,
+            # lệch route (off_route) rồi mới báo lỗi ở dispatch KẾ TIẾP — quá trễ,
+            # xe đã lỡ chạy vào chỗ không định tới. Dùng hình học: so hướng đang
+            # tiến (prev_tag→path[0]) với hướng sắp đi (path[0]→path[1]) — góc
+            # gần 180° (cos < -0.5) → chắc chắn là lùi, bất kể path[1] có bằng
+            # prev_tag hay không.
+            _needs_reverse_cr = bool(_prev_cr and str(path[1]) == _prev_cr)
+            if _prev_cr and not _needs_reverse_cr:
+                try:
+                    import math as _math_cr
+                    _pts_cr = getattr(map_manager, "points", {}) or {}
+                    _p_prev_cr = _pts_cr.get(_prev_cr)
+                    _p_cur_cr  = _pts_cr.get(str(path[0]))
+                    _p_next_cr = _pts_cr.get(str(path[1]))
+                    if _p_prev_cr and _p_cur_cr and _p_next_cr:
+                        _in_vec_cr  = (_p_cur_cr[0] - _p_prev_cr[0], _p_cur_cr[1] - _p_prev_cr[1])
+                        _out_vec_cr = (_p_next_cr[0] - _p_cur_cr[0], _p_next_cr[1] - _p_cur_cr[1])
+                        _mag_in_cr  = _math_cr.hypot(*_in_vec_cr)
+                        _mag_out_cr = _math_cr.hypot(*_out_vec_cr)
+                        if _mag_in_cr > 1e-6 and _mag_out_cr > 1e-6:
+                            _cos_cr = ((_in_vec_cr[0] * _out_vec_cr[0] + _in_vec_cr[1] * _out_vec_cr[1])
+                                       / (_mag_in_cr * _mag_out_cr))
+                            if _cos_cr < -0.5:
+                                _needs_reverse_cr = True
+                                print(f"[DISPATCH] {agv_id}: phát hiện lùi qua hình học "
+                                      f"(prev={_prev_cr}→{path[0]}→{path[1]}, cos={_cos_cr:.2f})")
+                except Exception:
+                    pass
+            if _needs_reverse_cr:
+                _cur_cfg_cr   = (getattr(map_manager, "node_actions", {}) or {}).get(str(path[0])) or {}
+                _approach_cr  = str(_cur_cfg_cr.get("approach_dir")   or "").lower()
+                _arrival_cr   = str(_cur_cfg_cr.get("arrival_action") or "").lower()
+                _lifecycle_cr = (getattr(_lstate_cr, 'task_lifecycle', '') or '') == "charging"
+                _last_tdir_cr = getattr(_lstate_cr, 'last_transit_direction', '') if _lstate_cr else ''
+                # Node có sẵn kịch bản "lùi mù + quay đầu" chuyên dụng khi RA trạm
+                # (exit_reverse_ms/exit_turn) → AN TOÀN, không phải "cần lùi giữa
+                # đường" — kịch bản đó xử lý riêng ở _trailer_exit_steps bên dưới
+                # (lùi mù theo thời gian rồi quay, KHÔNG đi qua path/graph edge
+                # thường) — sau khi quay xong, đi tiếp theo path[0]→path[1] thực
+                # chất là hướng TIẾN mới của xe, không phải lùi giữa đường.
+                # KHÔNG suy rộng ra "mọi trạm sạc đều an toàn" — trạm sạc tiến
+                # thẳng vào (không approach_dir=bwd, không có kịch bản lùi+quay)
+                # mà chỉ có 1 đường ra trùng đường vào vẫn là bẫy cụt thật sự cho
+                # xe 1 chiều tiến, cần cảnh báo như cũ.
+                _has_exit_maneuver_cr = (
+                    bool(_cur_cfg_cr.get("exit_reverse_ms"))
+                    and str(_cur_cfg_cr.get("exit_turn") or "").lower() in ("left", "right")
+                )
+                _already_safe_cr = (
+                    (_approach_cr == "bwd")
+                    or (_arrival_cr == "wait_charge")
+                    or _has_exit_maneuver_cr
+                    or _lifecycle_cr
+                    or (_last_tdir_cr == "bwd")
+                )
+                if not _already_safe_cr:
+                    _rerouted_cr = False
+                    _avoided_edge_cr = (path[0], path[1])
+                    try:
+                        import networkx as _nx_cr
+                        _g_cr = (map_manager.line_graph.copy() if map_manager.line_graph
+                                 else map_manager.graph.copy())
+                        if _g_cr.has_edge(path[0], path[1]):
+                            _g_cr.remove_edge(path[0], path[1])
+                        if _g_cr.has_edge(path[1], path[0]):
+                            _g_cr.remove_edge(path[1], path[0])
+                        _alt_path_cr = _nx_cr.shortest_path(_g_cr, source=path[0],
+                                                             target=dest_node, weight='weight')
+                        path = [str(n) for n in _alt_path_cr]
+                        _rerouted_cr = True
+                        print(f"[DISPATCH] {agv_id}: xe không lùi được — né cạnh cần lùi "
+                              f"{_avoided_edge_cr}, đường thay thế → {path}")
+                    except Exception as _e_cr:
+                        print(f"[DISPATCH] {agv_id}: xe không lùi được — KHÔNG tìm được "
+                              f"đường thay thế toàn tiến ({_e_cr}). Map thiếu nhánh vòng "
+                              f"tại đây cho xe 1 chiều tiến.")
+                    if not _rerouted_cr:
+                        try:
+                            from telegram_bot import notify_error as _tg_notify_cr
+                            _tg_notify_cr(
+                                f"⚠️ AGV {agv_id}: không tìm được đường KHÔNG cần lùi "
+                                f"(map thiếu nhánh vòng tại node {path[0]}) — huỷ dispatch, "
+                                f"xe đứng yên chờ kiểm tra map.")
+                        except Exception:
+                            pass
+                        return False
+
         points       = getattr(map_manager, "points",       {}) or {}
         node_actions = getattr(map_manager, "node_actions", {}) or {}
         roads        = getattr(map_manager, "roads",        []) or []
@@ -3298,7 +3443,21 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
             _cur_approach    = str(_cur_node_cfg.get("approach_dir")    or "").lower()
             _cur_arrival     = str(_cur_node_cfg.get("arrival_action")  or "").lower()
             _lifecycle_chg   = (getattr(_lstate, 'task_lifecycle', '') or '') == "charging"
-            _at_charge_bwd   = (_cur_approach == "bwd") or (_cur_arrival == "wait_charge") or _lifecycle_chg
+            # Node có sẵn kịch bản lùi mù + quay đầu chuyên dụng (exit_reverse_ms/
+            # exit_turn) → cũng coi như "đã hướng ra ngoài rồi" giống approach_dir=bwd,
+            # để rơi xuống nhánh direction=fwd bên dưới — _trailer_exit_steps (xây
+            # riêng ở phần dispatch phía sau) sẽ chèn đúng lùi mù+quay, KHÔNG để
+            # nhánh "cần lùi thật" tự dựng đoạn lùi bằng RFID thường (sai cho xe
+            # rơ-moóc không lùi được). CHỈ áp dụng cho xe KHÔNG lùi được — xe carry
+            # (can_reverse=True) vẫn dùng nhánh "cần lùi thật" như cũ nếu path yêu
+            # cầu, vì lùi RFID bình thường hoàn toàn ổn với xe carry.
+            _has_exit_maneuver_chg = (
+                not agv_registry.can_reverse(agv_id)
+                and bool(_cur_node_cfg.get("exit_reverse_ms"))
+                and str(_cur_node_cfg.get("exit_turn") or "").lower() in ("left", "right")
+            )
+            _at_charge_bwd   = (_cur_approach == "bwd") or (_cur_arrival == "wait_charge") \
+                                or _lifecycle_chg or _has_exit_maneuver_chg
             if _last_tdir_bwd == "bwd" or _at_charge_bwd:
                 # AGV vừa lùi vào (server-route hoặc thủ công) — front đang hướng ra đường chính.
                 # path[1]==prev_tag chỉ nghĩa là route đi qua node đó theo chiều TIẾN.
@@ -3386,13 +3545,87 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
                 if _bs:
                     _batch_required_supplies.add(str(_bs))
 
+        # Xe rơ-moóc VỪA RỜI TRẠM SẠC (path[0]=CHARGER) — nếu đường đi ngang qua node
+        # 'trailer_empty_staging' (điểm lấy hàng rỗng cố định gần trạm) TRƯỚC KHI xe
+        # đã có hàng (hook chưa raised) → PHẢI dừng lấy hàng ở đó, dù dispatch thẳng
+        # (không qua API trailer-roundtrip). Trước đây cờ này CHỈ được đọc bởi API
+        # trailer-roundtrip (chèn hẳn 1 leg riêng) — dispatch thẳng đi ngang qua node
+        # không hề biết, nên chạy xuyên qua luôn, không dừng lấy hàng.
+        # CHỈ áp dụng chặng RA (rời trạm sạc) — không áp dụng cho các dispatch giữa
+        # đường/về trạm khác, đúng như vai trò "node chỉ dùng lúc đi" của staging node.
+        _agv_type_trailer_split = (agv_registry.get_config(agv_id).get('agv_type') == 'trailer')
+        _dispatch_from_charger_split = (
+            str((node_actions.get(str(path[0])) or {}).get('locationType') or '').upper() == 'CHARGER'
+        )
+
         split_idx = None
         for _si in range(1, len(path) - 1):
             _node_cfg = node_actions.get(str(path[_si])) or {}
             _acfg = str(_node_cfg.get("arrival_action") or "").lower()
             print(f"[DISPATCH] check intermediate node={path[_si]} "
                   f"arrival_action={_acfg!r} cfg={_node_cfg}")
+            # ── CỬA TỰ ĐỘNG: node có door_id — kiểm tra TRƯỚC mọi thứ khác (độc
+            # lập với arrival_action, không bị lọc theo session/supply_group như
+            # nhánh wait_sys/wait_user phía dưới). Xem door_coordinator.py +
+            # PROTOCOL_GUIDE.md mục "Cửa tự động (Gate Controller)".
+            # Suy ra CHIỀU đi qua bằng node NGAY TRƯỚC trong path: nếu đó chính
+            # là node CÒN LẠI của cùng cửa → xe đang RA khỏi cửa (đã băng qua ở
+            # bước trước đó của path), KHÔNG cần dừng ở đây (server tự đóng cửa
+            # sau khi thấy tag báo về — xem _on_state). Ngược lại → xe đang TIẾN
+            # VÀO cửa lần đầu → PHẢI dừng ở đây xin mở, bất kể xa đích cuối bao
+            # nhiêu (giống hệt cách split cho supply/trailer node bên dưới).
+            _door_id_split = str(_node_cfg.get('door_id') or '').strip()
+            if _door_id_split:
+                from door_coordinator import find_paired_door_node
+                _door_prev_split = path[_si - 1] if _si > 0 else None
+                _door_paired_split = find_paired_door_node(
+                    node_actions, _door_id_split, str(path[_si]))
+                if _door_paired_split and str(_door_prev_split) == str(_door_paired_split):
+                    print(f"[DISPATCH] {agv_id}: node {path[_si]} = cửa tự động "
+                          f"'{_door_id_split}' — xe đang RA khỏi cửa (đã băng qua), "
+                          f"không cần dừng")
+                    continue
+                split_idx = _si
+                print(f"[DISPATCH] {agv_id}: node {path[_si]} = cửa tự động "
+                      f"'{_door_id_split}' — xe đang TIẾN VÀO, dừng xin mở cửa "
+                      f"trước khi qua")
+                break
+            if (not _acfg
+                    and _agv_type_trailer_split
+                    and _dispatch_from_charger_split
+                    and str(_node_cfg.get('trailer_empty_staging') or '').lower() == 'yes'
+                    and str(getattr(_lstate, 'hook_state', None) or '') != 'raised'):
+                from line_agv_handler import _pending_empty_pickup_legs
+                # Đánh dấu TRƯỚC khi gửi lệnh — arrival handler cần thấy dấu này ngay
+                # khi xe tới (cùng pattern với execute_trailer_roundtrip).
+                _pending_empty_pickup_legs.add((agv_id, str(path[_si])))
+                split_idx = _si
+                print(f"[DISPATCH] {agv_id}: node {path[_si]} = điểm lấy hàng rỗng cố định "
+                      f"gần trạm (trailer_empty_staging), xe vừa rời trạm sạc → dừng lấy "
+                      f"hàng trước khi đi tiếp")
+                break
             if _acfg in ("wait_user", "wait_sys", "wait_charge"):
+                # Node trailer_staging (thả đầy, vd 81) / trailer_empty_staging (lấy
+                # rỗng, vd 82) CHỈ được phép "hoạt động" (dừng + kích hoạt móc) khi
+                # nó THỰC SỰ là ĐÍCH của lượt dispatch này — KHÔNG kích hoạt khi chỉ
+                # đi NGANG QUA trên đường tới 1 đích khác. 2 node này thường nằm trên
+                # CÙNG 1 đoạn đường thẳng (ra trạm rồi mới tới Tổ, về từ Tổ rồi mới
+                # vào trạm) nên bất kỳ dispatch nào đi qua đoạn đó cũng sẽ đi ngang cả
+                # 2 node — nếu cả 2 đều có arrival_action='wait_user' (để dùng được
+                # khi LÀ đích) thì sẽ bị dừng+kích hoạt SAI mỗi lần đi ngang, kể cả
+                # đang đi chiều ngược lại chưa hề mang/lấy hàng gì. Ví dụ lỗi thật:
+                # dispatch RA trạm hướng tới 82 (lấy rỗng), đi ngang 81 trước — nếu
+                # không chặn, 81 (trailer_staging) sẽ bị coi là "tới nơi, nhả hàng"
+                # dù xe còn CHƯA hề lấy hàng gì cả.
+                _is_trailer_role_node = (
+                    str(_node_cfg.get('trailer_staging') or '').lower() == 'yes'
+                    or str(_node_cfg.get('trailer_empty_staging') or '').lower() == 'yes'
+                )
+                if _is_trailer_role_node and str(path[_si]) != str(dest_node):
+                    print(f"[DISPATCH] {agv_id}: bỏ qua node trailer-role {path[_si]} "
+                          f"(không phải đích của lượt này {dest_node}) — đi ngang qua, "
+                          f"không kích hoạt móc")
+                    continue
                 # Đã lấy hàng tại supply node này trong session hiện tại → đi một mạch qua,
                 # KHÔNG dừng lại chờ xác nhận nữa (fix: lùi về điểm lấy hàng / dừng lặp lại).
                 if _acfg == 'wait_sys' and _atq_pick.session_has_pickup(session_id, path[_si]):
@@ -3463,6 +3696,52 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
         _initial_prev = _prev_tag if not _suppress_initial_turn else None
         _initial_arrived_bwd = (_last_tdir_pre == 'bwd' and not _suppress_initial_turn)
 
+        # ── MỚI: xe rơ-moóc rời trạm sạc — lùi vào trạm nên mũi quay VÀO TRONG,
+        # phải lùi mù (theo thời gian, không theo thẻ) một đoạn rồi quay đầu tại
+        # chỗ để đổi mũi ra hướng tiến, TRƯỚC KHI đi theo plan bình thường. Chỉ
+        # áp dụng khi trạm đó có cấu hình exit_reverse_ms/exit_turn (bỏ trống =
+        # không đổi gì, giữ nguyên hành vi "đi thẳng ra" như carry hiện tại).
+        _trailer_exit_steps = []
+        if _exit_from_charger and agv_registry.get_config(agv_id).get('agv_type') == 'trailer':
+            _exit_ms   = int(_cur_node_cfg_exit.get('exit_reverse_ms') or 0)
+            _exit_turn = str(_cur_node_cfg_exit.get('exit_turn') or '').strip().lower()
+            if _exit_ms > 0 and _exit_turn in ('left', 'right'):
+                _turn_action = ACTION_TURN_L if _exit_turn == 'left' else ACTION_TURN_R
+                # Ép tốc độ CHẬM quanh thao tác lùi+quay: không dựa vào tốc độ còn sót lại
+                # từ lệnh trước đó (có thể là tốc độ tiếp cận trạm sạc, hoặc mặc định firmware).
+                # Dùng đúng tốc độ đã cấu hình cho cạnh path[0]->path[1] (nếu có), fallback SPEED_SLOW
+                # (KHÔNG dùng SPEED_FAST) để đảm bảo luôn chậm khi chưa rõ tốc độ cạnh.
+                _exit_edge_key = f"{path[0]}_{path[1]}" if len(path) > 1 else None
+                _exit_spd = edge_spd.get(_exit_edge_key, SPEED_SLOW) if _exit_edge_key else SPEED_SLOW
+                # KHÔNG chèn DIR_BWD/SPEED trước REVERSE_BLIND nữa: nghi vấn firmware xử lý
+                # SPEED (a=4) là chạy NGAY theo chiều đang có tại thời điểm đó (có thể vẫn
+                # còn là FWD của lệnh trước, DIR_BWD chưa kịp chốt) → xe chạy tiến trước khi
+                # REVERSE_BLIND kịp phát huy tác dụng. REVERSE_BLIND tự thân đã là "lùi mù
+                # theo thời gian" nên không cần DIR_BWD/SPEED phụ trợ đứng trước nó.
+                # Tắt Lidar quanh SUỐT thao tác lùi mù + quay (giống mọi thao tác rẽ
+                # khác trong hệ thống luôn tắt Lidar trước khi rẽ, bật lại sau) —
+                # trước đây bỏ sót, khiến cảm biến vẫn hoạt động lúc lùi/quay tại
+                # trạm (không gian hẹp, sát vật cản xung quanh) → báo vật cản giả.
+                # QUAN TRỌNG: "t" PHẢI là số nguyên (int), giống hệt phần còn lại của
+                # plan (build_line_plan dùng tag=int(...)) — path[0] là STRING (path
+                # luôn được str() hoá), nếu để nguyên chuỗi thì payload có "t" LẪN LỘN
+                # kiểu dữ liệu (vài bước "t":"10" dạng chuỗi, các bước khác "t":10 dạng
+                # số) trong CÙNG 1 plan. Bộ chunker phía firmware (ESP32) chỉ xử lý đúng
+                # khi "t" là số — gặp chuỗi thì giải mã sai thành "t":0 cho toàn bộ các
+                # bước trong gói đó (đã xác nhận qua log UART RX thực tế của firmware).
+                _exit_tag = int(path[0])
+                _trailer_exit_steps = [
+                    {"t": _exit_tag, "a": ACTION_LIDAR_OFF, "v": 0},
+                    {"t": _exit_tag, "a": ACTION_REVERSE_BLIND, "v": _exit_ms},
+                    {"t": _exit_tag, "a": _turn_action, "v": 0},
+                    {"t": _exit_tag, "a": ACTION_LIDAR_ON, "v": 0},
+                    {"t": _exit_tag, "a": ACTION_DIR_FWD, "v": 0},
+                    {"t": _exit_tag, "a": ACTION_SPEED, "v": _exit_spd},
+                ]
+                print(f"[DISPATCH] {agv_id}: xe rơ-moóc rời trạm {path[0]} → "
+                      f"chèn TẮT Lidar + lùi mù {_exit_ms}ms + quay {_exit_turn} + BẬT Lidar + "
+                      f"DIR_FWD + SPEED={_exit_spd} trước khi tiến ra")
+
         # ── Simulation: inject turn_map entry còn thiếu ─────────────────────
         # Khi simulation dispatch (13→1→2), node 1 turn_map thường chỉ có entries
         # cho chiều ngược (2_13_fwd) chứ không có 13_2_fwd.
@@ -3531,12 +3810,15 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
             # Chỉ gửi CỬA SỔ ĐẦU (≤LOOKAHEAD node) — tránh tràn UART buffer Arduino khi
             # đoạn dài. Phần còn lại do rolling (arrived_wait_sys → _send_window) gửi tiếp.
             _rt = line_agv_handler.set_route(agv_id, first_seg, _first_seg_task, direction=_line_dir)
+            _rt.has_exit_steps = bool(_trailer_exit_steps)
             plan = build_plan_window(
                 full_path=first_seg, w_start=0, w_end=_rt.window_end, points=points,
                 is_final=_rt.is_complete, task_type=_first_seg_task,
                 node_actions=node_actions, direction=_line_dir,
                 edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
                 initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd)
+            if _trailer_exit_steps:
+                plan["d"] = _trailer_exit_steps + plan.get("d", [])
             send_order(agv_id, plan)
             from task_queue import agv_task_queue as _atq, CMD_GO_TO as _CGT
             # Nếu staging, đánh dấu để dispatch tiếp theo đến staging dùng transit
@@ -3552,6 +3834,7 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
             if _is_staging_dispatch and _no_split_task == 'delivery':
                 _no_split_task = 'transit'
             _rt = line_agv_handler.set_route(agv_id, path, _no_split_task, direction=_line_dir)
+            _rt.has_exit_steps = bool(_trailer_exit_steps)
             # Chỉ gửi CỬA SỔ ĐẦU — rolling sẽ gửi tiếp khi path dài (tránh tràn buffer).
             plan = build_plan_window(
                 full_path=path, w_start=0, w_end=_rt.window_end, points=points,
@@ -3559,6 +3842,8 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
                 node_actions=node_actions, direction=_line_dir,
                 edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
                 initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd)
+            if _trailer_exit_steps:
+                plan["d"] = _trailer_exit_steps + plan.get("d", [])
             send_order(agv_id, plan)
             print(f"[DISPATCH] {agv_id}: no-split window=[0→{_rt.window_end}] final={_rt.is_complete} "
                   f"(len={len(path)})")
@@ -3646,7 +3931,7 @@ async def execute_agv_list():
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT name, agv_type, CAST(ip AS TEXT), port, factory, last_seen, "
-                    "subnet, gateway, dns, map_id "
+                    "subnet, gateway, dns, map_id, COALESCE(can_reverse, TRUE) "
                     "FROM agv_devices ORDER BY name"
                 )
                 return cur.fetchall()
@@ -3658,9 +3943,9 @@ async def execute_agv_list():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"DB error: {e}")
 
-    # psycopg2 trả về tuple: (name, agv_type, ip_text, port, factory, last_seen, subnet, gateway, dns, map_id)
+    # psycopg2 trả về tuple: (name, agv_type, ip_text, port, factory, last_seen, subnet, gateway, dns, map_id, can_reverse)
     result = []
-    for (name, agv_type_raw, ip_text, port, factory_val, last_seen, subnet_val, gateway_val, dns_val, map_id_val) in db_rows:
+    for (name, agv_type_raw, ip_text, port, factory_val, last_seen, subnet_val, gateway_val, dns_val, map_id_val, can_reverse_val) in db_rows:
         agv_id       = str(name)
         agv_type_raw = str(agv_type_raw or "")
         is_line      = not agv_type_raw.lower().startswith("slam")
@@ -3690,6 +3975,8 @@ async def execute_agv_list():
                 "connection":       line_conn,
                 "operating_mode":   st.operating_mode if st else "MANUAL",
                 "task_lifecycle":   st.task_lifecycle if st else None,
+                "hook_pending":     st.hook_pending if st else None,
+                "hook_state":       st.hook_state if st else None,
                 "is_busy":          agv_task_queue.is_busy(agv_id),
                 "queue_size":       agv_task_queue.queue_size(agv_id),
                 "running_cmd":      agv_task_queue.get_running(agv_id),
@@ -3697,6 +3984,7 @@ async def execute_agv_list():
                 "gateway":          gateway_val or None,
                 "dns":              dns_val     or None,
                 "map_id":           str(map_id_val) if map_id_val else None,
+                "can_reverse":      bool(can_reverse_val),
             })
         else:
             st   = agv_manager.get_agv(agv_id) or {}
@@ -3724,6 +4012,7 @@ async def execute_agv_list():
                 "gateway":          gateway_val or None,
                 "dns":              dns_val     or None,
                 "map_id":           str(map_id_val) if map_id_val else None,
+                "can_reverse":      bool(can_reverse_val),
             })
 
     return {"agvs": result, "total": len(result)}
@@ -3830,38 +4119,37 @@ async def simulation_route(agv_id: str):
 @app.get("/api/execute/team-nodes")
 async def execute_team_nodes(map_id: str | None = None):
     """
-    Trả về danh sách các node DROPOFF có gán số Tổ (action.team).
-    Dùng để người dùng chọn 'Tổ X' thay vì phải biết số node cụ thể.
+    Trả về danh sách các node DROPOFF có gán số Tổ — dùng để người dùng chọn
+    'Tổ X' thay vì phải biết số node cụ thể.
+
+    Hỗ trợ CẢ 2 kiểu cấu hình:
+      - Kiểu cũ: action.team (1 số nguyên/1 node) — AGV carry, map cũ.
+      - Kiểu mới: action.trailer_role=='drop' + action.trailer_drop_teams
+        (mảng số Tổ dùng CHUNG 1 node) — xe rơ-moóc. THIẾU nhánh này khiến
+        map chỉ cấu hình kiểu mới trả về danh sách Tổ RỖNG — người dùng phải
+        chọn thẳng node thô, bỏ qua toàn bộ cơ chế Trailer Roundtrip.
     """
     async with app.state.db_pool.acquire() as conn:
-        if map_id:
-            rows = await conn.fetch(
-                """SELECT name_id, name, action
-                   FROM agv_map_points
-                   WHERE CAST(map_id AS TEXT) = $1
-                     AND action->>'locationType' = 'DROPOFF'
-                     AND (action->>'team') IS NOT NULL
-                   ORDER BY (action->>'team')::int""",
-                str(map_id),
-            )
-        else:
-            mid = str(map_manager.current_map_id or "")
-            rows = await conn.fetch(
-                """SELECT name_id, name, action
-                   FROM agv_map_points
-                   WHERE CAST(map_id AS TEXT) = $1
-                     AND action->>'locationType' = 'DROPOFF'
-                     AND (action->>'team') IS NOT NULL
-                   ORDER BY (action->>'team')::int""",
-                mid,
-            )
-    result = []
+        mid = str(map_id) if map_id else str(map_manager.current_map_id or "")
+        rows = await conn.fetch(
+            """SELECT name_id, name, action
+               FROM agv_map_points
+               WHERE CAST(map_id AS TEXT) = $1
+                 AND (
+                     (action->>'locationType' = 'DROPOFF' AND (action->>'team') IS NOT NULL)
+                     OR (action->>'trailer_role' = 'drop' AND jsonb_typeof(action->'trailer_drop_teams') = 'array')
+                 )""",
+            mid,
+        )
+    result: list[dict] = []
+    seen_teams: set[int] = set()
     for r in rows:
         act = r["action"] or {}
         if isinstance(act, str):
             import json as _j; act = _j.loads(act)
         team_num = act.get("team")
-        if team_num is not None:
+        if team_num is not None and int(team_num) not in seen_teams:
+            seen_teams.add(int(team_num))
             result.append({
                 "node_id":  str(r["name_id"]),
                 "name":     r["name"] or str(r["name_id"]),
@@ -3869,7 +4157,316 @@ async def execute_team_nodes(map_id: str | None = None):
                 "label":    f"Tổ {team_num}",
                 "action":   act,
             })
+        for _t in (act.get("trailer_drop_teams") or []):
+            try:
+                _tn = int(str(_t).strip())
+            except (TypeError, ValueError):
+                continue
+            if _tn in seen_teams:
+                continue
+            seen_teams.add(_tn)
+            result.append({
+                "node_id":  str(r["name_id"]),
+                "name":     r["name"] or str(r["name_id"]),
+                "team":     _tn,
+                "label":    f"Tổ {_tn}",
+                "action":   act,
+            })
+    result.sort(key=lambda x: x["team"])
     return {"teams": result, "total": len(result)}
+
+
+async def _resolve_team_node(map_id: str, team: int, agv_type: str, want_pickup: bool) -> str | None:
+    """Tìm node phục vụ 1 Tổ, ưu tiên node đánh dấu đúng agv_type (team_agv_type),
+    fallback node không đánh dấu (dùng chung mọi loại xe). Node đánh dấu cho loại
+    KHÁC thì bỏ qua — cho phép map tách hẳn vị trí thả rỗng/lấy đầy riêng theo xe.
+
+    Ưu tiên 1: field 'trailer_role' TƯỜNG MINH ('drop'|'pickup') + cùng số Tổ —
+    không quan tâm locationType/arrival_action là gì (2 node cùng Tổ, chỉ khác
+    Vai trò, các field khác có thể giống hệt nhau, vd cùng DROPOFF).
+    Ưu tiên 1b (dùng chung nhiều Tổ): 1 node THẢ RỖNG hoặc LẤY ĐẦY dùng CHUNG
+    cho nhiều Tổ — khai tường minh qua field 'trailer_pickup_teams' (pickup)
+    hoặc 'trailer_drop_teams' (drop) (mảng số Tổ, vd [1,2]) thay vì field
+    'team' đơn (chỉ chứa được 1 số). KHÔNG suy luận qua supply_group — tránh
+    lặp lại bug do suy luận sai (map chung field với cơ chế carry cũ).
+    Ưu tiên 2 (map chưa cấu hình trailer_role/trailer_*_teams): suy luận
+    theo cơ chế cũ — want_pickup=False → DROPOFF/wait_user + team;
+    want_pickup=True → wait_sys + supply_group chứa team.
+    """
+    import json as _j
+    role = "pickup" if want_pickup else "drop"
+    shared_field = "trailer_pickup_teams" if want_pickup else "trailer_drop_teams"
+    async with app.state.db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT name_id, action FROM agv_map_points
+               WHERE CAST(map_id AS TEXT) = $1
+                 AND action->>'trailer_role' = $2
+                 AND (action->>'team')::int = $3""",
+            str(map_id), role, team,
+        )
+        if not rows:
+            rows = await conn.fetch(
+                f"""SELECT name_id, action FROM agv_map_points
+                   WHERE CAST(map_id AS TEXT) = $1
+                     AND action->>'trailer_role' = $2
+                     AND action->'{shared_field}' ? $3::text""",
+                str(map_id), role, str(team),
+            )
+        if not rows:
+            if want_pickup:
+                rows = await conn.fetch(
+                    """SELECT name_id, action FROM agv_map_points
+                       WHERE CAST(map_id AS TEXT) = $1
+                         AND action->>'arrival_action' = 'wait_sys'
+                         AND action->'supply_group' ? $2::text""",
+                    str(map_id), str(team),
+                )
+            else:
+                # Node "thả rỗng" có thể là locationType=DROPOFF HOẶC chỉ là điểm
+                # giao hàng thường (arrival_action=wait_user) được gán thêm số Tổ —
+                # AGV carry vẫn dùng node đó bình thường (chờ xác nhận), không đổi gì.
+                rows = await conn.fetch(
+                    """SELECT name_id, action FROM agv_map_points
+                       WHERE CAST(map_id AS TEXT) = $1
+                         AND (action->>'locationType' = 'DROPOFF'
+                              OR action->>'arrival_action' = 'wait_user')
+                         AND (action->>'team')::int = $2""",
+                    str(map_id), team,
+                )
+    exact, generic = [], []
+    for r in rows:
+        act = r["action"] or {}
+        if isinstance(act, str):
+            act = _j.loads(act)
+        tat = str(act.get("team_agv_type") or "").strip().lower()
+        if tat == agv_type:
+            exact.append(str(r["name_id"]))
+        elif not tat:
+            generic.append(str(r["name_id"]))
+    if exact:
+        return exact[0]
+    if generic:
+        return generic[0]
+    return None
+
+
+async def _find_trailer_staging_node(map_id: str) -> str | None:
+    """Tìm node được đánh dấu 'trailer_staging=yes' trên map — điểm thả hàng
+    đầy cố định, dùng chung cho MỌI Tổ (không cần nhập tay lúc dispatch)."""
+    async with app.state.db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT name_id FROM agv_map_points
+               WHERE CAST(map_id AS TEXT) = $1
+                 AND action->>'trailer_staging' = 'yes'
+               LIMIT 1""",
+            str(map_id),
+        )
+    return str(row["name_id"]) if row else None
+
+
+async def _find_trailer_empty_staging_node(map_id: str) -> str | None:
+    """Node đánh dấu 'trailer_empty_staging=yes' — điểm lấy hàng rỗng cố định
+    gần trạm (đầu quy trình, trước khi ra Tổ). TUỲ CHỌN — có thể trùng với
+    node trailer_staging (1 node dùng chung cả 2 chức năng)."""
+    async with app.state.db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT name_id FROM agv_map_points
+               WHERE CAST(map_id AS TEXT) = $1
+                 AND action->>'trailer_empty_staging' = 'yes'
+               LIMIT 1""",
+            str(map_id),
+        )
+    return str(row["name_id"]) if row else None
+
+
+class TrailerRoundtripRequest(BaseModel):
+    agv_id:       str
+    team:         int
+    staging_node: str | None = None   # tuỳ chọn — bỏ trống sẽ tự tìm node đánh dấu trailer_staging trên map
+
+
+@app.post("/api/execute/trailer-roundtrip")
+async def execute_trailer_roundtrip(req: TrailerRoundtripRequest):
+    """
+    Điều phối chu trình cho AGV rơ-moóc/đầu kéo phục vụ 1 Tổ:
+      0. (tuỳ chọn) → node lấy hàng rỗng cố định gần trạm — tới nơi chờ, cảm
+         biến tự hạ móc khi xe hàng rỗng được đưa vào — CHỜ XÁC NHẬN TRÊN WEB
+         (giống hệt chặng lấy hàng đầy tại Tổ, không tự động đi tiếp).
+         Chỉ chèn nếu map đã đánh dấu 'trailer_empty_staging=yes'; không có
+         thì bỏ qua, giữ đúng hành vi 4 chặng cũ (xe coi như đã có sẵn hàng rỗng).
+      1. → node thả rỗng (Tổ, đường đi)   — tới nơi tự nâng móc thả rỗng, TỰ ĐỘNG đi tiếp
+      2. → node lấy đầy (Tổ, đường về)    — tới nơi chờ (móc đã nâng sẵn từ chặng 1)
+      3. (cảm biến tự hạ móc khi xe đầy gắn xong) — CHỜ XÁC NHẬN TRÊN WEB
+      4. → staging_node (vd node 19)      — tới nơi tự nâng móc thả đầy, TỰ ĐỘNG đi tiếp
+      5. → về trạm (go_charge)
+    """
+    from task_queue import agv_task_queue, CMD_GO_TO, CMD_GO_CHARGE
+    from agv_registry import agv_registry
+    from mqtt_client import get_agv_runtime_info
+    from line_agv_handler import _pending_empty_pickup_legs
+
+    agv_id = req.agv_id.strip()
+    if agv_id not in agv_registry.all_ids():
+        raise HTTPException(status_code=404, detail=f"AGV '{agv_id}' không tìm thấy")
+
+    agv_type = str(agv_registry.get_config(agv_id).get("agv_type") or "").strip().lower()
+    if agv_type != "trailer":
+        raise HTTPException(status_code=400,
+            detail=f"Lệnh này chỉ dành cho AGV loại trailer (AGV '{agv_id}' là loại '{agv_type}')")
+
+    info   = get_agv_runtime_info(agv_id)
+    map_id = info.get("resolved_map_id")
+    if not map_id:
+        raise HTTPException(status_code=400, detail=f"AGV {agv_id} chưa có map hiện tại")
+
+    drop_node = await _resolve_team_node(map_id, req.team, agv_type, want_pickup=False)
+    if not drop_node:
+        raise HTTPException(status_code=404,
+            detail=f"Không tìm thấy node thả rỗng cho Tổ {req.team} (map={map_id}, loại xe={agv_type})")
+
+    pickup_node = await _resolve_team_node(map_id, req.team, agv_type, want_pickup=True)
+    if not pickup_node:
+        raise HTTPException(status_code=404,
+            detail=f"Không tìm thấy node lấy đầy cho Tổ {req.team} (map={map_id}, loại xe={agv_type})")
+
+    staging_node = (req.staging_node or "").strip()
+    if not staging_node:
+        staging_node = await _find_trailer_staging_node(map_id)
+        if not staging_node:
+            raise HTTPException(status_code=404,
+                detail=f"Map {map_id} chưa đánh dấu node 'Điểm thả hàng đầy cố định (Staging)' "
+                       f"— vào Tạo bản đồ, chọn node và tick ô đó.")
+
+    # Điểm lấy hàng rỗng cố định gần trạm — TUỲ CHỌN, bỏ qua chặng này nếu map
+    # chưa cấu hình (giữ đúng hành vi 4 chặng cũ, không bắt buộc).
+    empty_staging_node = await _find_trailer_empty_staging_node(map_id)
+
+    # Chèn theo thứ tự NGƯỢC — insert_next luôn chèn vào ĐẦU hàng đợi, nên gọi
+    # từ chặng CUỐI về chặng ĐẦU để thứ tự thực thi đúng:
+    # (lấy rỗng) → drop → pickup → staging → charge.
+    agv_task_queue.insert_next(agv_id, CMD_GO_CHARGE, dest_node=None)
+    agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=staging_node)
+    agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=pickup_node)
+    agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=drop_node)
+    if empty_staging_node:
+        # Đánh dấu TRƯỚC khi chèn lệnh — arrival handler cần thấy dấu này ngay
+        # khi xe tới, tránh race nếu xe tới rất nhanh.
+        _pending_empty_pickup_legs.add((agv_id, str(empty_staging_node)))
+        agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=empty_staging_node)
+
+    # Nếu xe đang rảnh, kích hoạt chặng đầu ngay (dùng lại đúng cơ chế auto-dispatch
+    # của on_agv_completed — an toàn kể cả khi không có gì đang "running").
+    if not agv_task_queue.is_busy(agv_id):
+        agv_task_queue.on_agv_completed(agv_id, notes="trailer_roundtrip_start", auto_dispatch=True)
+
+    return {
+        "success": True, "agv_id": agv_id, "team": req.team, "agv_type": agv_type,
+        "legs": {
+            "0_pick_empty": empty_staging_node or "(không cấu hình — bỏ qua chặng này)",
+            "1_drop_empty": drop_node,
+            "2_pick_full":  pickup_node,
+            "3_confirm":    "chờ xác nhận web sau khi cảm biến hạ móc",
+            "4_staging":    staging_node,
+            "5_return":     "go_charge",
+        },
+    }
+
+
+class TrailerMultiPickupRequest(BaseModel):
+    agv_id: str
+    teams:  list[int]
+
+
+@app.post("/api/execute/trailer-multi-pickup")
+async def execute_trailer_multi_pickup(req: TrailerMultiPickupRequest):
+    """
+    Gom LẤY HÀNG ĐẦY từ NHIỀU Tổ trong 1 chuyến (milk run) cho AGV rơ-moóc —
+    dùng khi mỗi Tổ đã có sẵn xe hàng đầy riêng chờ (chặng thả rỗng cho từng
+    Tổ đã làm trước đó, riêng lẻ — KHÔNG thuộc API này):
+      1. Tính khoảng cách từ vị trí xe hiện tại tới điểm lấy đầy của từng Tổ,
+         sắp GẦN → XA.
+      2. Tổ GẦN NHẤT: móc cơ khí đầy đủ như bình thường (nâng móc chờ → người
+         dùng bấm Hạ móc → xác nhận web) — dùng đúng logic pickup mặc định,
+         không cần đánh dấu gì thêm.
+      3. Các Tổ SAU: CHỈ dừng + chờ xác nhận thủ công (nút "ĐÃ LẤY HÀNG XONG"
+         hiện có) — KHÔNG móc lại, vì hàng được công nhân chuyển tay từ xe
+         của Tổ đó sang xe đang được kéo theo AGV.
+      4. Sau Tổ cuối: về node staging (thả hàng đầy) → sạc — như luồng cũ.
+    """
+    from task_queue import agv_task_queue, CMD_GO_TO, CMD_GO_CHARGE
+    from agv_registry import agv_registry
+    from mqtt_client import get_agv_runtime_info
+    from line_agv_handler import _pending_confirm_only_legs
+
+    agv_id = req.agv_id.strip()
+    if agv_id not in agv_registry.all_ids():
+        raise HTTPException(status_code=404, detail=f"AGV '{agv_id}' không tìm thấy")
+
+    agv_type = str(agv_registry.get_config(agv_id).get("agv_type") or "").strip().lower()
+    if agv_type != "trailer":
+        raise HTTPException(status_code=400,
+            detail=f"Lệnh này chỉ dành cho AGV loại trailer (AGV '{agv_id}' là loại '{agv_type}')")
+
+    if not req.teams:
+        raise HTTPException(status_code=400, detail="Cần chọn ít nhất 1 Tổ")
+
+    info   = get_agv_runtime_info(agv_id)
+    map_id = info.get("resolved_map_id")
+    if not map_id:
+        raise HTTPException(status_code=400, detail=f"AGV {agv_id} chưa có map hiện tại")
+    current_node = info.get("current_node")
+
+    # Resolve node lấy đầy cho từng Tổ — báo lỗi ngay nếu Tổ nào thiếu cấu hình,
+    # tránh chèn 1 chuyến dở dang (thiếu 1 Tổ giữa chừng sẽ rất khó xử lý sau).
+    pickup_by_team: dict[int, str] = {}
+    for team in req.teams:
+        node = await _resolve_team_node(map_id, team, agv_type, want_pickup=True)
+        if not node:
+            raise HTTPException(status_code=404,
+                detail=f"Không tìm thấy node lấy đầy cho Tổ {team} (map={map_id})")
+        pickup_by_team[team] = str(node)
+
+    # Nhiều Tổ có thể dùng CHUNG 1 node lấy hàng (trailer_pickup_teams) — gộp
+    # lại, chỉ dừng 1 lần tại node đó, phục vụ đủ các Tổ cùng lúc.
+    teams_by_node: dict[str, list[int]] = {}
+    for team, node in pickup_by_team.items():
+        teams_by_node.setdefault(node, []).append(team)
+    unique_nodes = list(teams_by_node.keys())
+
+    staging_node = await _find_trailer_staging_node(map_id)
+    if not staging_node:
+        raise HTTPException(status_code=404,
+            detail=f"Map {map_id} chưa đánh dấu node 'Điểm thả hàng đầy cố định (Staging)' "
+                   f"— vào Tạo bản đồ, chọn node và tick ô đó.")
+
+    # Xe rơ-moóc CHỈ TIẾN — sắp theo khoảng cách NGƯỢC VỀ staging_node (xa nhất
+    # trước), KHÔNG dùng khoảng cách thuận từ vị trí hiện tại (xem docstring
+    # _order_pickups_for_forward_loop để biết lý do: đường tắt ở đầu vòng có
+    # thể khiến Tổ xa lại tính ra khoảng cách thuận ngắn hơn Tổ gần).
+    sorted_nodes = _order_pickups_for_forward_loop(unique_nodes, staging_node)
+
+    # Chèn theo thứ tự NGƯỢC — insert_next luôn chèn vào ĐẦU hàng đợi.
+    agv_task_queue.insert_next(agv_id, CMD_GO_CHARGE, dest_node=None)
+    agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=staging_node)
+    # Các node THỨ 2 trở đi (xa dần) — đánh dấu "chỉ xác nhận" TRƯỚC khi chèn.
+    for node in reversed(sorted_nodes[1:]):
+        _pending_confirm_only_legs.add((agv_id, node))
+        agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=node)
+    # Node GẦN NHẤT — móc cơ khí đầy đủ, không đánh dấu gì (dùng logic mặc định).
+    agv_task_queue.insert_next(agv_id, CMD_GO_TO, dest_node=sorted_nodes[0])
+
+    if not agv_task_queue.is_busy(agv_id):
+        agv_task_queue.on_agv_completed(agv_id, notes="trailer_multi_pickup_start", auto_dispatch=True)
+
+    return {
+        "success": True, "agv_id": agv_id, "teams": req.teams,
+        "legs": {
+            "0_hook_pickup":        {"node": sorted_nodes[0], "teams": teams_by_node[sorted_nodes[0]]},
+            "confirm_only_pickups": [{"node": n, "teams": teams_by_node[n]} for n in sorted_nodes[1:]],
+            "staging":              staging_node,
+            "return":               "go_charge",
+        },
+    }
 
 
 @app.get("/api/execute/map-nodes")
@@ -4107,8 +4704,29 @@ async def _finalize_supply_batch(key: tuple) -> None:
     session_label = batch.get("session_label")
     cmds = batch["commands"]   # [(command, dest_node, start_node), ...] theo thứ tự nhận
 
-    from task_queue import agv_task_queue, CMD_GO_TO
+    from task_queue import agv_task_queue, CMD_GO_TO, CMD_GO_CHARGE
     from mqtt_client import get_agv_runtime_info
+
+    # DEDUPE go_to trùng CÙNG đích trong 1 lượt (giữ lần xuất hiện ĐẦU) — gốc: 1 node
+    # thả rỗng (trailer_drop_teams) có thể phục vụ NHIỀU Tổ cùng lúc (vd node 101
+    # dùng chung cho Tổ 32 VÀ Tổ 22) — nếu app/Web UI gọi dispatch riêng cho TỪNG Tổ
+    # (không gộp theo node), batch sẽ nhận 2 lệnh go_to(101) giống hệt nhau. Xe rơ-moóc
+    # CHỈ TIẾN nên "ghé lại" node ĐÃ THẢ chỉ có thể đi vòng HẾT sơ đồ (đã hết hàng
+    # rỗng để thả) — tốn quãng đường thừa, có lúc còn làm dispatch THẤT BẠI hẳn giữa
+    # đường (đã xảy ra thực tế: vòng dư qua 102→...→204→203→202→201→...→101 bị lệch
+    # route giữa chừng → off_route re-dispatch từ node giữa route KHÔNG tìm được
+    # đường tiến hợp lệ → toàn bộ hàng đợi phía sau — kể cả lệnh lấy hàng đầy tại
+    # 202/201 — không bao giờ chạy tới).
+    _seen_go_to: set[str] = set()
+    _deduped_cmds = []
+    for (c, d, s) in cmds:
+        if c == CMD_GO_TO and d:
+            if str(d) in _seen_go_to:
+                print(f"[BATCH] {agv_id}: bỏ lệnh go_to({d}) trùng — đã có trong lượt này")
+                continue
+            _seen_go_to.add(str(d))
+        _deduped_cmds.append((c, d, s))
+    cmds = _deduped_cmds
 
     # Lấy current_node + load node_actions của map AGV
     na = {}
@@ -4133,7 +4751,23 @@ async def _finalize_supply_batch(key: tuple) -> None:
         print(f"[BATCH] {agv_id}: finalize chuẩn bị lỗi: {_e}")
         na = getattr(map_manager, "node_actions", {}) or {}
 
+    # Xe rơ-moóc: giữ NGUYÊN dừng thả rỗng ở TẤT CẢ các đích được yêu cầu trong
+    # lượt (mỗi Tổ 1 node riêng) — xe rơ-moóc mang lần lượt từng xe rỗng, thả
+    # xong tự động đi tiếp (hook_raised → tự đi, xem _handle_trailer_hook_arrival),
+    # KHÔNG bỏ qua node thả nào. (Đã thử bỏ node thả xa hơn — SAI, người dùng xác
+    # nhận muốn dừng thả ở TẤT CẢ, chỉ node ĐẦU TIÊN mới cần xác nhận thủ công.)
+    _all_drop_dests_pretrim: list[str] = [
+        str(d) for (c, d, s) in cmds
+        if c == CMD_GO_TO and d
+        and str((na.get(str(d)) or {}).get('trailer_role', '') or '').lower() == 'drop'
+    ]
+
     # Điểm cấp cần (union theo các tổ giao hàng), giữ thứ tự xuất hiện rồi sắp theo khoảng cách
+    # _required_supply_node() chỉ nhận diện được cơ chế CARRY (field 'team' đơn
+    # + supply_group/wait_sys) — xe rơ-moóc dùng field riêng (trailer_role/
+    # trailer_drop_teams/trailer_empty_staging), nên với dest là node kiểu
+    # trailer, hàm này luôn trả None → "required" rỗng, không bao giờ tự chèn
+    # bước lấy hàng rỗng. Xử lý RIÊNG cho xe rơ-moóc ngay dưới đây.
     required: list[str] = []
     for (c, d, s) in cmds:
         if c == CMD_GO_TO and d:
@@ -4142,15 +4776,125 @@ async def _finalize_supply_batch(key: tuple) -> None:
                 required.append(str(sup))
     required = _sort_supplies_by_distance(required, current_node)
 
-    # Lệnh cuối: [lấy hàng tại các điểm cấp] + [lệnh gốc, bỏ pickup tường minh trùng]
-    final: list = [(CMD_GO_TO, str(sup), None) for sup in required]
-    for (c, d, s) in cmds:
+    # Xe rơ-moóc: nếu móc CHƯA đang hạ (= chưa có hàng rỗng gắn sẵn từ chặng
+    # trước), phải LẤY RỖNG tại node cố định (trailer_empty_staging) TRƯỚC
+    # MỌI lệnh giao trong lượt BATCH này — bất kể lượt này tới từ app/BATCH
+    # (không qua API /api/execute/trailer-roundtrip) hay không. Nếu không có
+    # bước này, BATCH đặt qua app sẽ bỏ thẳng qua node lấy hàng, đi giao luôn.
+    _trailer_pickup_node: str | None = None
+    _agv_type_bt = ""
+    _map_id_bt: str | None = None
+    try:
+        from agv_registry import agv_registry as _areg_bt
+        _agv_type_bt = str(_areg_bt.get_config(agv_id).get('agv_type') or '').strip().lower()
+        if _agv_type_bt == 'trailer':
+            _map_id_bt = info.get("resolved_map_id") or info.get("raw_map") if info else None
+            from line_agv_handler import line_agv_handler as _lah_bt
+            _lstate_bt = _lah_bt.state_store.get(agv_id)
+            _hook_state_bt = getattr(_lstate_bt, 'hook_state', None) if _lstate_bt else None
+            if _hook_state_bt != 'lowered' and _map_id_bt:
+                _empty_node_bt = await _find_trailer_empty_staging_node(str(_map_id_bt))
+                if _empty_node_bt and str(_empty_node_bt) != str(current_node):
+                    _trailer_pickup_node = str(_empty_node_bt)
+    except Exception as _e_bt:
+        print(f"[BATCH] {agv_id}: kiem tra lay hang rong (xe ro-moc) loi: {_e_bt}")
+
+    # Xe rơ-moóc — LẤY HÀNG ĐẦY theo TỪNG TỔ: _required_supply_node() (dùng cho
+    # carry ở trên) không nhận diện được field trailer_role/trailer_drop_teams
+    # (xem comment ở khối `required` phía trên) nên bước "lấy đầy" cho xe rơ-moóc
+    # bị bỏ sót hoàn toàn — xe đi ngang node lấy đầy (trailer_role='pickup') mà
+    # không dừng, vì node đó chưa từng được enqueue thành 1 lệnh go_to riêng.
+    # Tra CHỦ ĐỘNG bằng _resolve_team_node() (đúng field trailer_pickup_teams,
+    # giống hệt cơ chế /api/execute/trailer-multi-pickup) cho từng Tổ xuất hiện
+    # trong 'trailer_drop_teams' của các đích giao trong lượt này.
+    #
+    # THỨ TỰ: KHÔNG chèn pickup ngay sau drop của CHÍNH tổ đó (sẽ bắt xe rơ-moóc
+    # đi 1 VÒNG LẶP RIÊNG cho mỗi tổ — CHỈ TIẾN nên phải vòng hết 1 lượt quanh sơ
+    # đồ mới lấy được hàng của tổ vừa thả, rồi lại phải đi NGANG QUA đúng node thả
+    # của tổ kế tiếp (không dừng) trước khi vòng lại — trùng lặp hoàn toàn quãng
+    # đường vừa đi). ĐÚNG cách (khớp _order_pickups_for_forward_loop/milk-run đã
+    # thống nhất trước đó): thả rỗng HẾT các tổ theo đúng thứ tự cmds (đường ra),
+    # rồi mới LẤY ĐẦY hết các tổ theo thứ tự XA staging TRƯỚC — vì đường về tự
+    # nhiên đi ngang các node lấy đầy theo đúng thứ tự ngược đó trong 1 VÒNG DUY
+    # NHẤT, không cần quay lại đường cũ.
+    _full_pickup_nodes: list[str] = []
+    _staging_bt: str | None = None
+    if _agv_type_bt == 'trailer' and _map_id_bt:
+        _seen_full_pickup: set[str] = set()
+        for d in _all_drop_dests_pretrim:
+            _d_na = na.get(str(d)) or {}
+            for _tm in (_d_na.get('trailer_drop_teams') or []):
+                try:
+                    _tm_int = int(_tm)
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    _pk_node = await _resolve_team_node(str(_map_id_bt), _tm_int, 'trailer', want_pickup=True)
+                except Exception as _e_pk:
+                    print(f"[BATCH] {agv_id}: resolve lay day To {_tm_int} loi: {_e_pk}")
+                    _pk_node = None
+                if _pk_node and _pk_node not in _seen_full_pickup and _pk_node != str(d):
+                    _seen_full_pickup.add(_pk_node)
+                    _full_pickup_nodes.append(_pk_node)
+
+        if _full_pickup_nodes:
+            _staging_bt = await _find_trailer_staging_node(str(_map_id_bt))
+            _full_pickup_nodes = _order_pickups_for_forward_loop(_full_pickup_nodes, _staging_bt or "")
+
+    # Trong các node lấy-đầy: CHỈ node XA staging NHẤT (ghé đầu tiên, sorted[0])
+    # mới thực sự MÓC CƠ KHÍ (nâng → chờ xe hàng đầy thật → hạ → xác nhận web) —
+    # khớp đúng cơ chế /api/execute/trailer-multi-pickup đã có. Các node SAU đó
+    # (gần staging hơn) chỉ DỪNG + CHỜ NGƯỜI DÙNG xác nhận thủ công để đi tiếp —
+    # KHÔNG nâng/hạ móc lại (hàng được chuyển tay từ xe Tổ đó sang xe đang kéo,
+    # móc đã có xe hàng từ node đầu tiên rồi). Đánh dấu qua _pending_confirm_only_legs
+    # (dùng chung với arrived_wait_sys/arrived_wait_user trong line_agv_handler.py).
+    if len(_full_pickup_nodes) > 1:
+        from line_agv_handler import _pending_confirm_only_legs as _pcol_bt
+        for _pk_confirm in _full_pickup_nodes[1:]:
+            _pcol_bt.add((agv_id, _pk_confirm))
+
+    # Sau khi lấy đầy xong (nếu có) — xe đang mang xe hàng ĐẦY, phải GHÉ QUA
+    # staging_node (trailer_staging='yes') để nhả xe hàng đầy TRƯỚC khi sạc.
+    # Trước đây bước này hoàn toàn vắng mặt trong luồng batch (chỉ có ở
+    # execute_trailer_roundtrip/trailer-multi-pickup) → xe đi thẳng từ điểm lấy
+    # đầy cuối cùng tới go_charge, đi NGANG QUA staging (vd node 81) mà không
+    # dừng — đúng lỗi thực tế: xe về ngang 81 không thả hàng đầy.
+    _post_pickup_nodes: list[str] = list(_full_pickup_nodes)
+    if _agv_type_bt == 'trailer' and _full_pickup_nodes:
+        if not _staging_bt and _map_id_bt:
+            _staging_bt = await _find_trailer_staging_node(str(_map_id_bt))
+        if _staging_bt and _staging_bt not in _post_pickup_nodes:
+            _post_pickup_nodes.append(_staging_bt)
+
+    # Lệnh cuối: [lấy hàng rỗng xe rơ-moóc (nếu cần)] + [lấy hàng tại điểm cấp carry]
+    # + [TẤT CẢ lệnh giao gốc, bỏ pickup tường minh trùng] + [TẤT CẢ lấy-đầy-theo-tổ
+    # theo thứ tự xa staging trước + staging cuối cùng — chèn ngay TRƯỚC lệnh
+    # go_charge cuối nếu có, nếu không thì cuối cùng]
+    final: list = []
+    if _trailer_pickup_node:
+        from line_agv_handler import _pending_empty_pickup_legs as _pepl_bt
+        # Đánh dấu TRƯỚC khi enqueue — arrival handler cần thấy dấu này ngay
+        # khi xe tới (cùng pattern với execute_trailer_roundtrip / _dispatch_go_to).
+        _pepl_bt.add((agv_id, _trailer_pickup_node))
+        final.append((CMD_GO_TO, _trailer_pickup_node, None))
+    final.extend((CMD_GO_TO, str(sup), None) for sup in required)
+
+    _charge_idx = next((i for i, (c, d, s) in enumerate(cmds) if c == CMD_GO_CHARGE), None)
+    for _idx, (c, d, s) in enumerate(cmds):
         if c == CMD_GO_TO and d and str(d) in required:
             continue   # đã sinh lệnh lấy hàng ở trên
+        if _idx == _charge_idx and _post_pickup_nodes:
+            final.extend((CMD_GO_TO, _pk, None) for _pk in _post_pickup_nodes)
         final.append((c, d, s))
+    if _charge_idx is None and _post_pickup_nodes:
+        final.extend((CMD_GO_TO, _pk, None) for _pk in _post_pickup_nodes)
 
-    print(f"[BATCH] {agv_id}: lượt {session_id} → lấy hàng {required} TRƯỚC, "
-          f"rồi giao {[d for (c, d, s) in final if c == CMD_GO_TO and str(d) not in required]}")
+    print(f"[BATCH] {agv_id}: lượt {session_id} → lấy hàng rỗng (xe rơ-moóc)="
+          f"{_trailer_pickup_node!r}, lấy hàng {required} TRƯỚC, "
+          f"rồi giao {[d for (c, d, s) in cmds if c == CMD_GO_TO and d and str(d) not in required]}"
+          f"{f', sau đó lấy đầy: {_full_pickup_nodes[0]} (móc thật)' if _full_pickup_nodes else ''}"
+          f"{f' → {_full_pickup_nodes[1:]} (chỉ dừng chờ xác nhận)' if len(_full_pickup_nodes) > 1 else ''}"
+          f"{f' → staging {_staging_bt} (thả hàng đầy)' if (_staging_bt and _staging_bt in _post_pickup_nodes) else ''}")
 
     for (c, d, s) in final:
         try:
@@ -4264,6 +5008,35 @@ async def execute_dispatch(req: ExecuteDispatchRequest):
     }
 
 
+def _sync_manual_lidar(agv_id: str, force_on: bool = False) -> None:
+    """
+    Đồng bộ Lidar khi lái THỦ CÔNG (D-pad / Chạy thử đến node) — lệnh 'deba'
+    là instant action gửi thẳng xuống firmware, KHÔNG đi qua plan builder nên
+    KHÔNG tự áp dụng cấu hình "Tắt Lidar" trên node như lúc chạy theo Plan.
+    Gọi hàm này TRƯỚC mỗi lần gửi 'deba' để tự bật/tắt Lidar theo đúng cấu
+    hình của node xe đang đứng — chỉ gửi lại khi trạng thái THAY ĐỔI (tránh
+    spam lệnh mỗi 400-500ms). force_on=True để ép bật lại (lúc dừng/hoàn tất).
+    """
+    from line_agv_handler import line_agv_handler
+    from mqtt_client import map_manager, send_line_command
+    from line_agv_plan_builder import ACTION_LIDAR_OFF, ACTION_LIDAR_ON
+
+    state = line_agv_handler.state_store.get(agv_id)
+    if not state:
+        return
+
+    want_off = False
+    if not force_on and state.current_tag is not None:
+        node_actions = getattr(map_manager, "node_actions", {}) or {}
+        cfg = node_actions.get(str(state.current_tag)) or {}
+        want_off = str(cfg.get("lidar_off", "no")).lower() == "yes"
+
+    if state.manual_lidar_off == want_off:
+        return   # đã đúng trạng thái rồi, không gửi lại
+    send_line_command(agv_id, "action", a=(ACTION_LIDAR_OFF if want_off else ACTION_LIDAR_ON), v=0)
+    state.manual_lidar_off = want_off
+
+
 @app.post("/api/execute/manual-control")
 async def manual_control(request: Request):
     """Điều khiển thủ công Line AGV qua bàn phím."""
@@ -4271,7 +5044,7 @@ async def manual_control(request: Request):
     from mqtt_client import send_line_command
     body = await request.json()
     agv_id  = str(body.get("agv_id", "")).strip()
-    action  = str(body.get("action", "")).strip()   # up | down | left | right
+    action  = str(body.get("action", "")).strip()   # up | down | left | right | stop
 
     if not agv_id:
         raise HTTPException(400, "agv_id required")
@@ -4280,17 +5053,95 @@ async def manual_control(request: Request):
 
     spd = int(body.get("speed", 150))
     if action == "up":
+        _sync_manual_lidar(agv_id)
         ok = send_line_command(agv_id, "deba", spd=spd, dir="toi")
     elif action == "down":
+        _sync_manual_lidar(agv_id)
         ok = send_line_command(agv_id, "deba", spd=spd, dir="lui")
     elif action == "right":
         ok = send_line_command(agv_id, "action", a=5, v=0)
     elif action == "left":
         ok = send_line_command(agv_id, "action", a=6, v=0)
+    elif action == "stop":
+        _sync_manual_lidar(agv_id, force_on=True)
+        ok = send_line_command(agv_id, "stop")
     else:
         raise HTTPException(400, f"action không hợp lệ: {action}")
 
     return {"ok": ok, "agv_id": agv_id, "action": action}
+
+
+async def _test_drive_keepalive_loop(agv_id: str, seq: int, spd: int) -> None:
+    """
+    "deba" chỉ khiến AGV chạy tới thẻ KẾ TIẾP rồi tự dừng (driving=False) —
+    không phải lệnh chạy liên tục vô hạn (giống hệt lý do nút ↑ trên D-pad
+    phải gửi lặp lại mỗi 500ms khi giữ nút). Vòng lặp này gửi lại "deba" đều
+    đặn để duy trì chuyển động cho tới khi tới đúng tag mục tiêu (test_drive_target
+    bị xoá) hoặc bị huỷ/thay thế bởi lượt chạy thử khác (test_drive_seq đổi).
+    """
+    # KHÔNG giới hạn thời gian — cố ý: dùng để chạy thử liên tục dài hạn, phát
+    # hiện lỗi cơ khí/chương trình phát sinh khi chạy lâu. Chỉ dừng khi tới đúng
+    # tag mục tiêu, hoặc bị huỷ thủ công (test-drive-cancel), hoặc AGV mất kết nối.
+    from mqtt_client import send_line_command
+    from line_agv_handler import line_agv_handler
+    while True:
+        await asyncio.sleep(0.4)
+        state = line_agv_handler.state_store.get(agv_id)
+        if not state or state.test_drive_seq != seq or not state.test_drive_target:
+            return
+        _sync_manual_lidar(agv_id)
+        send_line_command(agv_id, "deba", spd=spd, dir="toi")
+
+
+@app.post("/api/execute/test-drive-to-node")
+async def test_drive_to_node(request: Request):
+    """
+    Chạy thử thủ công: AGV chỉ cần ONLINE (không cần map/route đã cấu hình đúng).
+    Cho xe chạy tiến liên tục, tự dừng khi đọc được đúng tag mục tiêu (so trực
+    tiếp qua RFID, không qua pathfinding/node_actions).
+    """
+    from agv_registry import agv_registry
+    from mqtt_client import send_line_command
+    from line_agv_handler import line_agv_handler
+    body = await request.json()
+    agv_id      = str(body.get("agv_id", "")).strip()
+    target_node = str(body.get("target_node", "")).strip()
+    spd         = int(body.get("speed", 150))
+
+    if not agv_id:
+        raise HTTPException(400, "agv_id required")
+    if not target_node:
+        raise HTTPException(400, "target_node required")
+    if not agv_registry.is_line(agv_id):
+        raise HTTPException(400, "Chỉ hỗ trợ Line AGV")
+
+    state = line_agv_handler.state_store.get_or_create(agv_id)
+    if state.connection_state != "ONLINE":
+        raise HTTPException(400, f"AGV {agv_id} chưa ONLINE")
+
+    state.test_drive_seq += 1
+    my_seq = state.test_drive_seq
+    state.test_drive_target = target_node
+    _sync_manual_lidar(agv_id)
+    ok = send_line_command(agv_id, "deba", spd=spd, dir="toi")
+    asyncio.create_task(_test_drive_keepalive_loop(agv_id, my_seq, spd))
+    print(f"[TEST-DRIVE] {agv_id}: chạy tiến tới tag {target_node} (speed={spd})")
+    return {"ok": ok, "agv_id": agv_id, "target_node": target_node}
+
+
+@app.post("/api/execute/test-drive-cancel/{agv_id}")
+async def test_drive_cancel(agv_id: str):
+    """Huỷ chạy thử — dừng xe và xoá tag mục tiêu đang chờ."""
+    from mqtt_client import send_line_command
+    from line_agv_handler import line_agv_handler
+    agv_id = agv_id.strip()
+    state = line_agv_handler.state_store.get(agv_id)
+    if state:
+        state.test_drive_target = None
+        state.test_drive_seq += 1
+    _sync_manual_lidar(agv_id, force_on=True)
+    ok = send_line_command(agv_id, "stop")
+    return {"ok": ok, "agv_id": agv_id}
 
 
 @app.post("/api/execute/line-action")
@@ -4316,6 +5167,32 @@ async def line_action(request: Request):
 
     ok = send_line_command(agv_id, "action", a=action_code, v=value)
     return {"ok": ok, "agv_id": agv_id, "action_code": action_code, "value": value}
+
+
+class GateCommandRequest(BaseModel):
+    door_num: str    # số thứ tự cửa (vd "1") — server tự ghép thành "gate1"
+    cmd:      str    # "open" | "close"
+
+
+@app.post("/api/execute/gate-command")
+async def execute_gate_command(req: GateCommandRequest):
+    """
+    Mở/đóng THỦ CÔNG 1 cửa tự động — dùng cho Điều khiển thủ công (Quản lý AGV).
+    Gửi THẲNG lệnh MQTT tới bộ điều khiển cửa (giống sendLineAction cho móc/đèn/
+    nhạc), KHÔNG đi qua door_coordinator (không gắn với AGV/xe nào đang chờ) —
+    xem PROTOCOL_GUIDE.md mục "Cửa tự động (Gate Controller)".
+    """
+    cmd = req.cmd.strip().lower()
+    if cmd not in ("open", "close"):
+        raise HTTPException(400, "cmd phải là 'open' hoặc 'close'")
+    door_num = req.door_num.strip()
+    if not door_num.isdigit() or int(door_num) <= 0:
+        raise HTTPException(400, "Số thứ tự cửa phải là số nguyên dương")
+
+    from mqtt_client import send_gate_command
+    door_id = f"gate{door_num}"
+    ok = send_gate_command(door_id, cmd)
+    return {"success": ok, "door_id": door_id, "cmd": cmd}
 
 
 @app.post("/api/execute/request-position/{agv_id}")
@@ -4575,6 +5452,46 @@ async def update_agv_identity(req: AgvIdentityRequest):
         except Exception:
             pass
         return {"success": True, "renamed": renamed, "agv_id": new_id, "factory": factory}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+class AgvCapabilityRequest(BaseModel):
+    agv_id:      str
+    can_reverse: bool
+
+
+@app.post("/api/agv/update-capability")
+async def update_agv_capability(req: AgvCapabilityRequest):
+    """Cập nhật cờ can_reverse cho AGV đã tồn tại (xe đầu kéo/rơ-moóc chỉ đi
+    1 chiều tiến → can_reverse=False). Dùng cho AGV thêm TRƯỚC khi có công tắc
+    này trong panel 'Thêm AGV', hoặc muốn đổi lại sau này."""
+    import psycopg2, os as _os
+    _DB = _os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+    agv_id = req.agv_id.strip()
+
+    def _run():
+        conn = psycopg2.connect(_DB)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE agv_devices SET can_reverse = %s WHERE name = %s",
+                    (req.can_reverse, agv_id),
+                )
+                if cur.rowcount == 0:
+                    raise ValueError(f"AGV '{agv_id}' không tìm thấy")
+                conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    try:
+        await asyncio.to_thread(_run)
+        from agv_registry import agv_registry as _reg
+        _reg.load_reverse_capability()
+        return {"success": True, "agv_id": agv_id, "can_reverse": req.can_reverse}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

@@ -137,6 +137,9 @@ select:focus{border-color:var(--accent) !important}
 
   <button class="tb-btn" id="btn-fit" title="Vừa khung nhìn">⊞ Fit</button>
   <div class="tb-sep"></div>
+  <button class="tb-btn" id="btn-import-drawio" title="Nhập layout từ file draw.io (.drawio/.xml) — chỉ lấy vị trí node + cạnh, cấu hình hành động tự cài sau">📐 Import draw.io</button>
+  <input type="file" id="drawio-file-input" accept=".drawio,.xml" style="display:none"/>
+  <div class="tb-sep"></div>
   <label style="display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--muted);font-size:12px">
     <input type="checkbox" id="snap-grid" style="accent-color:var(--accent)"/> Snap grid
   </label>
@@ -288,6 +291,35 @@ select:focus{border-color:var(--accent) !important}
               <option value="bwd">↩ Lùi vào (dùng cho trạm sạc)</option>
             </select>
           </div>
+          <!-- Trạm sạc dành riêng cho loại AGV — chỉ hiện khi arrival_action = wait_charge -->
+          <div id="pn-station-agv-type-field" style="display:none;border-left:3px solid #a855f7;padding-left:8px;margin-top:6px">
+            <label style="font-size:11px;color:#a855f7">🔌 Trạm sạc dành riêng cho loại AGV</label>
+            <select id="pn-station-agv-type" style="font-size:11px">
+              <option value="none">— Dùng chung cho mọi loại AGV</option>
+              <option value="carry">🤖 Chỉ AGV Carry</option>
+              <option value="tow">🚜 Chỉ AGV Tow</option>
+              <option value="trailer">🛒 Chỉ AGV Trailer (đầu kéo/rơ-moóc)</option>
+            </select>
+          </div>
+          <!-- Lùi mù + quay đầu khi rời trạm — CHỈ áp dụng cho AGV Trailer -->
+          <div id="pn-exit-turn-field" style="display:none;border-left:3px solid #a855f7;padding-left:8px;margin-top:6px">
+            <label style="font-size:11px;color:#a855f7;display:block;margin-bottom:2px">↩⟳ Lùi mù + quay đầu khi rời trạm (Trailer)</label>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Để trống = không áp dụng (xe tiến ra như carry).</div>
+            <div class="field" style="margin-bottom:6px">
+              <label style="font-size:10px;margin-bottom:2px">Thời gian lùi (giây)</label>
+              <input id="pn-exit-reverse-sec" type="number" min="0" max="30" step="0.5" placeholder="vd 6"
+                style="width:100%;box-sizing:border-box;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:6px;padding:6px 8px;font-size:12px;outline:none"/>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label style="font-size:10px;margin-bottom:2px">Hướng quay sau khi lùi</label>
+              <select id="pn-exit-turn"
+                style="width:100%;box-sizing:border-box;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:6px;padding:6px 8px;font-size:12px;outline:none">
+                <option value="none">— Không quay</option>
+                <option value="left">↶ Quay trái</option>
+                <option value="right">↷ Quay phải</option>
+              </select>
+            </div>
+          </div>
         </div>
         <!-- turn_map junction editor -->
         <div style="border-top:1px solid rgba(249,115,22,.25);margin-top:8px;padding-top:8px">
@@ -334,7 +366,7 @@ select:focus{border-color:var(--accent) !important}
       </div>
       <!-- ③ ID Node — readonly với SLAM-QR, editable với RFID -->
       <div class="field">
-        <label id="pn-id-label" data-i18n="id_node">ID Node <span id="pn-id-hint" style="font-size:10px;color:#f97316;display:none">(RFID — có thể sửa)</span></label>
+        <label id="pn-id-label"><span data-i18n="id_node">ID Node</span> <span id="pn-id-hint" style="font-size:10px;color:#f97316;display:none">(RFID — có thể sửa)</span></label>
         <input id="pn-id" class="readonly" readonly/>
       </div>
       <div class="field"><label data-i18n="name_lbl">Tên / Nhãn</label><input id="pn-name" placeholder="Conveyor01, ChargeA, Home..."/></div>
@@ -349,17 +381,110 @@ select:focus{border-color:var(--accent) !important}
           <option value="buffer">Buffer — Khu chờ / Đệm</option>
           <option value="parking">Parking — Đỗ xe</option>
           <option value="wait">Wait — Điểm chờ</option>
+          <option value="door">Door — Cửa tự động</option>
         </select>
       </div>
 
-      <!-- Trường "Tổ" — chỉ hiện khi loại vị trí là Dropoff -->
-      <div class="field" id="pn-team-field" style="display:none;border-left:3px solid var(--node-dropoff);padding-left:8px">
-        <label style="color:var(--node-dropoff)">🏭 Tổ (mapping cho người dùng)</label>
-        <input id="pn-team" type="number" min="1" max="999" placeholder="Ví dụ: 1, 2, 3…"
-          style="background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:7px;padding:6px 10px;font-size:12px;width:100%;outline:none"/>
+      <!-- Cửa tự động (gate) — CHỈ hiện khi Loại vị trí = "Door". Nhập SỐ thứ tự
+           cửa, tự sinh thành "gate{N}" khi lưu (tránh gõ nhầm chữ hoa/thường/
+           chính tả). Gán CÙNG 1 số ở đúng 2 node hai bên cửa để liên kết. Xem
+           PROTOCOL_GUIDE.md mục "Cửa tự động (Gate Controller)". -->
+      <div id="pn-door-id-field" class="field" style="display:none;border-left:3px solid #f59e0b;padding-left:8px">
+        <label style="font-size:11px;color:#f59e0b">🚪 Số thứ tự cửa tự động</label>
+        <input id="pn-door-id" type="number" min="1" step="1" placeholder="vd: 1"
+          style="background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:7px;padding:6px 10px;font-size:12px;width:100%;box-sizing:border-box;outline:none"/>
         <div style="font-size:10px;color:var(--muted);margin-top:3px">
-          Người dùng chọn <b>Tổ X</b> thay vì số node. Server tự điều hướng đến đây.
+          Nhập <b>1, 2, 3...</b> — server tự ghép thành mã cửa <code>gate1</code>, <code>gate2</code>,... Gán CÙNG 1 số cho ĐÚNG 2 node ở hai phía cửa — xe tới node nào trước sẽ xin mở, qua node còn lại thì tự đóng.
         </div>
+      </div>
+
+      <!-- Điểm thả hàng đầy cố định (staging) cho xe Trailer — dùng chung mọi Tổ trên map này -->
+      <div class="field" style="border-left:3px solid #a855f7;padding-left:8px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#a855f7">
+          <input id="pn-trailer-staging" type="checkbox" style="width:15px;height:15px;cursor:pointer"/>
+          📍 Điểm thả hàng đầy cố định (Staging — Trailer)
+        </label>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">
+          Đánh dấu ĐÚNG 1 node trên map làm nơi xe Trailer mang xe hàng đầy về trước khi về trạm. Server tự tìm node này khi bắt đầu chu trình cho bất kỳ Tổ nào — không cần nhập tay.
+        </div>
+      </div>
+
+      <!-- Điểm lấy hàng rỗng cố định gần trạm — đầu quy trình, TRƯỚC khi ra Tổ.
+           Có thể tích CHUNG với ô Staging phía trên nếu 1 node dùng cho cả 2. -->
+      <div class="field" style="border-left:3px solid #0ea5e9;padding-left:8px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#0ea5e9">
+          <input id="pn-trailer-empty-staging" type="checkbox" style="width:15px;height:15px;cursor:pointer"/>
+          📍 Điểm lấy hàng rỗng cố định gần trạm (Trailer)
+        </label>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">
+          Đánh dấu ĐÚNG 1 node làm nơi xe Trailer ghé lấy xe hàng rỗng NGAY khi rời trạm, TRƯỚC khi ra Tổ. Bỏ trống nếu xe không cần bước này (coi như đã có sẵn hàng rỗng khi xuất phát). Hạ móc xong CẦN XÁC NHẬN TRÊN WEB mới đi tiếp (giống hệt điểm lấy hàng đầy tại Tổ). Có thể tích chung với ô Staging ở trên nếu 1 node dùng cho cả 2 việc.
+        </div>
+      </div>
+
+      <!-- ── Khu vực gộp: Gán Tổ + hành động theo loại AGV ──
+           Hiện khi loại vị trí = Dropoff HOẶC node có Tổ cấp hàng (wait_sys/wait_user) -->
+      <div id="pn-team-behavior-section" style="display:none;background:rgba(168,85,247,.07);border:1px solid rgba(168,85,247,.3);border-radius:7px;padding:8px 10px;margin-bottom:6px">
+        <div style="font-size:10px;font-weight:700;color:#a855f7;margin-bottom:7px;text-transform:uppercase;letter-spacing:.04em">⚙ Gán Tổ &amp; hành động theo loại AGV</div>
+
+        <!-- Trường "Tổ" — chỉ hiện khi loại vị trí là Dropoff -->
+        <div class="field" id="pn-team-field" style="display:none;margin-bottom:6px">
+          <label style="font-size:11px">🏭 Tổ (mapping cho người dùng)</label>
+          <input id="pn-team" type="number" min="1" max="999" placeholder="Ví dụ: 1, 2, 3…"
+            style="background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:7px;padding:6px 10px;font-size:12px;width:100%;outline:none"/>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px">
+            Người dùng chọn <b>Tổ X</b> thay vì số node. Server tự điều hướng đến đây.
+          </div>
+        </div>
+
+        <!-- Vai trò của node này trong chu trình Trailer — chọn TƯỜNG MINH, không suy luận
+             từ arrival_action/supply_group nữa. 2 node CÙNG 1 số Tổ, khác vai trò. -->
+        <div class="field" style="margin-bottom:6px">
+          <label style="font-size:11px">🎯 Vai trò cho AGV Trailer (nếu có)</label>
+          <select id="pn-trailer-role" style="font-size:11px" onchange="onArrivalActionChange_pn()">
+            <option value="none">— Không phải node của Trailer</option>
+            <option value="drop">📤 Thả hàng rỗng (đường đi)</option>
+            <option value="pickup">📥 Lấy hàng đầy (đường về)</option>
+          </select>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px">
+            Cùng số <b>Tổ</b> nhưng đặt ở 2 node khác nhau: 1 node chọn "Thả hàng rỗng", 1 node chọn "Lấy hàng đầy". Loại vị trí (Dropoff/Normal) và Hành động khi đến có thể giống nhau — chỉ cần khác Vai trò này.
+          </div>
+        </div>
+
+        <!-- Hiện khi Vai trò = Thả rỗng HOẶC Lấy đầy — cho phép 1 node dùng CHUNG
+             cho nhiều Tổ (khác với field "Tổ" phía trên chỉ nhận 1 số). Tường
+             minh, không suy luận qua supply_group. Dùng chung 1 UI cho cả 2 vai
+             trò, lưu vào trailer_pickup_teams hoặc trailer_drop_teams tuỳ Vai trò. -->
+        <div class="field" id="pn-trailer-pickup-teams-field" style="display:none;border-left:3px solid #f59e0b;padding-left:8px;margin:4px 0 6px 2px">
+          <label id="pn-trailer-shared-teams-label" style="font-size:11px">👥 Dùng chung cho các Tổ (nếu &gt; 1 Tổ chung điểm này)</label>
+          <div id="pn-trailer-pickup-teams-tags" style="display:flex;flex-wrap:wrap;gap:3px;min-height:24px;padding:4px 6px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;margin-bottom:4px"></div>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="pn-trailer-pickup-teams-input" placeholder="Số Tổ, nhấn Enter…"
+              onkeydown="onPnTrailerPickupTeamKeydown(event)"
+              style="flex:1;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:7px;padding:5px 9px;font-size:11px;outline:none"/>
+            <button type="button" onclick="addPnTrailerPickupTeam()"
+              style="padding:4px 10px;border-radius:6px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.4);color:#fcd34d;font-size:11px;cursor:pointer">+ Thêm</button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px">
+            Để trống nếu node này chỉ phục vụ 1 Tổ (dùng field "Tổ" phía trên là đủ). Chỉ điền khi nhiều Tổ cùng dùng chung điểm này — node sẽ khớp cho BẤT KỲ Tổ nào trong danh sách này, tường minh (không cần cấu hình "Tổ được cấp" ở phần khác).
+          </div>
+        </div>
+
+        <!-- Node dành riêng cho loại AGV -->
+        <div class="field" style="margin-bottom:0">
+          <label style="font-size:11px">🚛 Node dành riêng cho loại AGV</label>
+          <select id="pn-team-agv-type" style="font-size:11px">
+            <option value="none">— Dùng chung cho mọi loại AGV</option>
+            <option value="carry">🤖 Chỉ AGV Carry</option>
+            <option value="tow">🚜 Chỉ AGV Tow</option>
+            <option value="trailer">🛒 Chỉ AGV Trailer (đầu kéo/rơ-moóc)</option>
+          </select>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px">
+            Để "Dùng chung" nếu node này ai cũng tới được. Chọn riêng nếu chỉ 1 loại xe tới được node này cho Tổ tương ứng (vd trailer có điểm thả/lấy hàng riêng khác carry).
+          </div>
+        </div>
+
+        <!-- Ghi chú hành vi — cập nhật động theo vai trò node (JS: onArrivalActionChange_pn) -->
+        <div id="pn-team-behavior-note" style="font-size:10px;color:var(--muted);border-top:1px solid rgba(168,85,247,.2);margin-top:8px;padding-top:6px;line-height:1.6"></div>
       </div>
       <div class="field">
         <label data-i18n="default_action">Hành động mặc định</label>
@@ -557,14 +682,19 @@ const NODE_R = 11;
 const TYPE_COLOR = {
   normal:'#3b82f6', conveyor:'#06b6d4', charger:'#f59e0b',
   dropoff:'#ef4444', home:'#10b981', buffer:'#a855f7',
-  parking:'#14b8a6', wait:'#f97316'
+  parking:'#14b8a6', wait:'#f97316', door:'#84cc16'
 };
 const TYPE_LABEL = {
   normal:'Normal', conveyor:'Conveyor', charger:'Charger',
   dropoff:'Dropoff', home:'Home', buffer:'Buffer',
-  parking:'Parking', wait:'Wait'
+  parking:'Parking', wait:'Wait', door:'Door'
 };
 const DIR_COLOR = { both:'#64748b', forward:'#2563eb', backward:'#d97706', blocked:'#dc2626' };
+// Đánh dấu riêng cho node có chức năng đặc biệt (không phải "Loại vị trí" —
+// vd 1 node Dropoff bình thường vẫn có thể là điểm Thả/Lấy hàng Trailer) —
+// tô màu NỀN node trên bản đồ để dễ nhận biết, KHÔNG đụng màu viền theo agvCompat.
+const TRAILER_ROLE_COLOR = { drop:'#eab308', pickup:'#0ea5e9' };
+const TRAILER_ROLE_LABEL = { drop:'Thả hàng (Trailer)', pickup:'Lấy hàng (Trailer)' };
 
 // ═══════════════════════════════════════════════════
 // STATE
@@ -885,6 +1015,10 @@ function renderNodes(){
   for(const [id,n] of Object.entries(state.nodes)){
     const sel = selNodes.has(id);
     const col = TYPE_COLOR[n.type]||'#3b82f6';
+    // Chức năng đặc biệt (cửa tự động / thả-lấy hàng Trailer) → tô màu NỀN
+    // node để nhận biết ngay trên bản đồ, ưu tiên vai trò Trailer (cụ thể hơn
+    // "Loại vị trí") rồi mới tới cửa tự động. Không có gì đặc biệt → nền trắng.
+    const specialFill = TRAILER_ROLE_COLOR[n.trailerRole] || (n.type==='door' ? TYPE_COLOR.door : null);
     const compat = n.agvCompat||'slam_qr';
     const isRFID = compat==='RFID';
     const isBoth = compat==='both';
@@ -918,10 +1052,10 @@ function renderNodes(){
     shadow.setAttribute('pointer-events','none');
     g.appendChild(shadow);
 
-    // Main circle — border màu theo agvCompat
+    // Main circle — nền trắng (hoặc màu chức năng đặc biệt), viền theo agvCompat
     const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('r', R);
-    c.setAttribute('fill', '#ffffff');
+    c.setAttribute('fill', specialFill || '#ffffff');
     c.setAttribute('stroke', sel ? borderSel : borderNormal);
     c.setAttribute('stroke-width', sel ? '3' : '2.5');
     if(sel) c.setAttribute('filter','drop-shadow(0 0 5px #f59e0b88)');
@@ -1230,6 +1364,16 @@ function drawSelBox(){
 // ═══════════════════════════════════════════════════
 // PROPERTIES PANEL
 // ═══════════════════════════════════════════════════
+// Cửa tự động: người dùng chỉ nhập SỐ (1,2,3...) — quy đổi qua lại với dạng
+// lưu trong DB "gate{N}" để tránh gõ nhầm chữ hoa/thường/chính tả.
+function _doorIdToNum(doorId){
+  const m = String(doorId||'').match(/(\d+)\s*$/);
+  return m ? m[1] : '';
+}
+function _numToDoorId(numStr){
+  const n = parseInt(String(numStr||'').trim(), 10);
+  return (!isNaN(n) && n > 0) ? ('gate'+n) : '';
+}
 function updateProps(){
   const pEmpty=document.getElementById('props-empty');
   const pNode=document.getElementById('props-node');
@@ -1248,9 +1392,19 @@ function updateProps(){
     document.getElementById('pn-name').value=n.name||'';
     document.getElementById('pn-type').value=n.type||'normal';
     document.getElementById('pn-action').value=n.action||'';
+    const doorIdEl = document.getElementById('pn-door-id');
+    if(doorIdEl) doorIdEl.value = _doorIdToNum(n.doorId);
+    const trailerStagingEl = document.getElementById('pn-trailer-staging');
+    if(trailerStagingEl) trailerStagingEl.checked = !!n.trailerStaging;
+    const trailerEmptyStagingEl = document.getElementById('pn-trailer-empty-staging');
+    if(trailerEmptyStagingEl) trailerEmptyStagingEl.checked = !!n.trailerEmptyStaging;
     // Load team number
     const teamEl=document.getElementById('pn-team');
     if(teamEl) teamEl.value = (n.team!=null) ? n.team : '';
+    const teamAgvTypeEl=document.getElementById('pn-team-agv-type');
+    if(teamAgvTypeEl) teamAgvTypeEl.value = n.teamAgvType || 'none';
+    const trailerRoleEl=document.getElementById('pn-trailer-role');
+    if(trailerRoleEl) trailerRoleEl.value = n.trailerRole || 'none';
     onNodeTypeChange();
     document.getElementById('pn-speed').value=n.speed||0.5;
     document.getElementById('pn-x').value=Math.round(n.x);
@@ -1263,12 +1417,26 @@ function updateProps(){
     document.getElementById('pn-vda-turn-angle').value= n.vdaTurnAngle || '360';
     document.getElementById('pn-arrival-action').value = n.arrivalAction || 'none';
     document.getElementById('pn-approach-dir').value   = n.approachDir   || 'none';
+    const stationTypeEl = document.getElementById('pn-station-agv-type');
+    if (stationTypeEl) stationTypeEl.value = n.stationAgvType || 'none';
+    const exitRevEl = document.getElementById('pn-exit-reverse-sec');
+    if (exitRevEl) exitRevEl.value = n.exitReverseMs ? (n.exitReverseMs / 1000) : '';
+    const exitTurnEl = document.getElementById('pn-exit-turn');
+    if (exitTurnEl) exitTurnEl.value = n.exitTurn || 'none';
     // Load supply groups
     const _sg = n.supplyGroups;
     if(Array.isArray(_sg)) _pnSupplyGroups = [..._sg];
     else if(_sg) _pnSupplyGroups = _sg.split(',').map(s=>s.trim()).filter(Boolean);
     else _pnSupplyGroups = [];
     renderPnSupplyGroupTags();
+    // Load trailer shared-teams (node thả rỗng/lấy đầy dùng chung nhiều Tổ) —
+    // đọc đúng field theo Vai trò hiện tại của node.
+    const _tpt = (n.trailerRole === 'drop') ? n.trailerDropTeams : n.trailerPickupTeams;
+    if(Array.isArray(_tpt)) _pnTrailerPickupTeams = [..._tpt];
+    else if(_tpt) _pnTrailerPickupTeams = _tpt.split(',').map(s=>s.trim()).filter(Boolean);
+    else _pnTrailerPickupTeams = [];
+    _pnTrailerPickupTeamsRole = n.trailerRole || 'none';
+    renderPnTrailerPickupTeamsTags();
     onArrivalActionChange_pn();
     currentNodeTurnMap = Object.assign({}, n.turnMap || {});
     _populateEditorTurnDropdowns();
@@ -1324,9 +1492,16 @@ document.getElementById('btn-apply').onclick = ()=>{
     n.name   = document.getElementById('pn-name').value.trim();
     n.type   = document.getElementById('pn-type').value;
     n.action = document.getElementById('pn-action').value;
-    // Lưu team number (chỉ cho dropoff)
-    const _teamVal = document.getElementById('pn-team')?.value;
-    n.team = (n.type==='dropoff' && _teamVal) ? parseInt(_teamVal,10) : null;
+    n.doorId = _numToDoorId(document.getElementById('pn-door-id')?.value);
+    n.trailerStaging = document.getElementById('pn-trailer-staging')?.checked || false;
+    n.trailerEmptyStaging = document.getElementById('pn-trailer-empty-staging')?.checked || false;
+    // Lưu team number (Dropoff hoặc wait_user — node đại diện 1 Tổ cụ thể)
+    const _teamVal    = document.getElementById('pn-team')?.value;
+    const _actValNow  = document.getElementById('pn-arrival-action')?.value;
+    const _showTeamNum = (n.type==='dropoff' || _actValNow==='wait_user');
+    n.team = (_showTeamNum && _teamVal) ? parseInt(_teamVal,10) : null;
+    n.teamAgvType = document.getElementById('pn-team-agv-type')?.value || 'none';
+    n.trailerRole = document.getElementById('pn-trailer-role')?.value || 'none';
     n.speed  = parseFloat(document.getElementById('pn-speed').value)||0.5;
     // Lưu cấu hình rẽ (chỉ có ý nghĩa với RFID/both)
     n.fwdTurn     = document.getElementById('pn-fwd-turn').value      || 'none';
@@ -1336,7 +1511,20 @@ document.getElementById('btn-apply').onclick = ()=>{
     n.vdaTurnAngle= document.getElementById('pn-vda-turn-angle').value|| '360';
     n.arrivalAction = document.getElementById('pn-arrival-action').value || 'none';
     n.approachDir   = document.getElementById('pn-approach-dir').value   || 'none';
+    n.stationAgvType = document.getElementById('pn-station-agv-type')?.value || 'none';
+    const _exitRevSec = parseFloat(document.getElementById('pn-exit-reverse-sec')?.value);
+    n.exitReverseMs = (!isNaN(_exitRevSec) && _exitRevSec > 0) ? Math.round(_exitRevSec * 1000) : null;
+    n.exitTurn = document.getElementById('pn-exit-turn')?.value || 'none';
     n.supplyGroups  = (['wait_sys','wait_user'].includes(n.arrivalAction) && _pnSupplyGroups.length) ? [..._pnSupplyGroups] : [];
+    // Lưu vào đúng field theo Vai trò hiện tại — giữ nguyên field của vai trò
+    // KHÔNG active (phòng trường hợp đổi qua đổi lại Vai trò không mất dữ liệu cũ).
+    if(n.trailerRole === 'pickup'){
+      n.trailerPickupTeams = _pnTrailerPickupTeams.length ? [..._pnTrailerPickupTeams] : [];
+    } else if(n.trailerRole === 'drop'){
+      n.trailerDropTeams = _pnTrailerPickupTeams.length ? [..._pnTrailerPickupTeams] : [];
+    } else {
+      n.trailerPickupTeams = []; n.trailerDropTeams = [];
+    }
     n.turnMap       = Object.assign({}, currentNodeTurnMap);
     const nx = parseFloat(document.getElementById('pn-x').value);
     const ny = parseFloat(document.getElementById('pn-y').value);
@@ -1355,24 +1543,106 @@ document.getElementById('btn-apply').onclick = ()=>{
 document.getElementById('btn-delete-sel').onclick = deleteSelected;
 
 function onNodeTypeChange(){
-  const type = document.getElementById('pn-type').value;
-  const teamField = document.getElementById('pn-team-field');
-  if(teamField){
-    teamField.style.display = (type === 'dropoff') ? 'block' : 'none';
-    if(type !== 'dropoff') document.getElementById('pn-team').value = '';
-  }
+  onArrivalActionChange_pn();
 }
 
 // ── Tag-input "Tổ được cấp" trong properties panel ──────────────────
 let _pnSupplyGroups = [];
+// ── Tag-input "Dùng chung cho các Tổ" (chỉ khi Vai trò = Lấy hàng đầy) ────
+let _pnTrailerPickupTeams = [];
+let _pnTrailerPickupTeamsRole = null;   // 'drop'|'pickup'|null — vai trò mà buffer trên đang phản ánh
 
 function onArrivalActionChange_pn(){
   const act = document.getElementById('pn-arrival-action').value;
   const field = document.getElementById('pn-supply-group-field');
-  if(!field) return;
-  const show = (act === 'wait_sys' || act === 'wait_user');
-  field.style.display = show ? 'block' : 'none';
-  if(!show){ _pnSupplyGroups = []; renderPnSupplyGroupTags(); }
+  if(field){
+    const show = (act === 'wait_sys' || act === 'wait_user');
+    field.style.display = show ? 'block' : 'none';
+    if(!show){ _pnSupplyGroups = []; renderPnSupplyGroupTags(); }
+  }
+  const stationField = document.getElementById('pn-station-agv-type-field');
+  const typeVal = document.getElementById('pn-type')?.value;
+  if(stationField){
+    const showStation = (act === 'wait_charge' || typeVal === 'charger');
+    stationField.style.display = showStation ? 'block' : 'none';
+    if(!showStation) document.getElementById('pn-station-agv-type').value = 'none';
+    const exitField = document.getElementById('pn-exit-turn-field');
+    if(exitField){
+      exitField.style.display = showStation ? 'block' : 'none';
+      if(!showStation){
+        document.getElementById('pn-exit-reverse-sec').value = '';
+        document.getElementById('pn-exit-turn').value = 'none';
+      }
+    }
+  }
+  // Cửa tự động — chỉ hiện ô nhập số thứ tự cửa khi Loại vị trí = "Door"
+  const doorIdField = document.getElementById('pn-door-id-field');
+  if(doorIdField){
+    const showDoor = (typeVal === 'door');
+    doorIdField.style.display = showDoor ? 'block' : 'none';
+    if(!showDoor) document.getElementById('pn-door-id').value = '';
+  }
+  // Vai trò cho xe rơ-moóc — ƯU TIÊN field "Vai trò" (pn-trailer-role) tường
+  // minh nếu người dùng đã chọn; chỉ suy luận theo arrival_action/supply_group
+  // khi CHƯA chọn vai trò rõ ràng (giữ tương thích map cũ).
+  const _trailerRoleVal = document.getElementById('pn-trailer-role')?.value || 'none';
+  const isPickupRole = _trailerRoleVal === 'pickup'
+    || (_trailerRoleVal === 'none' && act === 'wait_sys' && _pnSupplyGroups.length > 0);
+  const isDropRole   = _trailerRoleVal === 'drop'
+    || (_trailerRoleVal === 'none' && ((act === 'wait_user') || (act === 'wait_sys' && !isPickupRole) || (typeVal === 'dropoff' && act !== 'wait_sys')));
+
+  // Trường "Dùng chung cho các Tổ" — hiện khi Vai trò tường minh là Thả rỗng
+  // HOẶC Lấy đầy (pn-trailer-role), không hiện khi suy luận — field này chỉ
+  // dùng cho cơ chế tường minh.
+  const pickupTeamsField = document.getElementById('pn-trailer-pickup-teams-field');
+  if(pickupTeamsField){
+    const showPickupTeams = (_trailerRoleVal === 'pickup' || _trailerRoleVal === 'drop');
+    pickupTeamsField.style.display = showPickupTeams ? 'block' : 'none';
+    if(!showPickupTeams){
+      _pnTrailerPickupTeams = []; _pnTrailerPickupTeamsRole = null;
+      renderPnTrailerPickupTeamsTags();
+    } else if(_trailerRoleVal !== _pnTrailerPickupTeamsRole){
+      // Vai trò vừa đổi (vd pickup → drop trên cùng 1 node đang mở) — nạp lại
+      // đúng danh sách Tổ của vai trò mới, tránh lưu nhầm data cũ sang field khác.
+      const _curId = selNodes.size===1 ? [...selNodes][0] : null;
+      const _curN  = _curId ? state.nodes[_curId] : null;
+      const _src = _curN ? (_trailerRoleVal === 'drop' ? _curN.trailerDropTeams : _curN.trailerPickupTeams) : [];
+      _pnTrailerPickupTeams = Array.isArray(_src) ? [..._src] : [];
+      _pnTrailerPickupTeamsRole = _trailerRoleVal;
+      renderPnTrailerPickupTeamsTags();
+    }
+    const _lbl = document.getElementById('pn-trailer-shared-teams-label');
+    if(_lbl){
+      _lbl.textContent = _trailerRoleVal === 'drop'
+        ? '👥 Dùng chung cho các Tổ (nếu > 1 Tổ thả rỗng ở đây)'
+        : '👥 Dùng chung cho các Tổ (nếu > 1 Tổ lấy hàng ở đây)';
+    }
+  }
+
+  // Trường "Tổ" (số) — hiện khi Dropoff HOẶC wait_user (node đại diện 1 Tổ cụ thể)
+  const teamField = document.getElementById('pn-team-field');
+  if(teamField){
+    const showTeamNum = (typeVal === 'dropoff' || act === 'wait_user');
+    teamField.style.display = showTeamNum ? 'block' : 'none';
+    if(!showTeamNum) document.getElementById('pn-team').value = '';
+  }
+
+  const teamBehaviorSection = document.getElementById('pn-team-behavior-section');
+  if(teamBehaviorSection){
+    const showTeamBehavior = (typeVal === 'dropoff' || act === 'wait_sys' || act === 'wait_user');
+    teamBehaviorSection.style.display = showTeamBehavior ? 'block' : 'none';
+    if(!showTeamBehavior) document.getElementById('pn-team-agv-type').value = 'none';
+    const noteEl = document.getElementById('pn-team-behavior-note');
+    if(noteEl && showTeamBehavior){
+      if(isPickupRole){
+        noteEl.innerHTML = '🛒 <b>Trailer</b> đến đây: tự động <b>NÂNG móc</b> chờ xe hàng đầy, cảm biến tự hạ móc khi lắp xong (chờ xác nhận web trước khi kéo đi tiếp).<br>' +
+          '🤖 <b>Carry</b> đến đây: hoạt động bình thường — chờ xác nhận lấy hàng từ người dùng, không bị ảnh hưởng.';
+      } else {
+        noteEl.innerHTML = '🛒 <b>Trailer</b> đến đây: tự động <b>NÂNG móc</b> thả xe hàng rỗng, rồi tự đi tiếp (tới node khác cùng Tổ để lấy hàng đầy).<br>' +
+          '🤖 <b>Carry</b> đến đây: hoạt động bình thường — chờ xác nhận giao hàng từ người dùng, không bị ảnh hưởng.';
+      }
+    }
+  }
 }
 
 function renderPnSupplyGroupTags(){
@@ -1404,6 +1674,37 @@ function removePnSupplyGroup(i){
 
 function onPnSupplyGroupKeydown(e){
   if(e.key==='Enter'||e.key===','){ e.preventDefault(); addPnSupplyGroup(); }
+}
+
+function renderPnTrailerPickupTeamsTags(){
+  const c = document.getElementById('pn-trailer-pickup-teams-tags');
+  if(!c) return;
+  c.innerHTML = _pnTrailerPickupTeams.map((g,i) =>
+    `<span style="display:inline-flex;align-items:center;gap:2px;background:#78350f;color:#fcd34d;border:1px solid #b45309;border-radius:20px;padding:1px 7px;font-size:10px">
+      ${g}<span onclick="removePnTrailerPickupTeam(${i})" style="cursor:pointer;margin-left:2px;font-size:13px;line-height:1;color:#fcd34d">&times;</span>
+    </span>`
+  ).join('');
+}
+
+function addPnTrailerPickupTeam(){
+  const inp = document.getElementById('pn-trailer-pickup-teams-input');
+  if(!inp) return;
+  const val = inp.value.trim();
+  if(!val) return;
+  val.split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{
+    if(!_pnTrailerPickupTeams.includes(p)) _pnTrailerPickupTeams.push(p);
+  });
+  inp.value = '';
+  renderPnTrailerPickupTeamsTags();
+}
+
+function removePnTrailerPickupTeam(i){
+  _pnTrailerPickupTeams.splice(i,1);
+  renderPnTrailerPickupTeamsTags();
+}
+
+function onPnTrailerPickupTeamKeydown(e){
+  if(e.key==='Enter'||e.key===','){ e.preventDefault(); addPnTrailerPickupTeam(); }
 }
 
 function _setIdEditable(editable){
@@ -1614,6 +1915,159 @@ function newMap(){
   document.getElementById('map-select').value='';
   document.getElementById('sb-map').textContent='Mới';
   renderAll(); updateProps(); fitView();
+}
+
+// ═══════════════════════════════════════════════════
+// IMPORT LAYOUT TỪ FILE DRAW.IO (.drawio/.xml)
+// Chỉ lấy vị trí node (theo nhãn = số thẻ) + cạnh thẳng nối giữa các node.
+// Loại node/cạnh, turn_map, tốc độ... vẫn cấu hình tay như bình thường sau khi import.
+// ═══════════════════════════════════════════════════
+document.getElementById('btn-import-drawio').onclick = ()=>{
+  const doIt = ()=>document.getElementById('drawio-file-input').click();
+  if(mapChanged){ confirm('Import draw.io','Thay đổi chưa lưu sẽ mất (import sẽ bắt đầu từ bản đồ trống). Tiếp tục?',doIt); }
+  else doIt();
+};
+
+document.getElementById('drawio-file-input').onchange = async (e)=>{
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';   // cho phép chọn lại cùng file lần sau
+  if(!file) return;
+  try{
+    const text = await file.text();
+    _importDrawioXml(text);
+  }catch(err){
+    console.error('[IMPORT-DRAWIO]', err);
+    toast('Lỗi đọc file draw.io: '+err.message, 'error');
+  }
+};
+
+function _stripHtmlLabel(raw){
+  if(!raw) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = raw;
+  return (tmp.textContent || tmp.innerText || '').trim();
+}
+
+// Lấy các điểm waypoint người dùng đã kéo trên 1 cạnh draw.io (mxGeometry > Array[as="points"]).
+function _drawioEdgeWaypoints(edgeCell){
+  const pts = [];
+  const geo = edgeCell.querySelector('mxGeometry');
+  if(!geo) return pts;
+  const arr = geo.querySelector('Array[as="points"]');
+  if(!arr) return pts;
+  arr.querySelectorAll('mxPoint').forEach(p=>{
+    pts.push({ x: parseFloat(p.getAttribute('x'))||0, y: parseFloat(p.getAttribute('y'))||0 });
+  });
+  return pts;
+}
+
+function _importDrawioXml(xmlText){
+  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+  if(doc.querySelector('parsererror')){
+    toast('File không phải XML hợp lệ', 'error'); return;
+  }
+  let cells = doc.querySelectorAll('mxCell');
+  if(!cells.length){
+    // File dạng nén mặc định của draw.io (<mxfile><diagram> chứa base64+deflate) —
+    // không tự giải nén được ở đây. Yêu cầu người dùng export dạng không nén.
+    const hasDiagram = doc.querySelector('diagram');
+    if(hasDiagram){
+      toast('File đang ở dạng nén. Trong draw.io: File → Export as → XML, bỏ tick '+
+            '"Compressed" rồi lưu lại, sau đó import file đó.', 'error');
+    } else {
+      toast('Không tìm thấy nội dung sơ đồ (mxCell) trong file', 'error');
+    }
+    return;
+  }
+
+  // ── Bước 1: gom vertex (node) — id draw.io → {label, x, y} ────────────────
+  const vertexById = {};   // drawioId -> {label, cx, cy}
+  cells.forEach(c=>{
+    if(c.getAttribute('vertex') !== '1') return;
+    const geo = c.querySelector('mxGeometry');
+    if(!geo) return;
+    const label = _stripHtmlLabel(c.getAttribute('value'));
+    if(!label) return;   // bỏ qua hình không có nhãn (không biết là node số mấy)
+    const x = parseFloat(geo.getAttribute('x')) || 0;
+    const y = parseFloat(geo.getAttribute('y')) || 0;
+    const w = parseFloat(geo.getAttribute('width'))  || 0;
+    const h = parseFloat(geo.getAttribute('height')) || 0;
+    vertexById[c.getAttribute('id')] = { label, cx: x + w/2, cy: y + h/2 };
+  });
+
+  const labelCount = {};
+  Object.values(vertexById).forEach(v=>{ labelCount[v.label] = (labelCount[v.label]||0)+1; });
+  const dupLabels = Object.keys(labelCount).filter(l=>labelCount[l] > 1);
+
+  // ── Bước 2: dựng state.nodes từ vertex (bắt đầu từ bản đồ trống) ──────────
+  const existingSlam = document.getElementById('slam-bg');
+  if(existingSlam) existingSlam.remove();
+  _removeOverlayFlip();
+  state = { mapId: null, nodes: {}, edges: [], nextId: 1, transform: {..._DEFAULT_TRANSFORM} };
+
+  let nodeCount = 0;
+  Object.entries(vertexById).forEach(([drawioId, v])=>{
+    const id = v.label;
+    if(state.nodes[id]) return;   // nhãn trùng — giữ node đầu tiên, báo ở dupLabels
+    state.nodes[id] = {
+      id, name: '', x: Math.round(v.cx), y: Math.round(v.cy),
+      type: 'normal', action: '', speed: 0.5, agvCompat: 'RFID',
+      fwdTurn: 'none', bwdTurn: 'none', turnAllowed: 'yes', lidarOff: 'no', vdaTurnAngle: '360',
+      arrivalAction: 'none', approachDir: 'none', stationAgvType: 'none',
+      exitReverseMs: null, exitTurn: 'none', doorId: '', trailerStaging: false, trailerEmptyStaging: false, trailerRole: 'none',
+      turnMap: {}, team: null, teamAgvType: 'none', supplyGroups: [], trailerPickupTeams: [], trailerDropTeams: [],
+    };
+    nodeCount++;
+  });
+  const numIds = Object.keys(state.nodes).map(x=>parseInt(x)).filter(x=>!isNaN(x));
+  state.nextId = numIds.length ? Math.max(...numIds)+1 : 1;
+
+  // ── Bước 3: dựng state.edges từ các mxCell edge="1" (nối 2 vertex đã có nhãn) ──
+  // LƯU Ý: style "curved=1" trong draw.io (edgeStyle=orthogonalEdgeStyle;curved=1)
+  // chỉ là "đường nối vuông góc bo tròn góc" để trình bày sơ đồ đẹp — draw.io TỰ
+  // TÍNH đường đi lúc vẽ, KHÔNG lưu toạ độ điểm cong thật (không có <Array as=
+  // "points">). Vì vậy chỉ coi là cạnh cong (bezier) khi có waypoint THẬT SỰ được
+  // người dùng kéo tay (mxGeometry > Array[as="points"]) — còn "curved=1" đơn
+  // thuần (không waypoint) vẫn nhập là cạnh THẲNG, tránh vẽ sai hình so với ý đồ.
+  let edgeCount = 0, edgeSkipped = 0, curvedCount = 0;
+  const edgeSet = new Set();
+  cells.forEach(c=>{
+    if(c.getAttribute('edge') !== '1') return;
+    const srcId = c.getAttribute('source'), dstId = c.getAttribute('target');
+    const sv = srcId && vertexById[srcId], dv = dstId && vertexById[dstId];
+    if(!sv || !dv || sv.label === dv.label){ edgeSkipped++; return; }
+    const src = sv.label, dst = dv.label;
+    const eid = `e_${src}_${dst}`;
+    if(edgeSet.has(eid)) return;
+    edgeSet.add(eid);
+    const edgeObj = { id: eid, src, dst, direction: 'both', speed: 0.5, width: 0.95, lidarOff: 'none' };
+    const wps = _drawioEdgeWaypoints(c);
+    if(wps.length >= 2){
+      edgeObj.cp1 = { x: Math.round(wps[0].x), y: Math.round(wps[0].y) };
+      edgeObj.cp2 = { x: Math.round(wps[wps.length-1].x), y: Math.round(wps[wps.length-1].y) };
+      curvedCount++;
+    } else if(wps.length === 1){
+      const mx = (sv.cx+dv.cx)/2, my = (sv.cy+dv.cy)/2;
+      edgeObj.cp1 = { x: Math.round(wps[0].x), y: Math.round(wps[0].y) };
+      edgeObj.cp2 = { x: Math.round(2*mx - wps[0].x), y: Math.round(2*my - wps[0].y) };
+      curvedCount++;
+    }
+    // else: không waypoint thật → giữ là cạnh thẳng, kể cả khi style có curved=1.
+    state.edges.push(edgeObj);
+    edgeCount++;
+  });
+
+  undoStack = []; redoStack = []; selNodes.clear(); selEdges.clear(); mapChanged = true;
+  document.getElementById('map-name-input').value = 'Bản đồ mới';
+  document.getElementById('map-select').value = '';
+  document.getElementById('sb-map').textContent = 'Mới (import)';
+  renderAll(); updateProps(); fitView();
+
+  let msg = `Đã import ${nodeCount} node, ${edgeCount} cạnh (${curvedCount} cong) từ draw.io`;
+  if(dupLabels.length) msg += ` — CẢNH BÁO: nhãn trùng lặp bị bỏ bớt: ${dupLabels.join(', ')}`;
+  if(edgeSkipped) msg += ` (${edgeSkipped} cạnh bị bỏ qua vì thiếu nhãn 1 đầu)`;
+  toast(msg, dupLabels.length ? 'error' : 'success');
+  console.log('[IMPORT-DRAWIO]', { nodeCount, edgeCount, curvedCount, edgeSkipped, dupLabels });
 }
 
 // ═══════════════════════════════════════════════════
@@ -1829,7 +2283,7 @@ async function loadMap(mapId){
     state = { mapId, nodes:{}, edges:[], nextId:1, transform:tr };
 
     // ── Load nodes dùng đúng worldToPixel của AgvMap ─────────────────────
-    const _INT_TYPE = ['normal','conveyor','charger','dropoff','home','buffer','parking','wait'];
+    const _INT_TYPE = ['normal','conveyor','charger','dropoff','home','buffer','parking','wait','door'];
     for(const p of rawPoints){
       const id = String(p.name_id);
       const act = _parseActionField(p.action);
@@ -1852,10 +2306,22 @@ async function loadMap(mapId){
         vdaTurnAngle:act.vda_turn_angle || '360',
         arrivalAction: (['wait_sys','wait_user','wait_charge'].includes(act.arrival_action) ? act.arrival_action : 'none'),
         approachDir:   act.approach_dir   || 'none',
+        stationAgvType: (['carry','tow','trailer'].includes(act.station_agv_type) ? act.station_agv_type : 'none'),
+        exitReverseMs: (act.exit_reverse_ms != null) ? parseInt(act.exit_reverse_ms) : null,
+        exitTurn: (['left','right'].includes(act.exit_turn) ? act.exit_turn : 'none'),
+        doorId: act.door_id || '',
+        trailerStaging: act.trailer_staging === 'yes',
+        trailerEmptyStaging: act.trailer_empty_staging === 'yes',
+        trailerRole: (['drop','pickup'].includes(act.trailer_role) ? act.trailer_role : 'none'),
         turnMap: (act.turn_map && typeof act.turn_map === 'object') ? {...act.turn_map} : {},
         team: act.team != null ? parseInt(act.team) : null,
+        teamAgvType: (['carry','tow','trailer'].includes(act.team_agv_type) ? act.team_agv_type : 'none'),
         supplyGroups: Array.isArray(act.supply_group) ? [...act.supply_group]
                     : (act.supply_group ? act.supply_group.split(',').map(s=>s.trim()).filter(Boolean) : []),
+        trailerPickupTeams: Array.isArray(act.trailer_pickup_teams) ? [...act.trailer_pickup_teams]
+                    : (act.trailer_pickup_teams ? act.trailer_pickup_teams.split(',').map(s=>s.trim()).filter(Boolean) : []),
+        trailerDropTeams: Array.isArray(act.trailer_drop_teams) ? [...act.trailer_drop_teams]
+                    : (act.trailer_drop_teams ? act.trailer_drop_teams.split(',').map(s=>s.trim()).filter(Boolean) : []),
       };
     }
 
@@ -1882,7 +2348,7 @@ async function loadMap(mapId){
       const cp1 = _w2d(cp1w.x, cp1w.y, tr);
       const cp2 = _w2d(cp2w.x, cp2w.y, tr);
       state.edges.push({ id:eid, src:String(b.id_source), dst:String(b.id_dest),
-        direction:'both', speed:parseFloat(b.speed)||0.5, width:parseFloat(b.width)||0.95,
+        direction:_dirFromCode(b.move_direction), speed:parseFloat(b.speed)||0.5, width:parseFloat(b.width)||0.95,
         cp1: {x:Math.round(cp1.x), y:Math.round(cp1.y)},
         cp2: {x:Math.round(cp2.x), y:Math.round(cp2.y)},
         lidarOff: (b.lidar_off_dir && b.lidar_off_dir !== 'none') ? b.lidar_off_dir : (b.lidar_off ? 'both' : 'none') });
@@ -1973,7 +2439,7 @@ async function _doSaveMap(name){
   const tr = state.transform || _DEFAULT_TRANSFORM;
   const _r3 = v => Math.round(v*1000)/1000;  // 3 decimal places
 
-  const _TYPE_INT = {normal:0,conveyor:1,charger:2,dropoff:3,home:4,buffer:5,parking:6,wait:7};
+  const _TYPE_INT = {normal:0,conveyor:1,charger:2,dropoff:3,home:4,buffer:5,parking:6,wait:7,door:8};
   const robotPoints=Object.values(state.nodes).map(n=>{
     const wp = _d2w(n.x, n.y, tr);
     return {
@@ -1991,9 +2457,18 @@ async function _doSaveMap(name){
         ...(n.vdaTurnAngle && n.vdaTurnAngle!=='360'  ? {vda_turn_angle:n.vdaTurnAngle}       : {}),
         ...(n.arrivalAction && n.arrivalAction!=='none' ? {arrival_action:n.arrivalAction} : {}),
         ...(n.approachDir   && n.approachDir!=='none'   ? {approach_dir:n.approachDir}     : {}),
+        ...(n.arrivalAction==='wait_charge' && n.stationAgvType && n.stationAgvType!=='none' ? {station_agv_type:n.stationAgvType} : {}),
+        ...(n.exitReverseMs && n.exitTurn && n.exitTurn!=='none' ? {exit_reverse_ms:n.exitReverseMs, exit_turn:n.exitTurn} : {}),
+        ...(n.doorId ? {door_id:n.doorId} : {}),
+        ...(n.trailerStaging ? {trailer_staging:'yes'} : {}),
+        ...(n.trailerEmptyStaging ? {trailer_empty_staging:'yes'} : {}),
+        ...(n.trailerRole && n.trailerRole!=='none' ? {trailer_role:n.trailerRole} : {}),
         ...(n.turnMap && Object.keys(n.turnMap).length  ? {turn_map:n.turnMap}             : {}),
-        ...(n.type==='dropoff' && n.team!=null           ? {team:n.team}                   : {}),
+        ...((n.type==='dropoff' || n.arrivalAction==='wait_user') && n.team!=null ? {team:n.team} : {}),
         ...(['wait_sys','wait_user'].includes(n.arrivalAction) && n.supplyGroups?.length ? {supply_group:n.supplyGroups} : {}),
+        ...((n.type==='dropoff' || ['wait_sys','wait_user'].includes(n.arrivalAction)) && n.teamAgvType && n.teamAgvType!=='none' ? {team_agv_type:n.teamAgvType} : {}),
+        ...(n.trailerRole==='pickup' && n.trailerPickupTeams?.length ? {trailer_pickup_teams:n.trailerPickupTeams} : {}),
+        ...(n.trailerRole==='drop' && n.trailerDropTeams?.length ? {trailer_drop_teams:n.trailerDropTeams} : {}),
       },
       speed: n.speed||0.5,
       carrier:0, available:false, accuracy:0,
@@ -2082,6 +2557,15 @@ function buildLegend(){
     const row=document.createElement('div');
     row.style.cssText='display:flex;align-items:center;gap:7px;margin-bottom:6px';
     row.innerHTML=`<div style="width:12px;height:12px;border-radius:50%;background:${col};flex-shrink:0;border:1.5px solid rgba(255,255,255,0.3)"></div><span style="font-size:11px;color:#94a3b8">${TYPE_LABEL[k]}</span>`;
+    el.appendChild(row);
+  }
+  // Vai trò Trailer (thả/lấy hàng) — KHÔNG phải "Loại vị trí" (có thể xuất hiện
+  // trên node Dropoff/Normal bất kỳ), nhưng vẫn tô nền riêng trên bản đồ nên
+  // cần chú thích thêm để không nhầm với các loại ở trên.
+  for(const [k,col] of Object.entries(TRAILER_ROLE_COLOR)){
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;gap:7px;margin-bottom:6px';
+    row.innerHTML=`<div style="width:12px;height:12px;border-radius:50%;background:${col};flex-shrink:0;border:1.5px solid rgba(255,255,255,0.3)"></div><span style="font-size:11px;color:#94a3b8">${TRAILER_ROLE_LABEL[k]}</span>`;
     el.appendChild(row);
   }
 }

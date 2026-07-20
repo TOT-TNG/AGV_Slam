@@ -1,0 +1,15 @@
+[Unit]
+Description=AGVmqtt Server (FastAPI + MQTT)
+After=network.target postgresql.service mosquitto.service
+
+[Service]
+Type=simple
+WorkingDirectory=__ROOT_DIR__
+ExecStart=__ROOT_DIR__/.venv/bin/python3 __ROOT_DIR__/main.py
+Restart=always
+RestartSec=3
+StandardOutput=append:__ROOT_DIR__/deploy/service_stdout.log
+StandardError=append:__ROOT_DIR__/deploy/service_stderr.log
+
+[Install]
+WantedBy=multi-user.target

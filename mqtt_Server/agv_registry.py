@@ -121,6 +121,22 @@ class AgvRegistry:
         """Trả về factory của AGV (dùng trong MQTT topic uagv/v2/{factory}/{agv_id}/...)."""
         return self._config.get(str(agv_id).strip(), {}).get("factory", "") or default
 
+    def get_default_factory(self, default: str = "VietDuc") -> str:
+        """Trả về factory THẬT của BẤT KỲ AGV nào đã đăng ký factory (khác rỗng) —
+        dùng cho các tính năng KHÔNG gắn với 1 agv_id cụ thể (vd cửa tự động).
+        Duyệt trực tiếp _config thay vì gọi get_factory() từng AGV — get_factory()
+        tự trả về `default` ("VietDuc") ngay khi AGV đó chưa cấu hình, nên nếu chỉ
+        lấy get_factory() của AGV ĐẦU TIÊN trong all_ids(), có thể vô tình "ăn"
+        đúng cái default che mất factory thật của các AGV khác (đã xảy ra thực tế:
+        nhà máy cấu hình "Vonhai" nhưng lấy nhầm về "VietDuc"). 1 server local chỉ
+        phục vụ ĐÚNG 1 nhà máy nên factory của AGV bất kỳ (miễn có cấu hình) là
+        chính xác để dùng chung."""
+        for _cfg in self._config.values():
+            _f = str(_cfg.get("factory") or "").strip()
+            if _f:
+                return _f
+        return default
+
     def get_map_id(self, agv_id: str, default: str = "") -> str:
         """Trả về map_id của AGV từ DB (bảng agv_devices.map_id)."""
         return self._config.get(str(agv_id).strip(), {}).get("map_id", "") or default

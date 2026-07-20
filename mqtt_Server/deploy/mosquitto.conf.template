@@ -1,0 +1,15 @@
+# mosquitto.conf.template
+# Cấu hình broker MQTT local cho AGVmqtt — cho phép AGV (thiết bị khác trên
+# mạng) kết nối vào, không mã hoá TLS, không cần user/pass.
+#
+# Cách dùng:
+#   Windows: copy đè vào  "C:\Program Files\mosquitto\mosquitto.conf"
+#   Linux:   copy vào     /etc/mosquitto/conf.d/agvmqtt.conf
+# rồi khởi động lại dịch vụ mosquitto.
+#
+# Nếu cần bảo mật hơn (không cho ẩn danh), đổi allow_anonymous thành false
+# và cấu hình thêm password_file — nhớ cập nhật MQTT_USER/MQTT_PASS tương ứng
+# trong mqtt_Server/mqtt_client.py hoặc biến môi trường.
+
+listener 1883 0.0.0.0
+allow_anonymous true

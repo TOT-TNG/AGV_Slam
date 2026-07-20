@@ -53,7 +53,7 @@ def _save_mqtt_mode(mode: str) -> None:
 def _resolve_broker_port(mode: str) -> tuple[str, int]:
     if mode == "cloud":
         return _CLOUD_BROKER, _CLOUD_PORT
-    return os.getenv("MQTT_BROKER", "192.168.0.124").strip(), int(os.getenv("MQTT_PORT", "1883"))
+    return os.getenv("MQTT_BROKER", "192.168.0.200").strip(), int(os.getenv("MQTT_PORT", "1883"))
 
 def _configure_client_for_mode(c, mode: str) -> None:
     """Cài TLS + auth cho client theo mode trước khi connect."""
@@ -77,6 +77,10 @@ QOS = int(os.getenv("MQTT_QOS", "0"))
 UAGV_INTERFACE_NAME = os.getenv("UAGV_INTERFACE_NAME", "uagv").strip() or "uagv"
 UAGV_MAJOR_VERSION = os.getenv("UAGV_MAJOR_VERSION", "v3").strip() or "v3"
 UAGV_MANUFACTURER = os.getenv("UAGV_MANUFACTURER", "tot").strip() or "tot"
+
+# Cửa tự động (gate) — xem PROTOCOL_GUIDE.md mục "Cửa tự động (Gate Controller)"
+GATE_INTERFACE_NAME = os.getenv("GATE_MQTT_INTERFACE", "gate").strip() or "gate"
+GATE_MQTT_VERSION   = os.getenv("GATE_MQTT_VERSION", "v1").strip() or "v1"
 
 agv_manager = AGVManager()
 map_manager = MapManager()
@@ -1213,6 +1217,35 @@ def resolve_special_target_node(agv_id: str, target_type: str) -> dict:
             f"Không tìm thấy node {target_type} trong map {resolved_map_id} | candidates={candidates}"
         )
 
+    # ── MỚI: lọc trạm theo agv_type nếu trạm được đánh dấu dành riêng (station_agv_type)
+    # — trạm KHÔNG đánh dấu (trống) coi như dùng chung, không đụng map cũ chưa cấu hình.
+    # action trả về từ DB có thể là str (JSON thô, chưa parse) — luôn parse an toàn trước khi .get().
+    def _station_action_dict(s):
+        _a = s.get("action")
+        if isinstance(_a, str):
+            try:
+                import json as _json_sa
+                return _json_sa.loads(_a) if _a else {}
+            except Exception:
+                return {}
+        return _a or {}
+
+    if target_type == "charge" and len(all_stations) > 1:
+        _req_agv_type = str(_reg.get_config(agv_id).get("agv_type") or "").strip().lower()
+        _typed_stations = [
+            s for s in all_stations
+            if not str(_station_action_dict(s).get("station_agv_type") or "").strip()
+            or str(_station_action_dict(s).get("station_agv_type") or "").strip().lower() == _req_agv_type
+        ]
+        if _typed_stations:
+            if len(_typed_stations) != len(all_stations):
+                print(f"[STATION] {agv_id}: lọc theo agv_type='{_req_agv_type}' — "
+                      f"{len(_typed_stations)}/{len(all_stations)} trạm phù hợp")
+            all_stations = _typed_stations
+        else:
+            print(f"[STATION] {agv_id}: KHÔNG có trạm nào khớp agv_type='{_req_agv_type}' "
+                  f"trong {len(all_stations)} trạm — dùng tạm tất cả (kiểm tra lại cấu hình map)")
+
     # ── Bước 2: chọn trạm ít bị "claim" nhất ─────────────────────────────────
     node_info = _pick_least_claimed_station(all_stations, agv_id, resolved_map_id)
     if not node_info:
@@ -2260,7 +2293,14 @@ async def plan_path_async(agv_id: str, start_node_id: str | None, end_node_id: s
             _na_p0 = getattr(map_manager, 'node_actions', {}) or {}
             _end_na_p0 = _na_p0.get(str(end_node)) or {}
             _end_team_p0 = _end_na_p0.get('team')
-            if _end_team_p0:
+            # Xe rơ-moóc dùng cơ chế trailer_role riêng (drop/pickup tường minh theo
+            # tổ), KHÔNG dùng logic "bắt buộc qua supply node" này (vốn dành cho AGV
+            # carry lấy hàng tại supply_group trước khi giao). Node đích của trailer
+            # có thể trùng số team với 1 supply node carry khác (vd node 16 team=2 và
+            # node 64 supply_group=['2','3']) mà không hề liên quan — nếu áp logic này
+            # sẽ ép trailer đi vòng qua supply node không cần thiết.
+            _is_trailer_p0 = (agv_registry.get_config(agv_id).get('agv_type') == 'trailer')
+            if _end_team_p0 and not _is_trailer_p0:
                 _end_team_str_p0 = str(_end_team_p0)
                 for _snid_p0, _sncfg_p0 in _na_p0.items():
                     if str(_sncfg_p0.get('arrival_action', '') or '').lower() == 'wait_sys':
@@ -3127,6 +3167,12 @@ def on_connect(client, userdata, flags, rc):
         client.subscribe(_t, qos=QOS)
         print(f"[MQTT] Subscribed (LINE v2): {_t}")
 
+    # ── Cửa tự động (gate) — trạng thái từ bộ điều khiển cửa ─────────────────
+    # Xem PROTOCOL_GUIDE.md mục "Cửa tự động (Gate Controller)"
+    _gate_state_topic = f"{GATE_INTERFACE_NAME}/{GATE_MQTT_VERSION}/+/+/state"
+    client.subscribe(_gate_state_topic, qos=QOS)
+    print(f"[MQTT] Subscribed (GATE): {_gate_state_topic}")
+
     # ── Setup_subscriptions (VDA5050 + thông báo registry) ───────────────────
     try:
         from unified_mqtt import setup_subscriptions
@@ -3197,6 +3243,25 @@ def _line_agv_topic(agv_id: str, suffix: str) -> str:
 def on_message(client, userdata, msg):
     if _mqtt_stopping or _is_app_shutting_down():
         return
+
+    # ── Cửa tự động (gate) — trạng thái từ bộ điều khiển cửa ─────────────────
+    # Topic: gate/v1/{factory}/{door_id}/state — xem PROTOCOL_GUIDE.md.
+    # Xử lý RIÊNG, SỚM NHẤT (trước unified routing của AGV) vì đây không phải
+    # topic của AGV — topic_router không biết xử lý, sẽ rơi vào nhánh khác.
+    try:
+        _gate_parts = msg.topic.split("/")
+        if (len(_gate_parts) == 5 and _gate_parts[0] == GATE_INTERFACE_NAME
+                and _gate_parts[1] == GATE_MQTT_VERSION and _gate_parts[4] == "state"):
+            _door_id = _gate_parts[3]
+            _gate_data = json.loads(msg.payload.decode("utf-8", errors="replace"))
+            _gate_state = str(_gate_data.get("state") or "").strip().lower()
+            if _gate_state:
+                from door_coordinator import door_coordinator
+                print(f"[GATE_STATE] {_door_id}: {_gate_state}")
+                door_coordinator.on_gate_state(_door_id, _gate_state)
+            return
+    except Exception as _e_gate:
+        print(f"[GATE_STATE] parse error: {_e_gate}")
 
     # ── Unified routing: nhận biết AGV từ topic + registry ───────────────────
     try:
@@ -4269,6 +4334,18 @@ def send_order(agv_id: str, order: dict):
 
 def _send_line_order(agv_id: str, order: dict) -> None:
     """Gửi plan {"c":"plan",...} đến Line AGV qua topic uagv/v2/..."""
+    from line_agv_handler import line_agv_handler as _lah_order
+    # Sau {"c":"stop"} (cancel/emergency stop), Arduino chuyển về MANUAL và
+    # CHỈ quay lại AUTOMATIC khi nhận {"c":"run"} — gửi thẳng plan mới lúc
+    # này vẫn được ACK nhưng KHÔNG được thực thi (không tắt Lidar, không
+    # chạy động cơ), khiến cảm biến vật cản (chưa tắt) báo vật cản giả dù
+    # xe chưa hề nhúc nhích. Tự động "run" khôi phục AUTOMATIC trước khi
+    # gửi plan mới nếu phát hiện xe còn đang ở MANUAL từ lần stop trước.
+    _st_order = _lah_order.state_store.get(agv_id)
+    if _st_order is not None and _st_order.operating_mode == "MANUAL":
+        print(f"[MQTT] LINE {agv_id}: đang ở MANUAL (còn sót từ lần stop trước) "
+              f"→ gửi 'run' khôi phục AUTOMATIC trước khi gửi plan mới")
+        send_line_command(agv_id, "run")
     topic       = _line_agv_topic(agv_id, "order")
     payload_str = json.dumps(order, ensure_ascii=False)
     result      = client.publish(topic, payload_str, qos=1)
@@ -4304,6 +4381,36 @@ def send_line_command(agv_id: str, cmd: str, **kwargs) -> bool:
     topic = _line_agv_topic(agv_id, "instantActions")
     result = client.publish(topic, json.dumps(payload, ensure_ascii=False), qos=1)
     print(f"[LINE_CMD] → {agv_id}: {payload} | rc={result.rc}")
+    return result.rc == 0
+
+
+def send_gate_command(door_id: str, cmd: str) -> bool:
+    """
+    Gửi lệnh mở/đóng tới bộ điều khiển cửa tự động.
+    cmd: "open" | "close" — xem PROTOCOL_GUIDE.md mục "Cửa tự động (Gate Controller)".
+    Topic: gate/v1/{factory}/{door_id}/cmd
+
+    Cửa không gắn với 1 AGV cụ thể nên không có agv_id để tra agv_registry trực
+    tiếp — nhưng LINE_AGV_FACTORY (biến môi trường) THƯỜNG rỗng (chỉ là fallback
+    dự phòng), factory THẬT của từng AGV được lưu RIÊNG trong DB (agv_devices.
+    factory, đọc qua agv_registry.get_factory(agv_id)) — vd "Vonhai". Vì 1 server
+    local chỉ phục vụ ĐÚNG 1 nhà máy (kiến trúc cloud gateway: mỗi nhà máy 1
+    server riêng), lấy factory của BẤT KỲ AGV nào đã đăng ký làm factory dùng
+    chung cho cửa là chính xác — tránh việc rơi về "VietDuc" sai be bét như đã
+    xảy ra thực tế (nhà máy cấu hình "Vonhai" nhưng cửa gửi nhầm "VietDuc").
+    """
+    from unified_mqtt import LINE_AGV_FACTORY
+    factory = None
+    try:
+        from agv_registry import agv_registry
+        factory = agv_registry.get_default_factory(default="")
+    except Exception as _e_fac:
+        print(f"[GATE_CMD] tra factory từ agv_registry lỗi: {_e_fac}")
+    factory = factory or LINE_AGV_FACTORY or "VietDuc"
+    topic = f"{GATE_INTERFACE_NAME}/{GATE_MQTT_VERSION}/{factory}/{door_id}/cmd"
+    payload = {"c": cmd}
+    result = client.publish(topic, json.dumps(payload, ensure_ascii=False), qos=1)
+    print(f"[GATE_CMD] → {door_id}: {payload} | rc={result.rc}")
     return result.rc == 0
 
 
