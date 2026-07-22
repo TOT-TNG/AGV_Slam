@@ -18,8 +18,8 @@
 [Cloud API Gateway :9000]  ← gateway.py — đọc key, forward request
      │  HTTP nội bộ
      ▼
-[frp Server :8080]  ← frps — nhận tunnel từ các nhà máy
-     │  tunnel TCP (factory chủ động kết nối ra, port 7000)
+[frp Server :8090]  ← frps — nhận tunnel từ các nhà máy
+     │  tunnel TCP (factory chủ động kết nối ra, port 7500)
      ▼
 [frp Client]  ← frpc chạy trên Server nhà máy
      │
@@ -31,7 +31,7 @@
 ```
 
 **Tại sao dùng frp thay VPN:**
-- frp dùng TCP port 443/7000 → IT nhà máy hầu như không block
+- frp dùng TCP port 443/7500 → IT nhà máy hầu như không block
 - Không cần biết IP public của nhà máy (factory chủ động kết nối ra)
 - Không cần cấu hình IP gì thêm — chỉ cần biết địa chỉ cloud server
 - Thêm nhà máy mới: cài frpc + thêm 1 dòng config, không cần chạm cloud
@@ -72,10 +72,10 @@ mkdir -p /etc/frp
 
 ```toml
 # Port factory client kết nối vào
-bindPort = 7000
+bindPort = 7500
 
 # Port frp dùng nội bộ để phân phối HTTP request đến từng factory
-vhostHTTPPort = 8080
+vhostHTTPPort = 8090
 
 # Token xác thực — PHẢI KHỚP với frpc.toml bên factory
 # Đổi thành chuỗi ngẫu nhiên dài trước khi deploy thật
@@ -108,14 +108,14 @@ systemctl enable --now frps
 
 # Kiểm tra
 systemctl status frps
-curl http://localhost:8080   # trả lỗi frp là OK
+curl http://localhost:8090   # trả lỗi frp là OK
 ```
 
 ### 1.4 Mở firewall
 
 ```bash
 # Port factory kết nối vào
-ufw allow 7000/tcp comment "frp tunnel"
+ufw allow 7500/tcp comment "frp tunnel"
 
 # Port 443 cho HTTPS (nếu chưa mở)
 ufw allow 443/tcp
@@ -159,7 +159,7 @@ from fastapi.responses import Response
 app = FastAPI()
 
 CONFIG_FILE = Path("/etc/agv-gateway/factories.json")
-FRP_HTTP_PORT = 8080   # khớp với vhostHTTPPort trong frps.toml
+FRP_HTTP_PORT = 8090   # khớp với vhostHTTPPort trong frps.toml
 
 def load_factories() -> dict:
     return json.loads(CONFIG_FILE.read_text())
@@ -176,7 +176,7 @@ async def forward(path: str, request: Request):
 
     factory = factories[key]
     # frp resolve subdomain dạng: {subdomain}.{domain_gốc}
-    # Nhưng vì gọi nội bộ qua localhost:8080, dùng Host header để frp biết forward đi đâu
+    # Nhưng vì gọi nội bộ qua localhost:8090, dùng Host header để frp biết forward đi đâu
     frp_host = factory["frp_host"]
     target_url = f"http://127.0.0.1:{FRP_HTTP_PORT}/{path}"
 
@@ -292,25 +292,38 @@ systemctl reload nginx
 
 > Làm lại phase này cho mỗi nhà máy mới. Chỉ thay đổi `subdomain`.
 
-### 4.1 Cài frpc
+### 4.1 — Windows (trường hợp thực tế của dự án này)
+
+Toàn bộ máy nhà máy trong dự án này chạy Windows (`mqtt_Server/main.py`
+qua `uvicorn`). Dùng bộ script có sẵn trong `cloud_gateway/factory/` —
+**không tự cài tay theo kiểu Linux bên dưới**:
+
+```powershell
+cd cloud_gateway\factory
+.\deploy_frpc.ps1 -Subdomain "<subdomain-nha-may>" -Token "<token-that>"
+```
+
+Script tự tải `frpc.exe` đúng version, tự sinh `frpc.toml`, tự cài Windows
+Service bằng NSSM (không dùng `sc.exe` trực tiếp — `frpc.exe` không phải
+service-aware binary nên `sc.exe create` tạo được nhưng không khởi động nổi),
+và tự đọc log báo PASS/FAIL ngay tại chỗ. Chi tiết đầy đủ, bảng lỗi thường
+gặp: xem `cloud_gateway/factory/README.md`.
+
+### 4.2 — Linux (tham khảo, KHÔNG áp dụng cho máy nhà máy trong dự án này)
+
+Phần dưới đây mô tả cách cài thủ công trên Linux — giữ lại để tham khảo nếu
+sau này có nhà máy dùng Linux server, không áp dụng cho các máy Windows hiện tại.
 
 ```bash
-# Linux
 wget https://github.com/fatedier/frp/releases/download/v0.62.1/frp_0.62.1_linux_amd64.tar.gz
 tar -xzf frp_*.tar.gz
 cp frp_*/frpc /usr/local/bin/
 ```
 
-Trên Windows: tải `frp_*_windows_amd64.zip`, giải nén, dùng NSSM để cài service.
-
-### 4.2 File `frpc.toml` (mỗi nhà máy khác nhau 1 chỗ: `subdomain`)
-
+File `frpc.toml` (mỗi nhà máy khác nhau 1 chỗ: `subdomain`):
 ```toml
-# Địa chỉ cloud server
 serverAddr = "iot.tot360.com.vn"
-serverPort = 7000
-
-# Token — PHẢI KHỚP với frps.toml trên cloud
+serverPort = 7500
 auth.token = "THAY_BANG_SECRET_TOKEN_NGAU_NHIEN"
 
 [[proxies]]
@@ -318,14 +331,10 @@ name      = "agv-local"
 type      = "http"
 localIP   = "127.0.0.1"
 localPort = 8000          # port FastAPI local (mqtt_Server)
-
-# *** THAY ĐỔI CHO MỖI NHÀ MÁY ***
-# Phải khớp với frp_host trong factories.json trên cloud
-subdomain = "songcong"
+subdomain = "songcong"    # *** THAY ĐỔI CHO MỖI NHÀ MÁY *** — khớp frp_host trong factories.json
 ```
 
-### 4.3 Cài service tự khởi động (Linux)
-
+Cài service tự khởi động:
 ```bash
 # /etc/systemd/system/frpc.service
 [Unit]
@@ -346,7 +355,7 @@ systemctl daemon-reload
 systemctl enable --now frpc
 ```
 
-### 4.4 Cấu hình Dual NIC
+### 4.3 Cấu hình Dual NIC
 
 | Card mạng | Kết nối | Default Gateway | Ghi chú |
 |-----------|---------|-----------------|---------|
@@ -356,13 +365,17 @@ systemctl enable --now frpc
 > Việc để trống Default Gateway ở Card 2 đảm bảo máy AGV không thể tự đi ra internet,
 > và dữ liệu sản xuất không rò rỉ ra ngoài.
 
-### 4.5 Kiểm tra tunnel
+### 4.4 Kiểm tra tunnel
 
 ```bash
 # Từ cloud VPS, gọi thử vào factory qua frp
-curl -H "Host: songcong.tot360.internal" http://localhost:8080/
+curl -H "Host: songcong.tot360.internal" http://localhost:8090/
 # → phải trả về response từ FastAPI local của nhà máy
 ```
+
+> Với máy Windows dùng `deploy_frpc.ps1` (mục 4.1), script đã tự làm bước
+> kiểm tra này ngay tại máy (đọc log local, báo PASS/FAIL) — không bắt buộc
+> phải SSH vào VPS mới biết kết quả.
 
 ---
 
@@ -417,7 +430,8 @@ Response trả về **giống hệt** như gọi trực tiếp vào local server
 
 ## Quy trình thêm nhà máy mới
 
-Khi triển khai thêm 1 nhà máy, chỉ cần 2 việc:
+Khi triển khai thêm 1 nhà máy, chỉ cần 2 việc — **không cần sửa code, không cần
+hỏi lại, không cần SSH gì thêm ngoài bước 1**:
 
 **1. Trên cloud** — thêm vào `/etc/agv-gateway/factories.json`:
 ```json
@@ -428,7 +442,20 @@ Khi triển khai thêm 1 nhà máy, chỉ cần 2 việc:
 ```
 Không cần restart bất kỳ service nào (gateway tự reload file mỗi request).
 
-**2. Tại nhà máy mới** — cài frpc với `subdomain = "binhduong"` và khởi động service.
+**2. Tại nhà máy mới** — mở PowerShell **với quyền Administrator** trên Server
+nhà máy đó, chạy:
+```powershell
+cd cloud_gateway\factory
+.\deploy_frpc.ps1 -Subdomain "binhduong" -Token "<auth.token thật, lấy từ /etc/frp/frps.toml trên VPS>"
+```
+Script `deploy_frpc.ps1` tự lo hết: tải `frpc.exe` đúng version (nếu chưa có),
+sinh file `frpc.toml` với đúng `subdomain` (file này KHÔNG commit lên git —
+chỉ nằm cục bộ tại `C:\frp\` trên từng máy), và cài/khởi động Windows Service
+`frpc-agv` tự chạy lại cùng máy. Token dùng chung 1 giá trị cho mọi nhà máy
+(không phải theo từng nhà máy) — chỉ `-Subdomain` là khác nhau mỗi lần.
+
+Kiểm tra ngay sau khi chạy — script tự in ra 2 lệnh curl để test (1 test tunnel
+trực tiếp từ VPS, 1 test qua gateway với Gateway Key thật của nhà máy đó).
 
 ---
 
@@ -439,7 +466,7 @@ Không cần restart bất kỳ service nào (gateway tự reload file mỗi req
 | Mobile web nhận 403 | Gateway key sai hoặc chưa có trong `factories.json` |
 | Mobile web nhận 502 | frpc của nhà máy đó đang ngắt — kiểm tra `systemctl status frpc` tại nhà máy |
 | Mobile web nhận 504 | FastAPI local (:8000) không phản hồi — kiểm tra `mqtt_Server` có đang chạy không |
-| frpc không kết nối được | Kiểm tra `auth.token` hai bên có khớp không; kiểm tra port 7000 đã mở trên cloud chưa |
+| frpc không kết nối được | Kiểm tra `auth.token` hai bên có khớp không; kiểm tra port 7500 đã mở trên cloud chưa |
 | Tunnel kết nối nhưng request lỗi | Kiểm tra `subdomain` trong frpc.toml có khớp với `frp_host` trong factories.json không |
 
 ```bash

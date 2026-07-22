@@ -2,7 +2,7 @@
 # Đặt tại: /etc/frp/frps.toml trên Cloud VPS
 
 # Port các factory client kết nối vào
-bindPort = 7000
+bindPort = 7500
 
 # Port frp dùng nội bộ để phân phối HTTP đến đúng factory
 vhostHTTPPort = 8090

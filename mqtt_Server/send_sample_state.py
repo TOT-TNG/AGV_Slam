@@ -12,7 +12,7 @@ import paho.mqtt.client as mqtt
 
 
 SERVER_BASE_URL = "http://127.0.0.1:8000"
-MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.0.124").strip()
+MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.0.200").strip()
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 
 STAGING_NODE_POSES: dict[str, tuple[float, float, float]] = {

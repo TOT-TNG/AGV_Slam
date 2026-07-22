@@ -564,6 +564,18 @@ select option:checked {
             <small>Chọn "Lùi vào" cho trạm sạc để AGV tự lùi vào đúng hướng.</small>
           </div>
 
+          <!-- Trạm sạc dành riêng cho loại AGV — chỉ hiện khi arrival_action = wait_charge -->
+          <div class="field" id="station-agv-type-field" style="display:none;border-left:3px solid #a855f7;padding-left:10px;margin-left:2px;margin-top:6px">
+            <label for="cfgStationAgvType" style="color:#a855f7">🔌 Trạm sạc dành riêng cho loại AGV</label>
+            <select id="cfgStationAgvType">
+              <option value="none">— Dùng chung cho mọi loại AGV</option>
+              <option value="carry">🤖 Chỉ AGV Carry</option>
+              <option value="tow">🚜 Chỉ AGV Tow</option>
+              <option value="trailer">🛒 Chỉ AGV Trailer (đầu kéo/rơ-moóc)</option>
+            </select>
+            <small style="color:#8c909f;display:block;margin-top:4px">Để "Dùng chung" nếu trạm này tiếp cận được bởi mọi loại xe. Chọn riêng nếu trạm chỉ thiết kế cho 1 loại (vd trạm lùi vào chỉ carry dùng được, trạm tiến vào riêng cho trailer).</small>
+          </div>
+
           <!-- BLOCK — vùng tới hạn chống va chạm (openTCS-style) -->
           <div class="field" style="margin-top:8px;border-top:1px solid rgba(96,165,250,.25);padding-top:8px">
             <label for="cfgBlock">🚧 Vùng tới hạn (Block)</label>
@@ -592,7 +604,7 @@ select option:checked {
 
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const API_BASE = 'http://' + (window.location.hostname || '192.168.0.124') + ':8000';
+      const API_BASE = 'http://' + (window.location.hostname || '192.168.0.200') + ':8000';
 
       const RES_DEFAULT = 0.05;
 
@@ -664,11 +676,18 @@ select option:checked {
       function onArrivalActionChange() {
         const act = document.getElementById('cfgArrivalAction').value;
         const sgField = document.getElementById('supply-group-field');
-        if (!sgField) return;
-        const show = (act === 'wait_sys' || act === 'wait_user');
-        sgField.style.display = show ? 'block' : 'none';
-        if (!show) { _supplyGroups = []; renderSupplyGroupTags(); }
-        else loadAvailableTeamsQuickpick();
+        if (sgField) {
+          const show = (act === 'wait_sys' || act === 'wait_user');
+          sgField.style.display = show ? 'block' : 'none';
+          if (!show) { _supplyGroups = []; renderSupplyGroupTags(); }
+          else loadAvailableTeamsQuickpick();
+        }
+        const stField = document.getElementById('station-agv-type-field');
+        if (stField) {
+          const showStation = (act === 'wait_charge');
+          stField.style.display = showStation ? 'block' : 'none';
+          if (!showStation) document.getElementById('cfgStationAgvType').value = 'none';
+        }
       }
 
       async function loadAvailableTeamsQuickpick() {
@@ -676,10 +695,10 @@ select option:checked {
         const btns = document.getElementById('supply-quickpick-btns');
         if (!qp || !btns || !currentMapId) return;
         try {
-          const API_BASE2 = 'http://' + (window.location.hostname || '192.168.0.124') + ':8000';
+          const API_BASE2 = 'http://' + (window.location.hostname || '192.168.0.200') + ':8000';
           const res = await fetch(`${API_BASE2}/api/execute/team-nodes?map_id=${currentMapId}`);
           const data = await res.json();
-          const teams = (data.team_nodes || []).map(t => String(t.team)).filter(Boolean);
+          const teams = (data.teams || []).map(t => String(t.team)).filter(Boolean);
           const unique = [...new Set(teams)].sort((a,b) => parseInt(a)-parseInt(b));
           if (unique.length === 0) { qp.style.display = 'none'; return; }
           btns.innerHTML = unique.map(t =>
@@ -919,6 +938,8 @@ select option:checked {
   document.getElementById('cfgBwdTurn').value = action.bwd_turn || 'none';
   document.getElementById('cfgArrivalAction').value = action.arrival_action || 'none';
   document.getElementById('cfgApproachDir').value   = action.approach_dir   || 'none';
+  const stationTypeEl = document.getElementById('cfgStationAgvType');
+  if (stationTypeEl) stationTypeEl.value = action.station_agv_type || 'none';
   // Load block (vùng tới hạn)
   document.getElementById('cfgBlock').value     = action.block || '';
   document.getElementById('cfgBlockType').value = (action.block_type === 'same_dir') ? 'same_dir' : 'single';
@@ -1228,6 +1249,8 @@ select option:checked {
         const approachDir = document.getElementById('cfgApproachDir').value;
         const blockName   = (document.getElementById('cfgBlock').value || '').trim();
         const blockType   = document.getElementById('cfgBlockType').value;
+        const stationAgvTypeEl = document.getElementById('cfgStationAgvType');
+        const stationAgvType   = stationAgvTypeEl ? stationAgvTypeEl.value : 'none';
         const turnMapVal  = Object.keys(currentTurnMap).length > 0 ? currentTurnMap : null;
         const payload = {
           mapId: currentMapId,
@@ -1241,6 +1264,10 @@ select option:checked {
             bwd_turn: bwdTurn !== 'none' ? bwdTurn : null,
             arrival_action: arrivalAct  !== 'none' ? arrivalAct  : null,
             approach_dir:   approachDir !== 'none' ? approachDir : null,
+            // Trạm sạc dành riêng cho loại AGV: chỉ lưu khi arrival_action=wait_charge và có chọn
+            station_agv_type: (arrivalAct === 'wait_charge' && stationAgvType !== 'none')
+                  ? stationAgvType
+                  : null,
             // Block (vùng tới hạn): chỉ lưu khi có tên block
             block:      blockName || null,
             block_type: blockName ? blockType : null,

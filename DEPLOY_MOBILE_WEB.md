@@ -47,7 +47,7 @@ cp frp_0.61.0_linux_amd64/frps /usr/local/bin/
 ### 2.2 Cấu hình `/etc/frp/frps.toml`
 
 ```toml
-bindPort = 7000
+bindPort = 7500
 vhostHTTPPort = 8090
 subdomainHost = "tot360.internal"
 auth.token = "SECRET_TOKEN_NGAU_NHIEN"   # thay bằng token thực
@@ -270,7 +270,7 @@ docker exec nginx nginx -t && docker exec nginx nginx -s reload
 
 ```toml
 serverAddr = "<IP_VPS>"
-serverPort = 7000
+serverPort = 7500
 auth.token = "SECRET_TOKEN_NGAU_NHIEN"   # phải khớp với frps
 
 [[proxies]]
@@ -339,7 +339,7 @@ RUN flutter pub get
 
 COPY . .
 
-ARG API_BASE_URL=http://192.168.0.124:8000
+ARG API_BASE_URL=http://192.168.0.200:8000
 
 RUN flutter build web \
     --release \
@@ -447,8 +447,10 @@ docker run -d --name agv-mobile --restart unless-stopped -p 3001:80 ducmanh1801/
 ## 10. Kiểm tra hệ thống
 
 ```bash
-# Health check gateway
-curl https://iot.tot360.com.vn/_gateway/health
+# Health check gateway (LUON qua prefix /acs/ khi goi tu ngoai qua Nginx -
+# Nginx CHI proxy /acs/* toi gateway; goi thang /_gateway/health se roi vao
+# location / (dashboard) va tra ve trang HTML khac, KHONG phai loi thuc su)
+curl https://iot.tot360.com.vn/acs/_gateway/health
 
 # Test tunnel nhà máy trực tiếp
 curl -s -H "Host: vietduc.tot360.internal" http://127.0.0.1:8090/api/maps/list

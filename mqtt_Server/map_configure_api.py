@@ -48,6 +48,11 @@ async def save_node_config(payload: MapNodeConfigRequest, request: Request):
     if approach_dir not in ("bwd",):
         approach_dir = None
 
+    # Trạm sạc dành riêng cho loại AGV (carry/tow/trailer) — trống = dùng chung mọi loại
+    station_agv_type = (config.get("station_agv_type") or "").strip().lower()
+    if station_agv_type not in ("carry", "tow", "trailer"):
+        station_agv_type = None
+
     # turn_map: {"from_to": "left"|"right"|"straight"} — explicit junction turn config
     raw_turn_map = config.get("turn_map")
     turn_map: dict | None = None
@@ -73,6 +78,8 @@ async def save_node_config(payload: MapNodeConfigRequest, request: Request):
         action_json["arrival_action"] = arrival_action
     if approach_dir:
         action_json["approach_dir"] = approach_dir
+    if station_agv_type:
+        action_json["station_agv_type"] = station_agv_type
     if turn_map:
         action_json["turn_map"] = turn_map
 

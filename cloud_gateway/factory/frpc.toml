@@ -1,5 +1,14 @@
-# ─── frp Client config — chạy trên Server Nhà Máy (Windows) ─────────────────
-# Mỗi nhà máy có 1 file này, chỉ khác nhau ở "subdomain" bên dưới
+# ─── frp Client config — VÍ DỤ THAM KHẢO, KHÔNG dùng trực tiếp ──────────────
+# File này CHỈ để tham khảo cấu trúc — KHÔNG điền token thật vào đây và
+# KHÔNG commit token thật lên git (ai đọc được repo cũng đọc được token).
+#
+# Để cài đặt frpc THẬT cho 1 nhà máy (bao gồm cả lần đầu và các nhà máy sau
+# này), dùng script `deploy_frpc.ps1` trong cùng thư mục — script tự sinh
+# file frpc.toml thật (không commit) vào C:\frp\, tự tải frpc.exe, tự cài
+# Windows Service. Xem hướng dẫn ở đầu file deploy_frpc.ps1.
+#
+# Ví dụ:
+#   .\deploy_frpc.ps1 -Subdomain "vietduc" -Token "<token thật lấy từ /etc/frp/frps.toml trên VPS>"
 
 # Địa chỉ Cloud VPS
 serverAddr = "iot.tot360.com.vn"
@@ -18,7 +27,7 @@ type      = "http"
 localIP   = "127.0.0.1"
 localPort = 8000           # port FastAPI local (mqtt_Server)
 
-subdomain  = "vietduc"
+subdomain  = "CHANGE_ME"
 # *** THAY ĐỔI CHO MỖI NHÀ MÁY ***
 # Phải khớp với "frp_host" trong factories.json trên cloud
 

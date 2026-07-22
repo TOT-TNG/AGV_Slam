@@ -1607,22 +1607,22 @@ class LineAGVHandler:
                 except Exception:
                     pass
                 print(f"[LINE_AGV] {agv_id}: chạy thử — đã tới tag {new_tag}, dừng xe")
-            # ── Cửa tự động: xe VỪA BĂNG QUA cửa (tag mới là 1 node của cửa,
-            # tag cũ là node CÒN LẠI cùng cửa đó) → báo dùng xong, có thể đóng
-            # (nếu không còn xe khác đang qua). KHÔNG cần xe dừng — chạy nền,
-            # dựa thuần vào tag report nên không phụ thuộc arrival_action/split.
-            # Xem door_coordinator.py + PROTOCOL_GUIDE.md mục "Cửa tự động".
-            if old_tag is not None:
+            # ── Cửa tự động: xe tới node cửa MÀ đã được ghi nhận "đang ở giữa
+            # cửa" (đã vào từ phía kia trước đó, xem door_coordinator.py) →
+            # ĐÃ THOÁT cửa, báo có thể đóng (nếu không còn xe khác đang qua).
+            # KHÔNG cần xe dừng — chạy nền, dựa thuần vào tag report. LƯU Ý: 2
+            # node của 1 cửa KHÔNG bắt buộc liền kề (có thể cách nhiều node
+            # trung gian) nên KHÔNG so old_tag với node cặp — is_exit_arrival tự
+            # theo dõi đúng theo từng xe, không phụ thuộc khoảng cách giữa 2 node.
+            if new_tag is not None:
                 try:
                     from mqtt_client import map_manager as _mm_door_exit
-                    _na_all_door = getattr(_mm_door_exit, 'node_actions', {}) or {}
-                    _na_exit = _na_all_door.get(str(new_tag)) or {}
+                    _na_exit = (getattr(_mm_door_exit, 'node_actions', {}) or {}).get(str(new_tag)) or {}
                     _door_id_exit = str(_na_exit.get('door_id') or '').strip()
                     if _door_id_exit:
-                        from door_coordinator import find_paired_door_node, door_coordinator
-                        _paired_exit = find_paired_door_node(_na_all_door, _door_id_exit, str(new_tag))
-                        if _paired_exit and str(old_tag) == str(_paired_exit):
-                            door_coordinator.notify_exit(_door_id_exit, agv_id)
+                        from door_coordinator import door_coordinator as _door_co_exit
+                        if _door_co_exit.is_exit_arrival(_door_id_exit, agv_id, str(new_tag)):
+                            _door_co_exit.notify_exit(_door_id_exit, agv_id)
                 except Exception as _e_door_exit:
                     print(f"[LINE_AGV] {agv_id}: door exit-check lỗi: {_e_door_exit}")
         elif old_tag is None and new_tag is None:
@@ -3209,11 +3209,14 @@ class LineAGVHandler:
         Trả về True nếu node này LÀ cửa (caller phải return ngay), False nếu
         không phải cửa (rơi xuống xử lý cũ — móc hàng/lifecycle picking...).
 
-        CHỈ được gọi khi xe ĐANG TIẾN VÀO cửa — main.py:_dispatch_go_to đã lo
-        việc TÁCH route (split) để node này luôn là đích thật của 1 chặng nhỏ
-        khi đó là hướng tiến vào (xem vòng lặp split_idx). Hướng THOÁT cửa
-        (đã băng qua) không đi qua đây — được xử lý riêng, không cần dừng, xem
-        _on_state (kiểm tra tag mới có door_id + tag cũ là node cặp)."""
+        BÌNH THƯỜNG chỉ được gọi khi xe ĐANG TIẾN VÀO cửa — main.py:_dispatch_go_to
+        đã lo việc TÁCH route (split) để node này luôn là đích thật của 1 chặng
+        nhỏ khi đó là hướng tiến vào (xem vòng lặp split_idx, dùng
+        door_coordinator.is_exit_arrival để quyết định). Hướng THOÁT cửa
+        (đã băng qua) thường không cần dừng nên không tới đây — nhưng NẾU lỡ
+        rơi vào đây (vd trùng ranh giới rolling-window ngẫu nhiên), vẫn PHẢI tự
+        kiểm tra lại chiều bằng is_exit_arrival để không xin mở NHẦM lúc xe đang
+        thực ra đã thoát cửa rồi."""
         _na_door = {}
         try:
             from mqtt_client import map_manager as _mm_door
@@ -3223,10 +3226,17 @@ class LineAGVHandler:
         _door_id = str(_na_door.get('door_id') or '').strip()
         if not _door_id:
             return False
-        print(f"[LINE_AGV] {agv_id}: tới node cửa tự động '{_door_id}' "
-              f"({state.current_tag}) — xin mở, chờ xác nhận")
         from door_coordinator import door_coordinator
-        door_coordinator.request_open(_door_id, agv_id)
+        _node_str = str(state.current_tag)
+        if door_coordinator.is_exit_arrival(_door_id, agv_id, _node_str):
+            print(f"[LINE_AGV] {agv_id}: tới node cửa tự động '{_door_id}' "
+                  f"({_node_str}) — đã thoát cửa, đi tiếp ngay")
+            door_coordinator.notify_exit(_door_id, agv_id)
+            self.resume_after_door(agv_id)
+            return True
+        print(f"[LINE_AGV] {agv_id}: tới node cửa tự động '{_door_id}' "
+              f"({_node_str}) — xin mở, chờ xác nhận")
+        door_coordinator.request_open(_door_id, agv_id, _node_str)
         return True
 
     def resume_after_door(self, agv_id: str) -> None:
@@ -3701,6 +3711,48 @@ class LineAGVHandler:
                     print(f"[LINE_AGV] {agv_id}: off_route re-dispatch error: {e}")
             return
 
+        # Bước 3c: plan_wait_timeout — firmware nhận plan xong nhưng không thấy
+        # chạy, tự báo timeout nội bộ. KHÁC off_route: xe VẪN ở đúng node của
+        # route hiện tại (không lệch vị trí) — chỉ là gói lệnh trước đó có thể
+        # đã bị rớt/race lúc server gửi quá sát ngay sau khi vừa hoàn tất chặng
+        # trước (xem comment "plan-race" ở watchdog CỨU KẸT phía trên). Vì vị
+        # trí vẫn đúng, KHÔNG cần re-plan lại từ đầu như off_route — chỉ cần gửi
+        # LẠI đúng cửa sổ hiện tại (force=True) để firmware nhận lại lệnh.
+        if event_name == "plan_wait_timeout":
+            route = self._routes.get(agv_id)
+            ct = str(state.current_tag) if state.current_tag is not None else None
+            ci = (route.full_path.index(ct)
+                  if (route and route.full_path and ct in route.full_path) else -1)
+            if route and ci >= 0:
+                print(f"[LINE_AGV] {agv_id}: plan_wait_timeout tại {ct} — route vẫn đúng, "
+                      f"GỬI LẠI cửa sổ hiện tại")
+                self._send_window(agv_id, route, ci, route.window_end,
+                                  route.is_complete, force=True)
+            else:
+                # Không có route hợp lệ để resend (hiếm gặp) → fallback re-dispatch
+                # từ vị trí hiện tại, cùng cơ chế với off_route.
+                print(f"[LINE_AGV] {agv_id}: plan_wait_timeout nhưng không có route hợp lệ "
+                      f"để gửi lại — fallback re-dispatch")
+                route = self._routes.pop(agv_id, None)
+                traffic_coordinator.deregister(agv_id)
+                _release_all_line_edges(agv_id)
+                state.current_edge_pair = None
+                dest_node = route.full_path[-1] if (route and route.full_path) else None
+                task_type = route.task_type if route else "delivery"
+                if dest_node and ct is not None:
+                    try:
+                        from task_queue import agv_task_queue as _atq
+                        from task_queue import CMD_GO_TO as _CGT, CMD_GO_CHARGE as _CGC
+                        cmd = _CGC if task_type in ("return_charge",) else _CGT
+                        _atq.insert_next(agv_id, cmd, dest_node=str(dest_node))
+                        _atq.on_agv_completed(agv_id, notes='plan_wait_timeout')
+                        print(f"[LINE_AGV] {agv_id}: plan_wait_timeout fallback → "
+                              f"re-dispatch cmd={cmd} dest={dest_node}")
+                    except Exception as e:
+                        print(f"[LINE_AGV] {agv_id}: plan_wait_timeout fallback "
+                              f"re-dispatch error: {e}")
+            return
+
         # ── HMI VẬT LÝ TRÊN XE (kênh lệnh thứ 3, ngoài Web UI/Mobile App) ────
         # Nút bấm cấu hình CỨNG trên màn hình xe → firmware gửi event này kèm
         # 'dest' cố định trong chính message state. HMI 1 CHIỀU (không có màn
@@ -3825,11 +3877,22 @@ class LineAGVHandler:
                     # has_exit_steps=True — có thể đang dở lùi mù + quay đầu (xem
                     # giải thích đầy đủ ở watchdog "DỪNG GIỮA route" phía trên).
                     _unsafe_exit_res = (_ci_res == 0 and _completed_route.has_exit_steps)
-                    if _completed_route.is_complete \
-                            and _ci_res < len(_completed_route.full_path) - 1 \
-                            and not _unsafe_exit_res:
-                        _we_res = min(_ci_res + LOOKAHEAD,
-                                      len(_completed_route.full_path) - 1)
+                    # TRƯỚC ĐÂY chỉ resend khi route.is_complete=True — nhưng firmware
+                    # cũng có thể đứng "chờ lệnh hệ thống" mãi sau 'continue' giữa 1
+                    # cửa sổ ROLLING chưa complete (vd sau khi obstacle vừa hết): window
+                    # cũ vẫn còn hợp lệ về mặt server (chưa cần refresh) nên
+                    # _check_rolling_plan không gửi gì, nhưng firmware vẫn cần 1 lệnh
+                    # MỚI để thực sự chạy tiếp. Nên giờ LUÔN resend (is_complete hay
+                    # không) — chỉ khác biên window: route xong thì gửi hết phần còn
+                    # lại (LOOKAHEAD), route rolling thì gửi lại đúng tới window_end
+                    # hiện có (không tự ý mở rộng thêm — việc mở rộng do
+                    # _check_rolling_plan quyết định ở lần tag-change riêng).
+                    if _ci_res < len(_completed_route.full_path) - 1 and not _unsafe_exit_res:
+                        if _completed_route.is_complete:
+                            _we_res = min(_ci_res + LOOKAHEAD,
+                                          len(_completed_route.full_path) - 1)
+                        else:
+                            _we_res = max(_ci_res, _completed_route.window_end)
                         _completed_route.window_start = _ci_res
                         self._send_window(agv_id, _completed_route, _ci_res, _we_res,
                                           _we_res == len(_completed_route.full_path) - 1,

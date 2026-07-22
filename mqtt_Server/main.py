@@ -2824,6 +2824,61 @@ def _sort_supplies_by_distance(supplies: list[str], current_node) -> list[str]:
         return list(supplies)
 
 
+def _order_by_real_path(nodes: list[str], current_node) -> list[str]:
+    """Sắp xếp các node theo ĐÚNG THỨ TỰ xe sẽ gặp thật trên đường đi, lấy trực
+    tiếp từ đường đi THẬT (danh sách node nối tiếp nhau) tính từ current_node —
+    KHÔNG suy luận qua 1 con số khoảng cách đơn thuần như _sort_supplies_by_distance.
+
+    Lý do cần hàm riêng: trong 1 bản đồ dạng VÒNG KÍN, so khoảng cách bằng SỐ có
+    thể bị sai bởi đường tắt/hướng đo (đã xảy ra thực tế: đo "khoảng cách ngược
+    về staging" cho 2 node kề nhau 107→108 lại cho ra thứ tự ngược, khiến xe phải
+    vòng gần hết bản đồ mới quay lại được node đã đi qua). Cách chắc chắn nhất là
+    lấy thẳng danh sách node của đường đi THẬT (không phải suy luận từ con số) —
+    node nào xuất hiện ở vị trí sớm hơn trên đường đi thì bắt buộc gặp trước.
+
+    Cách làm: tính đường đi thật tới node XA NHẤT trong nhóm (path dài nhất) —
+    mọi node còn lại (nếu cùng nằm trên 1 hành lang xuôi, không nhánh rẽ khác)
+    sẽ tự nhiên nằm trên chính con đường đó; xếp theo đúng VỊ TRÍ chúng xuất
+    hiện trên path đó.
+    """
+    if not nodes or not current_node:
+        return list(nodes)
+    if len(nodes) <= 1:
+        return list(nodes)
+    try:
+        import networkx as _nx
+        g = getattr(map_manager, 'line_graph', None) or getattr(map_manager, 'graph', None)
+        if g is None:
+            return list(nodes)
+
+        paths: dict[str, list] = {}
+        for n in nodes:
+            try:
+                paths[str(n)] = _nx.shortest_path(g, str(current_node), str(n), weight='weight')
+            except Exception:
+                paths[str(n)] = None
+        valid = {n: p for n, p in paths.items() if p}
+        if not valid:
+            return list(nodes)
+
+        farthest = max(valid, key=lambda n: len(valid[n]))
+        farthest_path = valid[farthest]
+        pos = {node: i for i, node in enumerate(farthest_path)}
+
+        def _key(n):
+            n = str(n)
+            if n in pos:
+                return (0, pos[n])
+            # Không nằm trên đường đi tới node xa nhất (nhánh khác/bất thường,
+            # hiếm gặp với map dạng vòng đơn) → xếp sau tất cả node xác định
+            # được, theo độ dài path riêng của nó.
+            return (1, len(valid.get(n) or []))
+
+        return sorted(nodes, key=_key)
+    except Exception:
+        return list(nodes)
+
+
 def _order_pickups_for_forward_loop(nodes: list[str], staging_node: str) -> list[str]:
     """Sắp xếp các node lấy hàng cho xe rơ-moóc (CHỈ TIẾN, không lùi được)
     theo đúng thứ tự BẮT BUỘC phải ghé trong 1 vòng — Tổ XA trạm nhất trước,
@@ -3568,19 +3623,18 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
             # lập với arrival_action, không bị lọc theo session/supply_group như
             # nhánh wait_sys/wait_user phía dưới). Xem door_coordinator.py +
             # PROTOCOL_GUIDE.md mục "Cửa tự động (Gate Controller)".
-            # Suy ra CHIỀU đi qua bằng node NGAY TRƯỚC trong path: nếu đó chính
-            # là node CÒN LẠI của cùng cửa → xe đang RA khỏi cửa (đã băng qua ở
-            # bước trước đó của path), KHÔNG cần dừng ở đây (server tự đóng cửa
-            # sau khi thấy tag báo về — xem _on_state). Ngược lại → xe đang TIẾN
-            # VÀO cửa lần đầu → PHẢI dừng ở đây xin mở, bất kể xa đích cuối bao
-            # nhiêu (giống hệt cách split cho supply/trailer node bên dưới).
+            # Suy ra CHIỀU đi qua bằng trạng thái đã theo dõi TRONG door_coordinator
+            # (xe này đã "vào" cửa từ node nào chưa) — KHÔNG dùng node liền kề
+            # trong path (2 node của 1 cửa có thể cách xa nhau qua nhiều node
+            # trung gian, đã xảy ra thực tế và làm sai hoàn toàn nếu so liền kề).
+            # is_exit_arrival=True → xe ĐÃ vào cửa từ phía kia, đây là lượt RA,
+            # không cần dừng. False → lượt VÀO, PHẢI dừng ở đây xin mở, bất kể xa
+            # đích cuối bao nhiêu (giống hệt cách split cho supply/trailer node
+            # bên dưới).
             _door_id_split = str(_node_cfg.get('door_id') or '').strip()
             if _door_id_split:
-                from door_coordinator import find_paired_door_node
-                _door_prev_split = path[_si - 1] if _si > 0 else None
-                _door_paired_split = find_paired_door_node(
-                    node_actions, _door_id_split, str(path[_si]))
-                if _door_paired_split and str(_door_prev_split) == str(_door_paired_split):
+                from door_coordinator import door_coordinator as _door_co_split
+                if _door_co_split.is_exit_arrival(_door_id_split, agv_id, str(path[_si])):
                     print(f"[DISPATCH] {agv_id}: node {path[_si]} = cửa tự động "
                           f"'{_door_id_split}' — xe đang RA khỏi cửa (đã băng qua), "
                           f"không cần dừng")
@@ -4751,11 +4805,14 @@ async def _finalize_supply_batch(key: tuple) -> None:
         print(f"[BATCH] {agv_id}: finalize chuẩn bị lỗi: {_e}")
         na = getattr(map_manager, "node_actions", {}) or {}
 
-    # Xe rơ-moóc: giữ NGUYÊN dừng thả rỗng ở TẤT CẢ các đích được yêu cầu trong
-    # lượt (mỗi Tổ 1 node riêng) — xe rơ-moóc mang lần lượt từng xe rỗng, thả
-    # xong tự động đi tiếp (hook_raised → tự đi, xem _handle_trailer_hook_arrival),
-    # KHÔNG bỏ qua node thả nào. (Đã thử bỏ node thả xa hơn — SAI, người dùng xác
-    # nhận muốn dừng thả ở TẤT CẢ, chỉ node ĐẦU TIÊN mới cần xác nhận thủ công.)
+    # Xe rơ-moóc — CHIỀU ĐI (thả rỗng): CHỈ Tổ XA staging/trạm sạc NHẤT trong
+    # số các Tổ được gọi mới thực sự dừng + hạ móc thả xe rỗng thật. Các Tổ
+    # gần hơn nằm trên đường đi qua tới Tổ xa nhất đó chỉ DỪNG + CHỜ NGƯỜI DÙNG
+    # xác nhận thủ công rồi đi tiếp — KHÔNG đụng móc (giống hệt cơ chế đã có ở
+    # chiều VỀ lấy đầy, xem `_full_pickup_nodes`/`_pending_confirm_only_legs`
+    # phía dưới). ĐỔI Ý so với quyết định trước đó (từng chốt "dừng thả thật ở
+    # TẤT CẢ") theo yêu cầu mới nhất của người dùng — thứ tự chèn cụ thể ở khối
+    # sắp xếp `_drop_order` ngay dưới `_agv_type_bt`/`_map_id_bt`.
     _all_drop_dests_pretrim: list[str] = [
         str(d) for (c, d, s) in cmds
         if c == CMD_GO_TO and d
@@ -4778,16 +4835,23 @@ async def _finalize_supply_batch(key: tuple) -> None:
 
     # Xe rơ-moóc: nếu móc CHƯA đang hạ (= chưa có hàng rỗng gắn sẵn từ chặng
     # trước), phải LẤY RỖNG tại node cố định (trailer_empty_staging) TRƯỚC
-    # MỌI lệnh giao trong lượt BATCH này — bất kể lượt này tới từ app/BATCH
+    # MỌI lệnh GIAO trong lượt BATCH này — bất kể lượt này tới từ app/BATCH
     # (không qua API /api/execute/trailer-roundtrip) hay không. Nếu không có
     # bước này, BATCH đặt qua app sẽ bỏ thẳng qua node lấy hàng, đi giao luôn.
+    #
+    # CHỈ áp dụng khi lượt này THỰC SỰ có lệnh giao (CMD_GO_TO) — nếu lượt chỉ
+    # có go_charge/go_wait (vd người dùng đang giữa đường bấm "Về trạm" để huỷ
+    # dở chừng, không giao gì nữa) thì KHÔNG được bắt xe vòng qua lấy hàng rỗng
+    # — xe không định giao gì nữa nên không cần mang thêm hàng rỗng, chỉ cần về
+    # thẳng trạm sạc theo đúng ý người dùng.
+    _has_delivery_leg = any(c == CMD_GO_TO for (c, d, s) in cmds)
     _trailer_pickup_node: str | None = None
     _agv_type_bt = ""
     _map_id_bt: str | None = None
     try:
         from agv_registry import agv_registry as _areg_bt
         _agv_type_bt = str(_areg_bt.get_config(agv_id).get('agv_type') or '').strip().lower()
-        if _agv_type_bt == 'trailer':
+        if _agv_type_bt == 'trailer' and _has_delivery_leg:
             _map_id_bt = info.get("resolved_map_id") or info.get("raw_map") if info else None
             from line_agv_handler import line_agv_handler as _lah_bt
             _lstate_bt = _lah_bt.state_store.get(agv_id)
@@ -4796,8 +4860,40 @@ async def _finalize_supply_batch(key: tuple) -> None:
                 _empty_node_bt = await _find_trailer_empty_staging_node(str(_map_id_bt))
                 if _empty_node_bt and str(_empty_node_bt) != str(current_node):
                     _trailer_pickup_node = str(_empty_node_bt)
+        elif _agv_type_bt == 'trailer' and not _has_delivery_leg:
+            print(f"[BATCH] {agv_id}: lượt chỉ có go_charge/go_wait (không giao gì) "
+                  f"— bỏ qua bước lấy hàng rỗng, về thẳng trạm")
     except Exception as _e_bt:
         print(f"[BATCH] {agv_id}: kiem tra lay hang rong (xe ro-moc) loi: {_e_bt}")
+
+    # Sắp xếp lại thứ tự thả rỗng theo khoảng cách: node nào GẶP TRƯỚC trên
+    # đường đi ra (tính từ vị trí hiện tại/vừa rời trạm) thì ghé TRƯỚC (chỉ
+    # xác nhận thủ công), node XA NHẤT trên đường ra ghé CUỐI (thả thật).
+    #
+    # QUAN TRỌNG: KHÔNG dùng lại _order_pickups_for_forward_loop(nodes,
+    # staging_node) rồi đảo ngược — từng thử và SAI thật (log AGV01 gọi Tổ ứng
+    # node 108+107: hàm đó đo khoảng cách NGƯỢC VỀ staging_node, tức đo phần
+    # ĐUÔI vòng (return leg). Vì đây là 1 VÒNG KÍN, node nào GẦN staging đo
+    # theo hướng NGƯỢC VỀ lại chính là node đã đi được XA NHẤT quanh vòng (gần
+    # hoàn thành vòng) — với cặp 108/107 kề nhau, 108 (đi qua 107 mới tới) lại
+    # bị tính "gần staging hơn" 107 → đảo ngược cho ra ['108','107'], khiến xe
+    # dispatch 108 TRƯỚC dù 107 mới là node gặp trước trên đường ra thật —
+    # 107 nằm SAU 108 trên hướng đó nên phải vòng gần hết cả bản đồ mới quay
+    # lại được (đúng lỗi log: '108 → 16 → 19 → 208 → ... → 106 → 107', 22 node).
+    #
+    # Cách ĐÚNG: lấy thẳng đường đi THẬT (danh sách node, không phải 1 con số
+    # khoảng cách) từ vị trí hiện tại tới node xa nhất trong nhóm — dùng
+    # _order_by_real_path(), tránh hẳn lớp lỗi do suy luận qua con số khoảng
+    # cách (đã xảy ra thực tế với cặp 107/108).
+    _staging_bt: str | None = None
+    if _agv_type_bt == 'trailer' and len(_all_drop_dests_pretrim) > 1:
+        _all_drop_dests_pretrim = _order_by_real_path(
+            _all_drop_dests_pretrim, current_node)
+        from line_agv_handler import _pending_confirm_only_legs as _pcol_drop
+        for _dp_confirm in _all_drop_dests_pretrim[:-1]:
+            _pcol_drop.add((agv_id, _dp_confirm))
+        print(f"[BATCH] {agv_id}: thứ tự thả rỗng theo đường đi ra (gặp trước→gặp "
+              f"sau, chỉ node CUỐI thả thật): {_all_drop_dests_pretrim}")
 
     # Xe rơ-moóc — LẤY HÀNG ĐẦY theo TỪNG TỔ: _required_supply_node() (dùng cho
     # carry ở trên) không nhận diện được field trailer_role/trailer_drop_teams
@@ -4818,7 +4914,6 @@ async def _finalize_supply_batch(key: tuple) -> None:
     # nhiên đi ngang các node lấy đầy theo đúng thứ tự ngược đó trong 1 VÒNG DUY
     # NHẤT, không cần quay lại đường cũ.
     _full_pickup_nodes: list[str] = []
-    _staging_bt: str | None = None
     if _agv_type_bt == 'trailer' and _map_id_bt:
         _seen_full_pickup: set[str] = set()
         for d in _all_drop_dests_pretrim:
@@ -4838,7 +4933,8 @@ async def _finalize_supply_batch(key: tuple) -> None:
                     _full_pickup_nodes.append(_pk_node)
 
         if _full_pickup_nodes:
-            _staging_bt = await _find_trailer_staging_node(str(_map_id_bt))
+            if not _staging_bt:
+                _staging_bt = await _find_trailer_staging_node(str(_map_id_bt))
             _full_pickup_nodes = _order_pickups_for_forward_loop(_full_pickup_nodes, _staging_bt or "")
 
     # Trong các node lấy-đầy: CHỈ node XA staging NHẤT (ghé đầu tiên, sorted[0])
@@ -4879,10 +4975,20 @@ async def _finalize_supply_batch(key: tuple) -> None:
         final.append((CMD_GO_TO, _trailer_pickup_node, None))
     final.extend((CMD_GO_TO, str(sup), None) for sup in required)
 
+    _drop_set = set(_all_drop_dests_pretrim)
+    _drop_inserted = False
     _charge_idx = next((i for i, (c, d, s) in enumerate(cmds) if c == CMD_GO_CHARGE), None)
     for _idx, (c, d, s) in enumerate(cmds):
         if c == CMD_GO_TO and d and str(d) in required:
             continue   # đã sinh lệnh lấy hàng ở trên
+        if c == CMD_GO_TO and d and str(d) in _drop_set:
+            # Chèn TẤT CẢ lệnh thả theo đúng thứ tự khoảng cách đã sắp ở trên
+            # (gần→xa), 1 LẦN DUY NHẤT tại vị trí lệnh thả ĐẦU TIÊN gặp trong
+            # cmds gốc — bỏ qua các lần gặp sau (đã nằm trong _drop_order rồi).
+            if not _drop_inserted:
+                final.extend((CMD_GO_TO, _dp, None) for _dp in _all_drop_dests_pretrim)
+                _drop_inserted = True
+            continue
         if _idx == _charge_idx and _post_pickup_nodes:
             final.extend((CMD_GO_TO, _pk, None) for _pk in _post_pickup_nodes)
         final.append((c, d, s))

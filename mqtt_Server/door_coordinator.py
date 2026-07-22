@@ -5,23 +5,36 @@ Bối cảnh: một số node trên bản đồ nằm sát 1 cửa tự động 
 kiểm soát ra/vào...). Xe phải xin mở cửa trước khi băng qua, và server phải
 báo đóng lại sau khi xe đã qua hẳn.
 
-Thiết kế (thống nhất với người dùng — xem lịch sử trao đổi, không lặp lại ở
-đây): mỗi cửa gắn với ĐÚNG 2 node trên bản đồ (2 phía của cửa), cùng gán 1
-`door_id` trong node_actions — KHÔNG cần nhãn "ngoài/trong" tĩnh, hướng được
-suy ra lúc chạy từ `prev_tag` của xe so với node còn lại:
-  - Tới 1 trong 2 node mà KHÔNG phải từ node kia sang → ĐANG TIẾN VÀO cửa
-    → xin MỞ, xe đứng chờ tới khi cửa xác nhận mở xong.
-  - Tới 1 trong 2 node MÀ từ node kia sang (vừa băng qua) → ĐÃ QUA cửa
-    → báo cửa có thể đóng (chỉ đóng thật khi không còn xe nào khác đang qua).
+Thiết kế: mỗi cửa gắn với ĐÚNG 2 node trên bản đồ (2 phía của cửa), cùng gán 1
+`door_id` trong node_actions. QUAN TRỌNG: 2 node này KHÔNG bắt buộc phải liền
+kề nhau (nối trực tiếp 1 cạnh) — thực tế có map mà 2 phía cửa cách nhau qua
+nhiều node trung gian (khu vực trong cửa rộng). Vì vậy hướng đi (vào/ra)
+KHÔNG suy ra từ so sánh prev_tag với node cặp (cách đó chỉ đúng khi 2 node
+liền kề — đã thử và SAI trong thực tế, khiến không bao giờ phát hiện được lúc
+xe thoát ra để đóng cửa). Thay vào đó, theo dõi TRỰC TIẾP theo từng xe: xe đã
+"vào" cửa từ node nào — lần đến node CÒN LẠI tiếp theo (bất kể đi qua bao
+nhiêu node ở giữa) chính là lúc "ra" cửa.
+
+  - Xe tới 1 trong 2 node của cửa, và HIỆN CHƯA được ghi nhận đang ở giữa cửa
+    → ĐANG TIẾN VÀO cửa → xin MỞ, xe đứng chờ tới khi cửa xác nhận mở xong.
+    Ghi nhớ xe đã vào từ node nào.
+  - Xe tới node CÒN LẠI của cùng cửa, trong khi ĐANG được ghi nhận đang ở giữa
+    cửa (đã vào từ node kia) → ĐÃ QUA cửa → báo cửa có thể đóng (chỉ đóng thật
+    khi không còn xe nào khác đang qua).
 
 Xem PROTOCOL_GUIDE.md mục "Cửa tự động (Gate Controller)" để biết giao thức
 MQTT đầy đủ giữa server và bộ điều khiển cửa (dành cho đội firmware).
 
-Giao thức bên trong module này với line_agv_handler.py:
-  - request_open(door_id, agv_id): gọi khi xe TỚI node cửa (chiều tiến vào),
-    xe đã dừng hẳn (WAIT_SYS/WAIT_USER) chờ được cho đi tiếp.
-  - notify_exit(door_id, agv_id): gọi khi xe BĂNG QUA cửa (tag mới là 1 trong
-    2 node, tag cũ là node còn lại) — KHÔNG cần xe dừng, chạy nền.
+Giao thức bên trong module này với line_agv_handler.py / main.py:
+  - is_exit_arrival(door_id, agv_id, node): dùng ở CẢ lúc lập kế hoạch dispatch
+    (main.py — quyết định có cần tách route dừng lại hay không) LẪN lúc xe
+    thực sự tới node (line_agv_handler.py) — chỉ ĐỌC trạng thái, không thay đổi
+    gì, nên gọi bao nhiêu lần cũng an toàn.
+  - request_open(door_id, agv_id, node): gọi khi xe TỚI node cửa theo chiều
+    TIẾN VÀO, xe đã dừng hẳn (WAIT_SYS/WAIT_USER) chờ được cho đi tiếp. Ghi
+    nhớ node đã vào.
+  - notify_exit(door_id, agv_id): gọi khi xe tới node CÒN LẠI (đã xác nhận qua
+    is_exit_arrival) — KHÔNG cần xe dừng, chạy nền.
   - check_retries(): gọi định kỳ (mỗi state message bất kỳ AGV nào) để phát
     hiện timeout chờ xác nhận mở cửa và tự gửi lại — áp dụng đúng bài học từ
     lỗi nâng móc không phản hồi (xem HOOK_RAISE_TIMEOUT ở line_agv_handler.py).
@@ -34,7 +47,9 @@ DOOR_OPEN_MAX_RETRIES  = 2     # số lần gửi lại tối đa trước khi b
 
 
 def find_paired_door_node(node_actions: dict, door_id: str, exclude_node: str) -> str | None:
-    """Tìm node CÒN LẠI của cùng 1 cửa (cùng door_id, khác node hiện tại)."""
+    """Tìm node CÒN LẠI của cùng 1 cửa (cùng door_id, khác node hiện tại).
+    Chỉ dùng cho mục đích tham khảo/log — KHÔNG dùng để suy luận chiều vào/ra
+    (xem docstring module — 2 node cửa có thể không liền kề)."""
     if not door_id:
         return None
     for nid, cfg in (node_actions or {}).items():
@@ -50,6 +65,7 @@ class _DoorInfo:
     state:        str   = "closed"   # "closed"|"opening"|"open"|"closing"|"error"
     in_transit:   set   = field(default_factory=set)   # agv_id đang ở giữa 2 node của cửa
     waiting:      set   = field(default_factory=set)   # agv_id đang đứng CHỜ xác nhận mở
+    entry_node:   dict  = field(default_factory=dict)  # agv_id -> node đã VÀO cửa từ đó
     open_sent_at: float = 0.0
     open_retries: int   = 0
 
@@ -63,10 +79,23 @@ class DoorCoordinator:
             self._doors[door_id] = _DoorInfo()
         return self._doors[door_id]
 
+    # ── Xác định chiều: xe đang VÀO hay ĐÃ RA (chỉ đọc, không đổi trạng thái) ──
+    def is_exit_arrival(self, door_id: str, agv_id: str, node: str) -> bool:
+        """True nếu xe này đã ghi nhận ĐANG ở giữa cửa (đã vào từ 1 node KHÁC
+        node hiện tại) — tức đây là lượt THOÁT RA, không phải lượt vào mới.
+        Dùng được ở CẢ dispatch-time (main.py, quyết định có tách route dừng
+        hay không) lẫn arrival-time (line_agv_handler.py)."""
+        info = self._doors.get(door_id)
+        if not info:
+            return False
+        entry = info.entry_node.get(agv_id)
+        return entry is not None and str(entry) != str(node)
+
     # ── Xe TIẾN VÀO cửa ──────────────────────────────────────────────────────
-    def request_open(self, door_id: str, agv_id: str) -> None:
+    def request_open(self, door_id: str, agv_id: str, node: str) -> None:
         info = self._get(door_id)
         info.in_transit.add(agv_id)
+        info.entry_node[agv_id] = str(node)
         if info.state == "open":
             print(f"[DOOR] {door_id}: đã mở sẵn — {agv_id} đi qua ngay, không cần chờ")
             self._resume_agv(agv_id)
@@ -125,11 +154,12 @@ class DoorCoordinator:
                   f"cần kiểm tra thủ công")
             info.open_sent_at = 0.0
 
-    # ── Xe BĂNG QUA cửa (không cần dừng) ─────────────────────────────────────
+    # ── Xe ĐÃ RA cửa (không cần dừng) ─────────────────────────────────────────
     def notify_exit(self, door_id: str, agv_id: str) -> None:
         info = self._get(door_id)
         info.in_transit.discard(agv_id)
         info.waiting.discard(agv_id)
+        info.entry_node.pop(agv_id, None)
         if info.in_transit:
             print(f"[DOOR] {door_id}: {agv_id} đã qua, còn {len(info.in_transit)} "
                   f"xe khác đang dùng cửa — GIỮ MỞ")

@@ -82,7 +82,7 @@ echo "  ✓ Nginx đã reload"
 # ─── 5. Mở firewall ──────────────────────────────────────────────────────────
 echo ""
 echo "[5/5] Mở firewall..."
-ufw allow 7000/tcp comment "frp tunnel port" 2>/dev/null || true
+ufw allow 7500/tcp comment "frp tunnel port" 2>/dev/null || true
 ufw allow 80/tcp   comment "HTTP"             2>/dev/null || true
 ufw allow 443/tcp  comment "HTTPS"            2>/dev/null || true
 
@@ -99,7 +99,7 @@ echo "  3. Lấy SSL cert: certbot --nginx -d iot.tot360.com.vn"
 echo "  4. Restart services: systemctl restart frps agv-gateway"
 echo ""
 echo "Kiểm tra:"
-echo "  curl https://iot.tot360.com.vn/_gateway/health"
+echo "  curl https://iot.tot360.com.vn/acs/_gateway/health   (LUON qua /acs/ khi goi qua Nginx tu ben ngoai)"
 echo ""
 echo "Log:"
 echo "  journalctl -u agv-gateway -f"

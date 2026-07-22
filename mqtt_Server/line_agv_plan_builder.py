@@ -25,6 +25,9 @@ ACTION_DIR_BWD     = 8    # Đặt chiều lùi
 ACTION_LIDAR_OFF   = 20   # Tắt cảm biến vật cản (bắt buộc trước TURN)
 ACTION_LIDAR_ON    = 21   # Bật cảm biến vật cản (sau TURN xong)
 ACTION_WAIT_CHARGE = 35   # Đến trạm sạc: đèn vàng + cảm biến, chờ
+ACTION_HOOK_RAISE  = 30   # Nâng móc (xe rơ-moóc/đầu kéo) — gửi qua instantActions, không phải trong plan
+ACTION_HOOK_LOWER  = 31   # Hạ móc (xe rơ-moóc/đầu kéo) — bình thường do cảm biến xe tự làm, không server gửi
+ACTION_REVERSE_BLIND = 36 # Lùi mù theo thời gian (v = ms) — chỉ dùng khi xe rơ-moóc rời trạm sạc để quay đầu
 
 SPEED_FAST     = 120   # byte mặc định khi edge không cấu hình speed
 SPEED_SLOW     = 60    # byte tốc độ tiếp cận nút rẽ (N-1 pattern)
@@ -108,6 +111,7 @@ def _resolve_turn(
     points:       dict,
     node_actions: dict,
     direction:    str,   # "fwd"|"bwd"
+    skip_geometry: bool = False,   # True cho xe không lùi được — chỉ rẽ tại junction đã cấu hình tường minh
 ) -> tuple[int | None, str]:
     """
     Trả về (action, source) với action = ACTION_TURN_R | ACTION_TURN_L | None.
@@ -115,19 +119,45 @@ def _resolve_turn(
     Ưu tiên:
     1a. turn_map["{from}_{to}_{direction}"] — explicit có chiều
     1b. turn_map["{from}_{to}"] — explicit không chiều (fallback)
-    2.  Coordinate geometry (get_turn_direction)
+    2.  Coordinate geometry (get_turn_direction) — BỎ QUA nếu skip_geometry=True
     3.  Legacy fwd_turn / bwd_turn config — backward compat
+
+    skip_geometry=True: xe đầu kéo/rơ-moóc (không lùi được) chỉ được rẽ tại
+    node đã cấu hình tường minh là junction (turn_map hoặc legacy fwd/bwd_turn)
+    — không suy đoán theo toạ độ, vì toạ độ import (vd từ draw.io) có thể lệch
+    nhẹ và geometry sẽ coi mọi khúc cong nhẹ là 1 cú rẽ, xe rơ-moóc không xử lý
+    được rẽ ngoài ý muốn (dễ gập xe kéo).
     """
     act = node_actions.get(str(tag_str), {}) if node_actions else {}
+
+    # ── Priority 0: turn_allowed='no' — ép đi thẳng, bỏ qua turn_map/geometry.
+    # Node được đánh dấu KHÔNG cho rẽ/quay trên map (vd điểm giữa đường 1 chiều)
+    # — trước đây field này bị bỏ qua hoàn toàn, khiến geometry đôi khi tính ra
+    # góc quay sai (gần 180°) tại các node import từ draw.io toạ độ chưa chuẩn.
+    if str(act.get("turn_allowed") or "yes").lower() == "no":
+        return None, "turn_allowed=no"
 
     # ── Priority 1: turn_map lookup ──────────────────────────────────────────
     if from_tag and to_tag:
         turn_map = act.get("turn_map") or {}
-        key_dir  = f"{from_tag}_{to_tag}_{direction}"
-        key_any  = f"{from_tag}_{to_tag}"
+        key_dir     = f"{from_tag}_{to_tag}_{direction}"
+        # (from_tag, to_tag) đã TỰ xác định rõ chiều đi qua node (thứ tự 2 tag)
+        # — hậu tố "_fwd"/"_bwd" chỉ đánh dấu THEO NGỮ CẢNH lúc người dùng cấu
+        # hình trên Map Editor (thường luôn để "_fwd" mặc định), KHÔNG phải chiều
+        # vật lý khác nhau cho CÙNG 1 cặp (from,to). Nếu chỉ tra đúng hậu tố
+        # 'direction' hiện tại (vd route trả-về-sạc gắn nhãn 'bwd') mà cấu hình
+        # lại lưu dưới "_fwd" → tra trật, rơi thẳng xuống "none" dù đã cấu hình
+        # rẽ rõ ràng cho ĐÚNG cặp (from,to) này. Thử luôn hậu tố còn lại trước khi
+        # bỏ cuộc — an toàn vì (from,to) đã đủ xác định turn, không cần suy luận gì thêm.
+        _opp_dir    = "bwd" if direction == "fwd" else "fwd"
+        key_dir_opp = f"{from_tag}_{to_tag}_{_opp_dir}"
+        key_any     = f"{from_tag}_{to_tag}"
         if key_dir in turn_map:
             val = str(turn_map[key_dir]).lower()
             src = f"turn_map:{key_dir}={val}"
+        elif key_dir_opp in turn_map:
+            val = str(turn_map[key_dir_opp]).lower()
+            src = f"turn_map:{key_dir_opp}={val}"
         elif key_any in turn_map:
             val = str(turn_map[key_any]).lower()
             src = f"turn_map:{key_any}={val}"
@@ -139,7 +169,7 @@ def _resolve_turn(
         if val == "straight": return None, src
 
     # ── Priority 2: coordinate geometry ─────────────────────────────────────
-    if from_tag and to_tag:
+    if not skip_geometry and from_tag and to_tag:
         coord_turn = get_turn_direction(from_tag, tag_str, to_tag, points)
         if coord_turn is not None:
             return coord_turn, "geometry"
@@ -175,6 +205,7 @@ def _resolve_turn_bwd_arrival(
     to_tag:       str,
     points:       dict,
     node_actions: dict,
+    skip_geometry: bool = False,
 ) -> tuple[int | None, str]:
     """Turn tại start node khi AGV vừa đến BACKWARD (front hướng về from_tag).
 
@@ -189,6 +220,11 @@ def _resolve_turn_bwd_arrival(
     key_bwd  = f"{from_tag}_{to_tag}_bwd"
     key_fwd  = f"{from_tag}_{to_tag}_fwd"
     key_any  = f"{from_tag}_{to_tag}"
+
+    # 0. turn_allowed='no' — ép đi thẳng, bỏ qua mọi tính toán khác (xem lý do
+    # tương tự ở _resolve_turn).
+    if str(act.get("turn_allowed") or "yes").lower() == "no":
+        return None, "turn_allowed=no [bwd_arrival]"
 
     # 1. Explicit bwd key → user đã cấu hình cho backward arrival
     if key_bwd in turn_map:
@@ -208,13 +244,14 @@ def _resolve_turn_bwd_arrival(
             if val == "straight": return None, src
 
     # 3. Geometry (forward direction) → đảo chiều vì front thực tế ngược in_vec
-    fwd_geo = get_turn_direction(from_tag, tag_str, to_tag, points)
-    if fwd_geo is not None:
-        inv = _invert_turn(fwd_geo)
-        return inv, "geometry [bwd_arrival,inverted]"
+    if not skip_geometry:
+        fwd_geo = get_turn_direction(from_tag, tag_str, to_tag, points)
+        if fwd_geo is not None:
+            inv = _invert_turn(fwd_geo)
+            return inv, "geometry [bwd_arrival,inverted]"
 
     # 4. Legacy bwd_turn (đã xử lý đảo chiều trong _resolve_turn với direction='bwd')
-    return _resolve_turn(tag_str, from_tag, to_tag, points, node_actions, "bwd")
+    return _resolve_turn(tag_str, from_tag, to_tag, points, node_actions, "bwd", skip_geometry=skip_geometry)
 
 
 # ── Step builder ───────────────────────────────────────────────────────────────
@@ -272,9 +309,22 @@ def _build_steps(
         or str(_pre_final_cfg.get("arrival_action", "")).lower() == "wait_charge"
     )
     _dest_wants_bwd = str(dest_node_act.get("approach_dir") or "").lower() == "bwd"
+    # MỚI: xe không lùi được (đầu kéo/rơ-moóc) — KHÔNG BAO GIỜ chèn lùi vào trạm
+    # sạc dù node đích cấu hình approach_dir=bwd (cấu hình đó dành cho carry).
+    # Map cần trạm sạc riêng (approach_dir để trống/tiến) cho xe loại này.
+    _can_reverse_agv = True
+    try:
+        from agv_registry import agv_registry as _areg_bwd
+        _can_reverse_agv = _areg_bwd.can_reverse(_agv)
+    except Exception:
+        pass
     final_approach_bwd = (
         is_final and _dest_wants_bwd and _dest_is_charger and not _pre_final_is_charger
+        and _can_reverse_agv
     )
+    if is_final and _dest_wants_bwd and _dest_is_charger and not _can_reverse_agv:
+        print(f"[PLAN] {_agv} | xe không lùi được — BỎ backward-approach vào trạm sạc "
+              f"{full_path[w_end]}, đi TIẾN vào (cần trạm sạc riêng nếu vật lý không tiếp cận được bằng tiến)")
     if is_final and _dest_wants_bwd and not _dest_is_charger:
         print(f"[PLAN] {_agv} | BỎ qua approach_dir=bwd tại {full_path[w_end]} "
               f"(không phải trạm sạc) → đi TIẾN vào, tránh DIR_BWD bậy gây đi nhầm node")
@@ -304,7 +354,14 @@ def _build_steps(
 
         # ── Thẻ cuối cửa sổ ───────────────────────────────────────────────────
         if is_last:
-            if need_restore_lidar:
+            # KHÔNG bật lại LIDAR nếu chính node CUỐI này cũng được cấu hình tắt
+            # (vd trạm sạc node 10 — hay bị báo vật cản giả do LIDAR bật đúng lúc
+            # xe dừng sát vách/trụ sạc). Trước đây bật ON vô điều kiện ngay khi tới
+            # bất kỳ node nào theo sau 1 edge lidar_off=yes, dù chính node đó CŨNG
+            # được đánh dấu tắt — bật rồi lại phải tắt ngay, tạo khoảng hở ngắn dễ
+            # trúng vật cản giả đúng lúc dừng.
+            _last_node_lidar_off = str(node_actions.get(str(tag), {}).get("lidar_off", "no")).lower() == "yes"
+            if need_restore_lidar and not _last_node_lidar_off:
                 steps.append({"t": tag, "a": ACTION_LIDAR_ON, "v": 0})
             if is_final:
                 node_cfg     = node_actions.get(str(tag), {})
@@ -346,6 +403,7 @@ def _build_steps(
                     _from_for_turn,
                     full_path[global_i + 1],
                     points, node_actions,
+                    skip_geometry=not _can_reverse_agv,
                 )
             else:
                 # Xe đến start node theo chiều tiến (bình thường, bao gồm cả staging node),
@@ -355,6 +413,7 @@ def _build_steps(
                     _from_for_turn,
                     full_path[global_i + 1],
                     points, node_actions, direction,
+                    skip_geometry=not _can_reverse_agv,
                 )
             _from_l = _from_for_turn
             _to_l   = full_path[global_i + 1]
@@ -370,11 +429,8 @@ def _build_steps(
                 tag_str,
                 full_path[global_i + 2],
                 points, node_actions, direction,
+                skip_geometry=not _can_reverse_agv,
             )
-
-        # ── LIDAR restore: chỉ khi không có turn (turn tự xử lý LIDAR_ON) ────
-        if need_restore_lidar and turn_at_current is None:
-            steps.append({"t": tag, "a": ACTION_LIDAR_ON, "v": 0})
 
         # ── Kiểm tra LIDAR config cho edge ra / node hiện tại ────────────────
         out_edge_key   = f"{tag_str}_{full_path[global_i + 1]}"
@@ -383,6 +439,16 @@ def _build_steps(
         _eld = edge_lidar.get(out_edge_key)
         edge_lidar_off = _eld is not None and (_eld == "both" or _eld == direction)
         force_lidar_off = node_lidar_off or edge_lidar_off
+
+        # ── LIDAR restore: chỉ khi không có turn (turn tự xử lý LIDAR_ON) VÀ
+        # node hiện tại không TIẾP TỤC cần tắt (force_lidar_off) — tránh bật rồi
+        # tắt ngay lập tức khi 2 node liền kề CÙNG được đánh dấu lidar_off=yes
+        # (map đánh dấu cả 1 đoạn dài cần tắt liên tục, không phải từng node rời
+        # rạc) — trước đây bật ON vô điều kiện ngay khi tới node kế sau 1 edge
+        # lidar_off, tạo khoảng hở ngắn dễ trúng vật cản giả giữa 2 node lidar_off
+        # liên tiếp.
+        if need_restore_lidar and turn_at_current is None and not force_lidar_off:
+            steps.append({"t": tag, "a": ACTION_LIDAR_ON, "v": 0})
 
         # Tốc độ edge từ nút hiện tại → nút tiếp theo
         spd          = _edge_speed(full_path, global_i, edge_speeds)

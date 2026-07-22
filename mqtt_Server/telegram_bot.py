@@ -50,6 +50,7 @@ def get_allowed_chats() -> set:
 # ── Globals ────────────────────────────────────────────────────────────────────
 _db_pool: Optional[asyncpg.Pool] = None
 _application: Optional[Application] = None
+_loop: Optional[asyncio.AbstractEventLoop] = None   # MỚI — event loop lúc bot khởi động, dùng để gửi cảnh báo an toàn từ thread khác (MQTT callback)
 _factories_cache: list = []   # danh sách tên nhà máy, load khi bot khởi động
 
 def set_pool(pool: asyncpg.Pool):
@@ -917,7 +918,8 @@ async def on_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Lifecycle ──────────────────────────────────────────────────────────────────
 async def start_bot():
-    global _application
+    global _application, _loop
+    _loop = asyncio.get_running_loop()
     token = get_token()
     if not token:
         print("[TELEGRAM] BOT_TOKEN chưa cấu hình — bỏ qua khởi động bot")
@@ -963,3 +965,28 @@ async def stop_bot():
         except Exception as e:
             logger.warning(f"[TELEGRAM] stop error: {e}")
         _application = None
+
+
+# ── Gửi cảnh báo chủ động (MỚI) — dùng cho lỗi móc hàng, v.v. ────────────────
+async def send_alert(text: str) -> None:
+    """Gửi tin nhắn cảnh báo tới tất cả chat được phép, không cần chờ lệnh /... """
+    if _application is None:
+        print(f"[TELEGRAM] Bot chưa sẵn sàng — bỏ qua cảnh báo: {text}")
+        return
+    for chat_id in get_allowed_chats():
+        try:
+            await _application.bot.send_message(chat_id=chat_id, text=text)
+        except Exception as ex:
+            print(f"[TELEGRAM] Gửi cảnh báo tới {chat_id} lỗi: {ex}")
+
+
+def notify_error(text: str) -> None:
+    """Gọi được từ code ĐỒNG BỘ (vd MQTT callback thread) — lên lịch gửi an
+    toàn qua event loop của bot bằng run_coroutine_threadsafe."""
+    if _application is None or _loop is None:
+        print(f"[TELEGRAM] Bot chưa sẵn sàng — bỏ qua cảnh báo: {text}")
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(send_alert(text), _loop)
+    except Exception as ex:
+        print(f"[TELEGRAM] notify_error lỗi: {ex}")

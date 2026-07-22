@@ -416,6 +416,7 @@
       </select>
     </div>
 
+
     <!-- Team checkboxes -->
     <div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -547,6 +548,19 @@
 
 <!-- ── Lifecycle action bar (lấy hàng / giao hàng — chỉ hiện khi AGV đang chờ xác nhận) ── -->
 <div id="lifecycle-bar" style="display:none;flex-shrink:0;padding:8px 16px;border-top:1px solid;backdrop-filter:blur(8px)">
+  <!-- hook-lower state (xe rơ-moóc đã nâng móc chờ xe hàng — cần bấm hạ móc thủ công) -->
+  <div id="lc-hook-lower" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
+    <span class="material-symbols-outlined" style="color:#f5a623;font-size:20px">conveyor_belt</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:11px;font-weight:700;color:#f5a623;letter-spacing:.04em" data-i18n="lc_hook_title">CHỜ MÓC XE HÀNG</div>
+      <div style="font-size:10px;color:#8c909f;margin-top:1px" data-i18n="lc_hook_desc">Móc xe hàng vào rồi bấm Hạ móc — xe sẽ chờ xác nhận sau khi móc hạ xong</div>
+    </div>
+    <button id="lc-hook-lower-btn" onclick="sendHookLower()"
+      style="padding:8px 20px;border-radius:9px;background:rgba(245,166,35,.3);border:1px solid rgba(245,166,35,.5);color:#fff;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;transition:all .2s"
+      onmouseover="this.style.background='rgba(245,166,35,.5)'" onmouseout="this.style.background='rgba(245,166,35,.3)'">
+      <span class="material-symbols-outlined" style="font-size:14px">arrow_downward</span><span data-i18n="lc_hook_btn">HẠ MÓC</span>
+    </button>
+  </div>
   <!-- picking state (WAIT_SYS → arrived_wait_sys) -->
   <div id="lc-picking" style="display:none;align-items:center;gap:10px;flex-wrap:wrap">
     <span class="material-symbols-outlined" style="color:#22c55e;font-size:20px">inventory_2</span>
@@ -776,6 +790,9 @@ const _I = {
     lc_pick_btn:'ĐÃ LẤY HÀNG XONG',lc_del_title:'AGV ĐÃ ĐẾN ĐIỂM GIAO HÀNG',
     lc_del_desc:'AGV đang đứng chờ — nhấn xác nhận sau khi đã dỡ hàng xuống xong',
     lc_del_btn:'ĐÃ GIAO HÀNG XONG',
+    lc_hook_title:'CHỜ MÓC XE HÀNG',
+    lc_hook_desc:'Móc xe hàng vào rồi bấm Hạ móc — xe sẽ chờ xác nhận sau khi móc hạ xong',
+    lc_hook_btn:'HẠ MÓC',lc_hook_sent:'✓ Đã gửi lệnh hạ móc',
     lc_pick_ack:'✓ Xác nhận lấy hàng — AGV tiếp tục',lc_del_ack:'✓ Xác nhận giao hàng — AGV tiếp tục',
     lc_confirming:'Đang xác nhận…',lc_confirm_err:'✗ Mất kết nối server',
     agv_not_sel:'Chưa chọn',wf_not_sel:'Chưa chọn',queue_lbl:'HÀNG CHỜ',
@@ -900,6 +917,9 @@ const _I = {
     lc_pick_desc:'AGV is waiting — confirm after loading cargo onto vehicle',
     lc_pick_btn:'CARGO LOADED',lc_del_title:'AGV ARRIVED AT DELIVERY POINT',
     lc_del_desc:'AGV is waiting — confirm after unloading cargo',lc_del_btn:'CARGO DELIVERED',
+    lc_hook_title:'WAITING FOR CART HOOK-UP',
+    lc_hook_desc:'Attach the cart, then press Lower Hook — AGV waits for confirmation after the hook lowers',
+    lc_hook_btn:'LOWER HOOK',lc_hook_sent:'✓ Lower-hook command sent',
     lc_pick_ack:'✓ Pickup confirmed — AGV continuing',lc_del_ack:'✓ Delivery confirmed — AGV continuing',
     lc_confirming:'Confirming…',lc_confirm_err:'✗ Connection to server lost',
     agv_not_sel:'Not selected',wf_not_sel:'Not selected',queue_lbl:'QUEUE',
@@ -971,7 +991,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 // ── Config ─────────────────────────────────────────────────────────────────
-const API  = 'http://' + (window.location.hostname || '192.168.0.124') + ':8000';
+const API  = 'http://' + (window.location.hostname || '192.168.0.200') + ':8000';
 const DASH = '';   // same origin as iframe
 
 // AGV type → icon path (served by Dash /assets/)
@@ -1633,6 +1653,41 @@ function _bzPt(p0,c1,c2,p1,t){
   return {x:mt*mt*mt*p0.x+3*mt*mt*t*c1.x+3*mt*t*t*c2.x+t*t*t*p1.x,
           y:mt*mt*mt*p0.y+3*mt*mt*t*c1.y+3*mt*t*t*c2.y+t*t*t*p1.y};
 }
+// Map "{src}_{dst}" -> bezier row, để tra cứu khi vẽ đường route theo đúng
+// hình dạng cong (thay vì luôn vẽ thẳng giữa tâm 2 node như polyline cũ).
+function _bzLookup(beziersArr){
+  const m={};
+  (beziersArr||[]).forEach(b=>{ m[`${b.id_source}_${b.id_dest}`]=b; });
+  return m;
+}
+// Xây "d" attribute cho <path> route đi qua danh sách node id, dùng đúng
+// đường cong bezier nếu cạnh đó là bezier (theo cả 2 chiều đi), ngược lại
+// vẽ đoạn thẳng như cũ.
+function _routePathD(nodeIds,_nm,bzMap){
+  let d='';
+  for(let i=0;i<nodeIds.length-1;i++){
+    const aId=String(nodeIds[i]), bId=String(nodeIds[i+1]);
+    const a=_nm[aId], b=_nm[bId];
+    if(!a||!b) continue;
+    const pa=worldToPixel(+a.x,+a.y), pb=worldToPixel(+b.x,+b.y);
+    if(i===0) d+=`M ${pa.x} ${pa.y} `;
+    const bzFwd=bzMap[`${aId}_${bId}`], bzBwd=bzMap[`${bId}_${aId}`];
+    if(bzFwd){
+      const c1=worldToPixel(bzFwd.curve_point_start_x||0,bzFwd.curve_point_start_y||0);
+      const c2=worldToPixel(bzFwd.curve_point_end_x||0,bzFwd.curve_point_end_y||0);
+      d+=`C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${pb.x} ${pb.y} `;
+    } else if(bzBwd){
+      // Cạnh cong lưu theo chiều ngược (bId→aId) — đảo thứ tự control point
+      // để cong đúng hình khi đi theo chiều aId→bId.
+      const c1=worldToPixel(bzBwd.curve_point_end_x||0,bzBwd.curve_point_end_y||0);
+      const c2=worldToPixel(bzBwd.curve_point_start_x||0,bzBwd.curve_point_start_y||0);
+      d+=`C ${c1.x} ${c1.y} ${c2.x} ${c2.y} ${pb.x} ${pb.y} `;
+    } else {
+      d+=`L ${pb.x} ${pb.y} `;
+    }
+  }
+  return d;
+}
 function _drawArrow(g,cx,cy,dx,dy){
   const len=Math.sqrt(dx*dx+dy*dy);
   if(len<0.001) return;
@@ -1719,25 +1774,26 @@ function renderMap(){
   const mapDefs=document.getElementById('map-defs');
   mapDefs.innerHTML='';
 
+  const _bzMapRoute=_bzLookup(beziers);
   Object.entries(agvRoutes).forEach(([agv_id,rt])=>{
     if(!rt.driving||!rt.path||rt.path.length<2) return;
     const remaining=rt.path.slice(Math.max(0,rt.current_idx));
     if(remaining.length<2) return;
-    const pts=remaining.map(nid=>_nm[String(nid)]).filter(n=>n).map(n=>worldToPixel(+n.x,+n.y));
-    if(pts.length<2) return;
+    const validIds=remaining.filter(nid=>_nm[String(nid)]);
+    if(validIds.length<2) return;
     const col=agvRouteColor(agv_id);
-    const ptStr=pts.map(p=>`${p.x},${p.y}`).join(' ');
+    const dAttr=_routePathD(validIds,_nm,_bzMapRoute);
 
     // Glow layer
-    const glowL=document.createElementNS(NS,'polyline');
-    glowL.setAttribute('points',ptStr); glowL.setAttribute('stroke',col);
+    const glowL=document.createElementNS(NS,'path');
+    glowL.setAttribute('d',dAttr); glowL.setAttribute('stroke',col);
     glowL.setAttribute('stroke-width',String(22/vp.zoom)); glowL.setAttribute('stroke-opacity','0.22');
     glowL.setAttribute('fill','none'); glowL.setAttribute('pointer-events','none');
     glowL.setAttribute('stroke-linecap','round'); glowL.setAttribute('stroke-linejoin','round');
     g.appendChild(glowL);
     // Solid highlight line
-    const hl=document.createElementNS(NS,'polyline');
-    hl.setAttribute('points',ptStr); hl.setAttribute('stroke',col);
+    const hl=document.createElementNS(NS,'path');
+    hl.setAttribute('d',dAttr); hl.setAttribute('stroke',col);
     hl.setAttribute('stroke-width',String(6/vp.zoom)); hl.setAttribute('stroke-opacity','0.95');
     hl.setAttribute('fill','none'); hl.setAttribute('pointer-events','none');
     hl.setAttribute('stroke-linecap','round'); hl.setAttribute('stroke-linejoin','round');
@@ -2137,6 +2193,41 @@ function startMission(){
 
 async function doDispatch(){
   closeModal('confirm-modal');
+
+  // ── AGV loại Trailer/rơ-moóc + bước đích là "Tổ X" (nhóm teamOpts trong
+  // dropdown) → chạy chu trình 5 chặng qua /api/execute/trailer-roundtrip
+  // thay vì go_to thường (server tự tìm node thả rỗng/lấy đầy/staging theo
+  // cấu hình map). Bước đích KHÔNG phải "Tổ" (node thường) vẫn dispatch bình
+  // thường như cũ — không đụng carry hay các luồng khác.
+  if (selAgv && selAgv.agv_type_raw === 'trailer') {
+    const teamSteps = wfSteps.filter(s => s.needsDest && selNodes[s.idx]
+      && teamNodes.some(t => String(t.node_id) === String(selNodes[s.idx].name_id)));
+    if (teamSteps.length) {
+      let ok = 0, fail = 0, firstErr = '';
+      for (const s of teamSteps) {
+        const teamEntry = teamNodes.find(t => String(t.node_id) === String(selNodes[s.idx].name_id));
+        try {
+          const r = await fetch(`${API}/api/execute/trailer-roundtrip`, {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ agv_id: selAgv.agv_id, team: teamEntry.team })
+          });
+          const d = await r.json();
+          if (r.ok) ok++; else { fail++; if (!firstErr) firstErr = d.detail || 'Error'; }
+        } catch(e) { fail++; if (!firstErr) firstErr = String(e); }
+      }
+      if (ok > 0) toast(`${_t('toast_sent_ok')} ${ok} Tổ ${_t('toast_to')} ${selAgv.agv_id}`, 'success');
+      if (fail > 0) toast(`✗ ${fail} Tổ lỗi: ${firstErr}`, 'error');
+      if (ok > 0) {
+        selNodes={}; selStartNode=null; selWf=null; wfSteps=[]; activeStepIdx=0;
+        document.getElementById('wf-select').value='';
+        document.getElementById('wf-steps').style.display='none';
+        renderStepSelectors(); renderMap(); updateSummary(); updateStartBtn();
+      }
+      setTimeout(loadAgvs,600);
+      return;
+    }
+  }
+
   let firstQueued=null, sentCount=0, failCount=0;
   const hasMoveStep=wfSteps.some(s=>s.cmd==='go_to');
   const lastStepIsCharge=wfSteps.length>0&&wfSteps[wfSteps.length-1].cmd==='go_charge';
@@ -2303,26 +2394,59 @@ function updateManualBar(){ /* no-op: manual bar removed */ }
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 function updateLifecycleBar(){
   const bar      = document.getElementById('lifecycle-bar');
+  const hookLow  = document.getElementById('lc-hook-lower');
   const picking  = document.getElementById('lc-picking');
   const deliver  = document.getElementById('lc-delivering');
   const lc = selAgv?.task_lifecycle;
 
-  if(lc === 'picking'){
+  // Xe rơ-moóc đã nâng móc, đang chờ được đưa xe hàng vào + bấm Hạ móc thủ công
+  // — xảy ra TRƯỚC khi task_lifecycle chuyển 'picking' (chỉ chuyển sau khi hạ móc xong).
+  if(selAgv?.hook_pending === 'pickup' && selAgv?.hook_state !== 'lowered'){
+    bar.style.display      = 'flex';
+    bar.style.borderColor  = 'rgba(245,166,35,.35)';
+    bar.style.background   = 'rgba(38,26,4,.9)';
+    hookLow.style.display  = 'flex';
+    picking.style.display  = 'none';
+    deliver.style.display  = 'none';
+  } else if(lc === 'picking'){
     bar.style.display      = 'flex';
     bar.style.borderColor  = 'rgba(34,197,94,.35)';
     bar.style.background   = 'rgba(11,28,11,.9)';
+    hookLow.style.display  = 'none';
     picking.style.display  = 'flex';
     deliver.style.display  = 'none';
   } else if(lc === 'delivering'){
     bar.style.display      = 'flex';
     bar.style.borderColor  = 'rgba(77,142,255,.35)';
     bar.style.background   = 'rgba(10,16,38,.9)';
+    hookLow.style.display  = 'none';
     picking.style.display  = 'none';
     deliver.style.display  = 'flex';
   } else {
     bar.style.display      = 'none';
+    hookLow.style.display  = 'none';
     picking.style.display  = 'none';
     deliver.style.display  = 'none';
+  }
+}
+
+async function sendHookLower(){
+  if(!selAgv) return;
+  const btn = document.getElementById('lc-hook-lower-btn');
+  if(btn){ btn.disabled = true; btn.textContent = _t('lc_confirming'); }
+  try{
+    const r = await fetch(`${API}/api/execute/line-action`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({agv_id: selAgv.agv_id, action_code: 31, value: 0})
+    });
+    const d = await r.json();
+    if(!r.ok || !d.ok){ toast('✗ '+(d.detail||'Lỗi gửi lệnh hạ móc'),'error'); }
+    else { toast(_t('lc_hook_sent'), 'success'); }
+  }catch(e){ toast(_t('lc_confirm_err'),'error'); }
+  finally{
+    if(btn){ btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px">arrow_downward</span><span data-i18n="lc_hook_btn">'+_t('lc_hook_btn')+'</span>'; }
+    await loadAgvs();
+    updateLifecycleBar();
   }
 }
 
@@ -3174,7 +3298,7 @@ async function multiLoadData() {
     // Load DROPOFF teams
     const tr = await fetch(`${API}/api/execute/team-nodes?map_id=${currentMapId}`);
     const td = await tr.json();
-    teamNodes = td.team_nodes || [];
+    teamNodes = td.teams || [];
     // Load supply groups
     const sr = await fetch(`${API}/api/map/node/supply-groups?map_id=${currentMapId}`);
     const sd = await sr.json();
@@ -3349,6 +3473,11 @@ async function multiDispatch() {
   const agvId  = agvSel ? agvSel.value : '';
   if (!agvId || !multiTeamOrder.length) return;
 
+  const selAgvObj = agvs.find(x => x.agv_id === agvId);
+  if (selAgvObj && selAgvObj.agv_type_raw === 'trailer') {
+    return multiDispatchTrailer(agvId);
+  }
+
   const steps = multiBuildSteps().filter(s => s.node); // skip steps without node
   if (!steps.length) { alert(_t('multi_no_steps')); return; }
 
@@ -3402,6 +3531,56 @@ async function multiDispatch() {
     }, 2500);
   }
   if (fail > 0) alert(`${fail} ${_t('multi_fail_pre')}`);
+}
+
+// ── Dispatch riêng cho AGV loại Trailer/rơ-moóc ─────────────────────────────
+// - CHỌN ĐÚNG 1 Tổ: chu trình đầy đủ 5 chặng (thả rỗng → lấy đầy → [xác nhận
+//   web] → staging → về trạm) qua /api/execute/trailer-roundtrip — dùng khi
+//   Tổ đó CHƯA có xe hàng đầy chờ sẵn, cần tự thả rỗng trước.
+// - CHỌN NHIỀU Tổ (2+): "milk run" gom lấy hàng đầy nhiều Tổ trong 1 chuyến
+//   qua /api/execute/trailer-multi-pickup — GIẢ ĐỊNH mỗi Tổ đã có xe hàng đầy
+//   chờ sẵn (chặng thả rỗng làm riêng trước đó, từng Tổ). Xe móc cơ khí ở Tổ
+//   GẦN NHẤT, các Tổ sau chỉ dừng chờ xác nhận (công nhân chuyển hàng thủ công
+//   sang xe đang kéo, không móc lại).
+// KHÔNG dùng chung logic multiBuildSteps() (dành cho carry: mỗi Tổ chỉ 1 node
+// đích, không có móc hàng).
+async function multiDispatchTrailer(agvId) {
+  const btn = document.getElementById('multi-dispatch-btn');
+  if (btn) { btn.disabled = true; btn.textContent = _t('multi_sending'); }
+
+  let ok = 0, fail = 0, firstErr = '';
+
+  if (multiTeamOrder.length === 1) {
+    try {
+      const r = await fetch(`${API}/api/execute/trailer-roundtrip`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ agv_id: agvId, team: multiTeamOrder[0] })
+      });
+      const d = await r.json();
+      if (r.ok) ok++; else { fail++; if (!firstErr) firstErr = d.detail || 'Error'; }
+    } catch(e) { fail++; if (!firstErr) firstErr = String(e); }
+  } else {
+    try {
+      const r = await fetch(`${API}/api/execute/trailer-multi-pickup`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ agv_id: agvId, teams: multiTeamOrder })
+      });
+      const d = await r.json();
+      if (r.ok) ok++; else { fail++; if (!firstErr) firstErr = d.detail || 'Error'; }
+    } catch(e) { fail++; if (!firstErr) firstErr = String(e); }
+  }
+
+  if (btn) {
+    btn.textContent = ok > 0 ? `${_t('multi_sent_ok')} ${ok} ${_t('multi_cmds')}` : `✗ ${firstErr || 'Error'}`;
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = `<span class="material-symbols-outlined" style="font-size:15px;vertical-align:middle;margin-right:4px">play_arrow</span>${_t('multi_start_btn')}`;
+      multiUpdateBtn();
+    }, 2500);
+  }
+  if (fail > 0) alert(`${fail} Tổ gửi lệnh thất bại: ${firstErr}`);
 }
 </script>
 </body>
