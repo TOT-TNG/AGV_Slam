@@ -1,0 +1,15 @@
+[Unit]
+Description=AGV Web UI (Dash dashboard, port 8050)
+After=network.target agvmqtt.service
+
+[Service]
+Type=simple
+WorkingDirectory=__WEBUI_DIR__
+ExecStart=__MQTT_DIR__/.venv/bin/python3 __WEBUI_DIR__/main.py
+Restart=always
+RestartSec=3
+StandardOutput=append:__MQTT_DIR__/deploy/service_webui_stdout.log
+StandardError=append:__MQTT_DIR__/deploy/service_webui_stderr.log
+
+[Install]
+WantedBy=multi-user.target

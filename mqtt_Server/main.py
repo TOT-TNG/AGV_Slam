@@ -1113,8 +1113,9 @@ async def agv_map():
     )
 
 @app.get("/home")
-async def home_redirect():
-    return RedirectResponse(url="http://192.168.0.200:8050/home")
+async def home_redirect(request: Request):
+    host = request.url.hostname
+    return RedirectResponse(url=f"http://{host}:8050/home")
 
 # ==========================
 # DEBUG ROUTES

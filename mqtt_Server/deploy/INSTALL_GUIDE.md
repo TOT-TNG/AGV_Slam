@@ -189,6 +189,20 @@ Log: `deploy\service_stdout.log` / `service_stderr.log`.
 
 Gỡ bỏ: `deploy\nssm.exe remove AGVmqttServer confirm`
 
+**Web UI (Dash, port 8050)** — cài thêm service riêng (tương tự cơ chế trên,
+dùng chung `nssm.exe` đã tải), để dashboard cũng tự chạy nền/tự khởi động
+cùng Windows, không cần mở PowerShell mở sẵn:
+```
+powershell -ExecutionPolicy Bypass -File deploy\install_service_webui_windows.ps1
+```
+Service tên `AGVWebUI`, phụ thuộc `AGVmqttServer` (khởi động sau). Log:
+`deploy\service_webui_stdout.log` / `service_webui_stderr.log`.
+Gỡ bỏ: `deploy\nssm.exe remove AGVWebUI confirm`
+
+Chạy thử tay (không cài service, chỉ để test nhanh) cả 2 cùng lúc:
+`deploy\run_all.ps1` — tự mở 2 cửa sổ PowerShell riêng cho `mqtt_Server`
+và `Web_UI`.
+
 ### Linux (systemd)
 ```
 sudo bash deploy/install_service_linux.sh
@@ -197,9 +211,91 @@ Kiểm tra: `sudo systemctl status agvmqtt` — Log: `journalctl -u agvmqtt -f`
 
 Gỡ bỏ: `sudo systemctl disable --now agvmqtt`
 
+**Web UI (Dash, port 8050)** — cài thêm service riêng (tương tự cơ chế trên,
+dùng chung venv đã tạo sẵn):
+```
+sudo bash deploy/install_service_webui_linux.sh
+```
+Service tên `agv-webui`. Kiểm tra: `sudo systemctl status agv-webui` — Log:
+`journalctl -u agv-webui -f`
+
+Gỡ bỏ: `sudo systemctl disable --now agv-webui && sudo rm /etc/systemd/system/agv-webui.service`
+
+Chạy thử tay (không cài service, chỉ để test nhanh) cả 2 cùng lúc trên Windows:
+`deploy\run_all.ps1` — tự mở 2 cửa sổ PowerShell riêng cho `mqtt_Server`
+và `Web_UI`. Trên Linux chạy tay bằng 2 terminal riêng (hoặc `&`/`tmux`) tương tự.
+
 ---
 
-## 9. Cấu hình AGV vật lý
+## 9. Cập nhật hệ thống (không cần cài lại từ đầu)
+
+Sau lần cài đầu tiên, khi có code mới (git pull về, hoặc copy file cập nhật
+thủ công), **không cần lặp lại toàn bộ Bước 3** (không cần cài lại
+Python/PostgreSQL/Mosquitto, không tạo lại venv, không tạo lại database) —
+chỉ cần chạy script cập nhật, nó tự nạp code mới lên venv/service đã có sẵn.
+
+### Windows
+```powershell
+cd mqtt_Server
+powershell -ExecutionPolicy Bypass -File deploy\update_windows.ps1
+```
+
+### Linux
+```bash
+cd mqtt_Server
+bash deploy/update_linux.sh
+```
+
+Cả 2 script đều làm chung 1 quy trình:
+1. `git pull` code mới nhất (nếu thư mục gốc là git repo; nếu cập nhật bằng
+   copy file thủ công thì copy đè **trước** khi chạy script)
+2. Cài lại `requirements.txt` vào **venv đã có sẵn** — chỉ cài thêm/nâng cấp
+   gói thay đổi, không tạo venv mới
+3. Chạy lại `schema_core.sql` — an toàn tuyệt đối (`CREATE TABLE IF NOT
+   EXISTS`), **không xoá/mất dữ liệu**, chỉ đề phòng schema có thêm cột/bảng mới
+4. Tự restart 2 service (`AGVmqttServer`/`AGVWebUI` trên Windows,
+   `agvmqtt`/`agv-webui` trên Linux) để nạp code mới — bỏ qua service nào
+   chưa cài
+
+> Script **không đụng vào dữ liệu AGV/bản đồ/lịch trình đã cấu hình**. Muốn
+> đồng bộ dữ liệu mới từ máy khác (không phải code), dùng riêng mục "Phục hồi
+> nhanh từ bản backup đầy đủ" ở Bước 4, không lẫn với bước cập nhật này.
+
+---
+
+## 10. Mở firewall để truy cập từ máy khác trong LAN
+
+Mặc định firewall chặn port lạ từ máy khác kết nối tới. Muốn máy khác trong
+cùng mạng LAN mở được Web UI (bản đồ/cấu hình AGV) và Dashboard thống kê,
+chạy trên **máy server**:
+
+### Windows (PowerShell quyền Administrator)
+```powershell
+New-NetFirewallRule -DisplayName "AGVmqtt Web (8000)" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow
+New-NetFirewallRule -DisplayName "AGVmqtt Dashboard (8050)" -Direction Inbound -Protocol TCP -LocalPort 8050 -Action Allow
+```
+
+### Linux (ufw — nếu dùng firewall khác như firewalld thì đổi lệnh tương ứng)
+```bash
+sudo ufw allow 8000/tcp comment "AGVmqtt Web"
+sudo ufw allow 8050/tcp comment "AGVmqtt Dashboard"
+```
+
+Sau đó từ máy khác cùng LAN, mở trình duyệt vào:
+- `http://<IP-máy-server>:8000` — bản đồ AGV, cấu hình bản đồ, quản lý AGV
+- `http://<IP-máy-server>:8050` — dashboard thống kê
+
+(`<IP-máy-server>` là IP thật của card mạng LAN trên máy server — xem bằng
+`ipconfig`/`ip addr`, **không dùng `localhost`** khi truy cập từ máy khác.)
+
+Nếu vẫn không vào được từ máy khác sau khi mở firewall, kiểm tra theo thứ tự:
+1. `ping <IP-máy-server>` từ máy client — xác nhận thông mạng.
+2. Cả 2 máy cùng subnet (ví dụ cùng dải `192.168.1.x`).
+3. Router/switch trung gian không chặn port nội bộ (hiếm gặp trong LAN thường).
+
+---
+
+## 11. Cấu hình AGV vật lý
 
 Với mỗi AGV:
 1. Bật AGV, kết nối WiFi vào access point riêng của AGV (`configAGV`).
@@ -213,7 +309,7 @@ Với mỗi AGV:
 
 ---
 
-## 10. Tạo bản đồ
+## 12. Tạo bản đồ
 
 Nếu đã có layout vẽ sẵn bằng draw.io: vào **Create Map** trên Web UI, bấm
 **"📐 Import draw.io"**, chọn file (phải export dạng **không nén** — draw.io:
@@ -225,13 +321,14 @@ Sau đó vào **Quản lý AGV** → chọn AGV → tab Cấu hình → gán b�
 
 ---
 
-## 11. Xử lý sự cố thường gặp
+## 13. Xử lý sự cố thường gặp
 
 | Triệu chứng | Nguyên nhân thường gặp | Cách kiểm tra / sửa |
 |---|---|---|
 | `Broker connect error: timed out` | IP trong `MQTT_BROKER` không khớp IP thật của card local | `ipconfig`/`ip addr` kiểm tra IP card local hiện tại, sửa lại cho khớp |
 | `Broker connect error: ... actively refused` | Sai **port** (vd để 8883 thay vì 1883) hoặc Mosquitto chưa chạy | Kiểm tra `Get-Service mosquitto` / `systemctl status mosquitto`, xác nhận port `1883` |
-| AGV không hiện online dù broker đã kết nối | AGV vật lý chưa cấu hình đúng broker/port, hoặc TLS đang bật sai port | Kiểm tra lại bước 9; thử `mosquitto_sub -h <ip> -t "uagv/v2/+/+/state"` xem có tin nào tới không |
+| AGV không hiện online dù broker đã kết nối | AGV vật lý chưa cấu hình đúng broker/port, hoặc TLS đang bật sai port | Kiểm tra lại bước 11; thử `mosquitto_sub -h <ip> -t "uagv/v2/+/+/state"` xem có tin nào tới không |
 | Lỗi Telegram `getaddrinfo failed` lúc khởi động | Card internet chưa có mạng lúc server khởi động | Bình thường, không ảnh hưởng AGV/MQTT — bot **không tự retry**, cần khởi động lại server sau khi có internet |
 | `[UNIFIED_MQTT] init warning ... UTF-8 BOM` | File cấu hình có BOM ở đầu file (thường do lưu bằng Notepad trên Windows) | Không chặn hệ thống chạy (non-fatal), có thể bỏ qua |
 | App báo thiếu bảng khi chạy trên DB mới | Chưa chạy `schema_core.sql` (2 bảng `agv_devices`/`agv_tasks` không tự tạo) | Chạy lại `deploy/setup.py` hoặc `psql -f deploy/schema_core.sql` |
+| Máy khác trong LAN không mở được Web UI/Dashboard (nhưng `localhost` trên máy server vẫn vào bình thường) | Firewall chặn port 8000/8050 từ máy khác | Làm theo bước 10 (`New-NetFirewallRule`/`ufw` cho 2 port) |
