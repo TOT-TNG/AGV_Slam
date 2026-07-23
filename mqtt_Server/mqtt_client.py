@@ -1265,6 +1265,50 @@ def resolve_special_target_node(agv_id: str, target_type: str) -> dict:
         "resolved_map_id": resolved_map_id,
     }
 
+def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int):
+    async def _run():
+        from line_agv_handler import line_agv_handler
+        while True:
+            await asyncio.sleep(0.4)
+            state = line_agv_handler.state_store.get(agv_id)
+            if not state or state.locate_then_charge_seq != seq:
+                return   # bị huỷ / thay thế bởi lượt dò vị trí khác
+            if state.current_tag is not None:
+                print(f"[LOCATE_THEN_CHARGE] {agv_id}: đã xác định vị trí tag={state.current_tag} "
+                      f"— tiếp tục lệnh Về trạm")
+                try:
+                    send_agv_to_special_target(agv_id, "charge")
+                except Exception as e:
+                    print(f"[LOCATE_THEN_CHARGE] {agv_id}: lỗi khi tiếp tục Về trạm sau khi dò vị trí: {e}")
+                return
+            send_line_command(agv_id, "deba", spd=spd, dir="toi")
+    return _run()
+
+
+def _start_locate_then_charge(agv_id: str, spd: int = 150) -> None:
+    """
+    Line AGV chưa biết vị trí hiện tại (bị đẩy tay ra khỏi bản đồ, hoặc mới bật lại
+    chưa quẹt thẻ RFID nào) mà nhận lệnh Về trạm — không thể lập lộ trình vì không có
+    điểm xuất phát. Thay vì báo lỗi, tự động chạy tiến (lệnh "deba", bỏ qua hoàn toàn
+    pathfinding) tới khi quẹt được 1 thẻ RFID bất kỳ, khi đó current_tag sẽ có giá trị
+    và lệnh Về trạm thật được tự động gửi tiếp (xem _locate_then_charge_loop_coro).
+    """
+    from line_agv_handler import line_agv_handler
+    state = line_agv_handler.state_store.get_or_create(agv_id)
+    state.locate_then_charge_seq += 1
+    my_seq = state.locate_then_charge_seq
+    print(f"[LOCATE_THEN_CHARGE] {agv_id}: chưa biết vị trí — chạy tiến (deba) để dò vị trí trước khi Về trạm")
+    send_line_command(agv_id, "deba", spd=spd, dir="toi")
+
+    app = get_app()
+    loop = getattr(app.state, "loop", None)
+    if loop and loop.is_running():
+        asyncio.run_coroutine_threadsafe(_locate_then_charge_loop_coro(agv_id, my_seq, spd), loop)
+    else:
+        print(f"[LOCATE_THEN_CHARGE] {agv_id}: không lấy được event loop đang chạy — "
+              f"chỉ gửi được 1 lần deba, có thể không đủ để tới thẻ RFID kế tiếp")
+
+
 def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
     """
     Gửi AGV tới node đặc biệt:
@@ -1284,6 +1328,26 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
 
     if not raw_map:
         raise ValueError(f"AGV {agv_id} chưa có mapCurrent/map_id")
+
+    if not current_node:
+        # Trước đây rơi thẳng vào plan_path_for_order() bên dưới với current_node=None
+        # → agv_state không có x/y → nearest_node(0,0) chọn ĐẠI 1 node gần toạ độ (0,0)
+        # trên bản đồ rồi vẫn lập/gửi lộ trình từ node sai đó, KHÔNG báo lỗi gì — xe đi
+        # lệch mà không ai biết vì sao. Chặn ở đây, báo lỗi rõ (giống _dispatch_go_to),
+        # trừ trường hợp Về trạm của Line AGV — có thể tự dò vị trí bằng "deba" trước.
+        from agv_registry import agv_registry as _reg_sat
+        if target_type == "charge" and _reg_sat.is_line(agv_id):
+            _start_locate_then_charge(agv_id)
+            return {
+                "success": True, "agv_id": agv_id,
+                "target_type": target_type, "target_node": None,
+                "target_name": None, "map_id": resolved_map_id,
+                "path": [], "pending": "locate_then_charge",
+            }
+        raise ValueError(
+            f"{agv_id}: không biết vị trí hiện tại — "
+            f"hãy chọn 'Vị trí xuất phát' trên bản đồ trước khi gửi lệnh"
+        )
 
     target_info = resolve_special_target_node(agv_id, target_type)
     target_node = target_info["node_id"]

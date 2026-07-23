@@ -185,6 +185,9 @@ class LineAGVState:
     test_drive_target: Optional[str] = None   # tag cần dừng khi tới, None = không có chạy thử đang chờ
     test_drive_seq:    int = 0   # tăng mỗi lần bắt đầu chạy thử mới — vòng lặp gửi lại "deba" cũ tự thoát khi lệch seq
 
+    # ── Dò vị trí bằng deba trước khi Về trạm (xe mất vị trí do bị đẩy tay/mới bật) ──
+    locate_then_charge_seq: int = 0   # tăng mỗi lần bắt đầu dò vị trí mới — vòng lặp cũ tự thoát khi lệch seq
+
     # ── Lidar khi lái thủ công (D-pad / Chạy thử đến node) — MỚI ─────────────
     manual_lidar_off: Optional[bool] = None   # trạng thái Lidar đã gửi lần gần nhất khi lái thủ công (None = chưa rõ)
 
