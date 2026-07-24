@@ -1298,6 +1298,11 @@ def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag)
                 except Exception as e:
                     print(f"[LOCATE_THEN_CHARGE] {agv_id}: lỗi khi tiếp tục Về trạm sau khi dò vị trí: {e}")
                 return
+            if state.driving:
+                # Xe đang tự chạy dở tới thẻ kế tiếp (từ lần gửi "deba" trước) — KHÔNG gửi
+                # chồng lệnh mới đè lên, sẽ làm firmware ngắt/khởi động lại hành trình đang
+                # chạy dở gây giật cục. Chỉ gửi "deba" mới khi xe đã dừng hẳn (driving=False).
+                continue
             try:
                 from main import _sync_manual_lidar as _sml_locate2
                 _sml_locate2(agv_id)
