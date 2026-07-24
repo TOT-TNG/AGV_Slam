@@ -75,7 +75,7 @@ class MapManager:
         async with pool.acquire() as conn:
             roads = await conn.fetch(
                 """
-                SELECT id_source, id_dest, distance, speed, move_direction, width,
+                SELECT id_source, id_dest, distance, speed, speed_bwd, move_direction, width,
                        COALESCE(lidar_off, FALSE) AS lidar_off,
                        COALESCE(lidar_off_dir, 'none') AS lidar_off_dir
                 FROM agv_map_roads
@@ -86,7 +86,7 @@ class MapManager:
 
             benziers = await conn.fetch(
                 """
-                SELECT id_source, id_dest, speed, move_direction,
+                SELECT id_source, id_dest, speed, speed_bwd, move_direction,
                        point_start_x, point_start_y, point_end_x, point_end_y,
                        COALESCE(lidar_off, FALSE) AS lidar_off,
                        COALESCE(lidar_off_dir, 'none') AS lidar_off_dir
@@ -130,9 +130,10 @@ class MapManager:
 
             lidar_off     = bool(r["lidar_off"]) if r["lidar_off"] is not None else False
             lidar_off_dir = str(r["lidar_off_dir"] or "none").strip().lower()
+            speed_bwd     = float(r["speed_bwd"]) if r["speed_bwd"] is not None else None
             roads_data.append({
                 "id_source": src, "id_dest": dst,
-                "speed": speed, "move_direction": mdir,
+                "speed": speed, "speed_bwd": speed_bwd, "move_direction": mdir,
                 "distance": weight, "width": width,
                 "lidar_off": lidar_off,
                 "lidar_off_dir": lidar_off_dir,
@@ -152,6 +153,7 @@ class MapManager:
                 b_weight = 1.0
             b_lidar_off     = bool(b["lidar_off"]) if b.get("lidar_off") is not None else False
             b_lidar_off_dir = str(b.get("lidar_off_dir") or "none").strip().lower()
+            b_speed_bwd     = float(b["speed_bwd"]) if b.get("speed_bwd") is not None else None
             b_attrs = dict(weight=b_weight, speed=b_speed, move_direction=b_mdir)
             g.add_node(src)
             g.add_node(dst)
@@ -164,7 +166,7 @@ class MapManager:
                 g.add_edge(dst, src, **b_attrs)
             roads_data.append({
                 "id_source": src, "id_dest": dst,
-                "speed": b_speed, "move_direction": b_mdir,
+                "speed": b_speed, "speed_bwd": b_speed_bwd, "move_direction": b_mdir,
                 "distance": b_weight, "width": 0.3,
                 "lidar_off": b_lidar_off,
                 "lidar_off_dir": b_lidar_off_dir,

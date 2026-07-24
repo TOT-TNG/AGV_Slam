@@ -515,7 +515,12 @@ select:focus{border-color:var(--accent) !important}
           <option value="blocked">✕ Cấm chạy</option>
         </select>
       </div>
-      <div class="field"><label data-i18n="edge_speed">Tốc độ (m/s)</label><input id="pe-speed" type="number" min="0" max="3" step="0.1" value="0.5"/></div>
+      <div class="field"><label data-i18n="edge_speed">Tốc độ chiều đi (m/s)</label><input id="pe-speed" type="number" min="0" max="3" step="0.1" value="0.5"/></div>
+      <div class="field">
+        <label data-i18n="edge_speed_bwd">Tốc độ chiều về (m/s)</label>
+        <input id="pe-speed-bwd" type="number" min="0" max="3" step="0.1" placeholder="Để trống = giống chiều đi"/>
+        <small data-i18n="edge_speed_bwd_hint">Chỉ áp dụng khi Hướng di chuyển là Hai chiều. Để trống nếu muốn 2 chiều chạy cùng tốc độ.</small>
+      </div>
       <div class="field"><label data-i18n="edge_width">Chiều rộng đường (m)</label><input id="pe-width" type="number" min="0.3" max="3" step="0.05" value="0.95"/></div>
       <div class="field" style="margin-bottom:0">
         <label data-i18n="lidar">LIDAR vật cản</label>
@@ -1456,6 +1461,7 @@ function updateProps(){
     document.getElementById('pe-id').value=`${e.src} → ${e.dst}`;
     document.getElementById('pe-dir').value      = e.direction||'both';
     document.getElementById('pe-speed').value    = e.speed||0.5;
+    document.getElementById('pe-speed-bwd').value= (e.speedBwd!=null) ? e.speedBwd : '';
     document.getElementById('pe-width').value    = e.width||0.95;
     document.getElementById('pe-lidar-off').value= e.lidarOff||'none';
     pEmpty.style.display='none'; pNode.style.display='none'; pEdge.style.display='block';
@@ -1535,6 +1541,8 @@ document.getElementById('btn-apply').onclick = ()=>{
     saveSnapshot();
     e.direction = document.getElementById('pe-dir').value;
     e.speed     = parseFloat(document.getElementById('pe-speed').value)||0.5;
+    const _peSpdBwd = document.getElementById('pe-speed-bwd').value;
+    e.speedBwd  = (_peSpdBwd!=null && _peSpdBwd!=='') ? (parseFloat(_peSpdBwd)||null) : null;
     e.width     = parseFloat(document.getElementById('pe-width').value)||0.95;
     e.lidarOff  = document.getElementById('pe-lidar-off').value||'none';
     renderAll(); toast('Đã cập nhật cạnh','success');
@@ -2335,6 +2343,7 @@ async function loadMap(mapId){
       if(edgeSet.has(eid)) continue; edgeSet.add(eid);
       state.edges.push({ id:eid, src:String(r2.id_source), dst:String(r2.id_dest),
         direction:_dirFromCode(r2.move_direction), speed:parseFloat(r2.speed)||0.5, width:parseFloat(r2.width)||0.95,
+        speedBwd: (r2.speed_bwd!=null) ? parseFloat(r2.speed_bwd) : null,
         lidarOff: (r2.lidar_off_dir && r2.lidar_off_dir !== 'none') ? r2.lidar_off_dir : (r2.lidar_off ? 'both' : 'none') });
     }
     for(const b of (data.benziers||[])){
@@ -2349,6 +2358,7 @@ async function loadMap(mapId){
       const cp2 = _w2d(cp2w.x, cp2w.y, tr);
       state.edges.push({ id:eid, src:String(b.id_source), dst:String(b.id_dest),
         direction:_dirFromCode(b.move_direction), speed:parseFloat(b.speed)||0.5, width:parseFloat(b.width)||0.95,
+        speedBwd: (b.speed_bwd!=null) ? parseFloat(b.speed_bwd) : null,
         cp1: {x:Math.round(cp1.x), y:Math.round(cp1.y)},
         cp2: {x:Math.round(cp2.x), y:Math.round(cp2.y)},
         lidarOff: (b.lidar_off_dir && b.lidar_off_dir !== 'none') ? b.lidar_off_dir : (b.lidar_off ? 'both' : 'none') });
@@ -2489,7 +2499,7 @@ async function _doSaveMap(name){
         name:'', id_source:e.src, id_dest:e.dst,
         point_start:[_r3(ws.x),_r3(ws.y)], point_end:[_r3(we.x),_r3(we.y)],
         curve_point_start:[_r3(wc1.x),_r3(wc1.y)], curve_point_end:[_r3(wc2.x),_r3(wc2.y)],
-        speed:e.speed||0.5, width:e.width||0.95,
+        speed:e.speed||0.5, speed_bwd:(e.speedBwd!=null?e.speedBwd:null), width:e.width||0.95,
         move_direction:_dirToCode(e.direction),
         lidar_off: e.lidarOff !== 'none',
         lidar_off_dir: e.lidarOff || 'none',
@@ -2498,7 +2508,7 @@ async function _doSaveMap(name){
       robotRoads.push({
         name:'', id_source:e.src, id_dest:e.dst,
         point_start:[_r3(ws.x),_r3(ws.y)], point_end:[_r3(we.x),_r3(we.y)],
-        width:e.width||0.95, speed:e.speed||0.5,
+        width:e.width||0.95, speed:e.speed||0.5, speed_bwd:(e.speedBwd!=null?e.speedBwd:null),
         move_direction:_dirToCode(e.direction), distance:dist,
         lidar_off: e.lidarOff !== 'none',
         lidar_off_dir: e.lidarOff || 'none',

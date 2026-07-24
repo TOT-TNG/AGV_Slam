@@ -1952,6 +1952,10 @@ async def _do_upload_map(payload: dict):
             ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'
         """)
         await conn.execute("""
+            ALTER TABLE agv_map_roads
+            ADD COLUMN IF NOT EXISTS speed_bwd FLOAT
+        """)
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS agv_map_benziers (
                 id                    SERIAL PRIMARY KEY,
                 map_id                TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
@@ -1975,6 +1979,10 @@ async def _do_upload_map(payload: dict):
         await conn.execute("""
             ALTER TABLE agv_map_benziers
             ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'
+        """)
+        await conn.execute("""
+            ALTER TABLE agv_map_benziers
+            ADD COLUMN IF NOT EXISTS speed_bwd FLOAT
         """)
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS agv_map_codes (
@@ -2088,12 +2096,14 @@ async def _do_upload_map(payload: dict):
             for r in roads:
                 point_start = r.get("point_start", [0, 0])
                 point_end = r.get("point_end", [0, 0])
+                _speed_bwd = r.get("speed_bwd")
+                _speed_bwd = float(_speed_bwd) if _speed_bwd not in (None, "") else None
                 await conn.execute("""
                     INSERT INTO agv_map_roads
                     (map_id, name, id_source, id_dest,
                      point_start_x, point_start_y, point_end_x, point_end_y,
-                     width, speed, move_direction, distance, lidar_off, lidar_off_dir)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                     width, speed, move_direction, distance, lidar_off, lidar_off_dir, speed_bwd)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                 """, map_id, r.get("name", ""),
                     str(r["id_source"]), str(r["id_dest"]),
                     point_start[0], point_start[1],
@@ -2101,7 +2111,8 @@ async def _do_upload_map(payload: dict):
                     r.get("width", 0.95), r.get("speed", 0.3),
                     r.get("move_direction", 0), r.get("distance", 0),
                     bool(r.get("lidar_off", False)),
-                    str(r.get("lidar_off_dir") or "none"))
+                    str(r.get("lidar_off_dir") or "none"),
+                    _speed_bwd)
 
             # Lưu codes (có thể rỗng)
             codes = payload.get("robot_code", [])
@@ -2125,14 +2136,16 @@ async def _do_upload_map(payload: dict):
                     curve_point_end = b.get("curve_point_end", [0, 0])
                     
                     # Chèn dữ liệu Bezier vào bảng agv_map_benziers
+                    _b_speed_bwd = b.get("speed_bwd")
+                    _b_speed_bwd = float(_b_speed_bwd) if _b_speed_bwd not in (None, "") else None
                     await conn.execute("""
                         INSERT INTO agv_map_benziers (
                             map_id, name, id_source, id_dest,
                             point_start_x, point_start_y, point_end_x, point_end_y,
                             curve_point_start_x, curve_point_start_y, curve_point_end_x, curve_point_end_y,
-                            width, speed, move_direction, lidar_off, lidar_off_dir
+                            width, speed, move_direction, lidar_off, lidar_off_dir, speed_bwd
                         )
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
                     """, map_id, b.get("name", ""),
                         str(b["id_source"]), str(b["id_dest"]),
                         point_start[0], point_start[1],
@@ -2141,7 +2154,8 @@ async def _do_upload_map(payload: dict):
                         curve_point_end[0], curve_point_end[1],
                         b.get("width", 0.3), b.get("speed", 0.3),
                         b.get("move_direction", 0), bool(b.get("lidar_off", False)),
-                        str(b.get("lidar_off_dir") or "none")
+                        str(b.get("lidar_off_dir") or "none"),
+                        _b_speed_bwd
                     )
             # =========================================================================
 

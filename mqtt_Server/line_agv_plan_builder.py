@@ -642,12 +642,17 @@ def build_edge_speeds(roads: list) -> dict:
     """
     Xây dict edge_speeds từ map_manager.roads.
 
-    roads: [{id_source, id_dest, speed (m/s), ...}]
+    roads: [{id_source, id_dest, speed (m/s), speed_bwd (m/s, tuỳ chọn), ...}]
     Trả về: {"{src}_{dst}": speed_byte, "{dst}_{src}": speed_byte}
 
     Công thức: speed_byte = int(speed_m_s * 240)
       → 0.5 m/s = 120 = SPEED_FAST  (tốc độ mặc định map editor)
       → 0.25 m/s = 60 = SPEED_SLOW
+
+    speed_bwd (chiều về, dst→src) là TUỲ CHỌN — nếu không cấu hình (None/0),
+    dùng chung giá trị speed (chiều đi) cho cả 2 chiều như trước đây. _edge_speed()
+    tra theo đúng thứ tự node THẬT SỰ đi qua trong path nên không cần biết "fwd/bwd"
+    theo nghĩa lượt chạy — chỉ cần 2 key riêng biệt ở đây là đủ áp dụng đúng hướng.
     """
     result: dict = {}
     for r in roads:
@@ -658,7 +663,12 @@ def build_edge_speeds(roads: list) -> dict:
             continue
         byte_val = ms_to_speed_byte(speed_ms)
         result[f"{src}_{dst}"] = byte_val
-        result[f"{dst}_{src}"] = byte_val   # cả 2 chiều dùng cùng giới hạn tốc độ
+
+        speed_bwd_ms = r.get("speed_bwd")
+        if speed_bwd_ms is not None and float(speed_bwd_ms) > 0:
+            result[f"{dst}_{src}"] = ms_to_speed_byte(float(speed_bwd_ms))
+        else:
+            result[f"{dst}_{src}"] = byte_val   # chưa cấu hình riêng → dùng chung chiều đi
     return result
 
 
