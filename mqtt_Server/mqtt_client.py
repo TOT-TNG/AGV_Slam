@@ -1265,9 +1265,17 @@ def resolve_special_target_node(agv_id: str, target_type: str) -> dict:
         "resolved_map_id": resolved_map_id,
     }
 
+_LOCATE_RESEND_COOLDOWN = 1.5  # giây — đủ thời gian cho 1 lượt "deba" chạy hết quãng giữa 2 thẻ
+
+
 def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag):
     async def _run():
+        import time
         from line_agv_handler import line_agv_handler
+        # Khởi tạo = thời điểm bắt đầu, KHÔNG phải 0.0 — "deba" đầu tiên đã được gửi ngay
+        # trước khi coroutine này được lịch chạy (trong _start_locate_then_charge), nên
+        # cooldown phải tính từ đó, không được coi như "đã lâu lắm rồi" ngay từ đầu.
+        last_sent = time.monotonic()
         while True:
             await asyncio.sleep(0.4)
             state = line_agv_handler.state_store.get(agv_id)
@@ -1298,10 +1306,12 @@ def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag)
                 except Exception as e:
                     print(f"[LOCATE_THEN_CHARGE] {agv_id}: lỗi khi tiếp tục Về trạm sau khi dò vị trí: {e}")
                 return
-            if state.driving:
-                # Xe đang tự chạy dở tới thẻ kế tiếp (từ lần gửi "deba" trước) — KHÔNG gửi
-                # chồng lệnh mới đè lên, sẽ làm firmware ngắt/khởi động lại hành trình đang
-                # chạy dở gây giật cục. Chỉ gửi "deba" mới khi xe đã dừng hẳn (driving=False).
+            now = time.monotonic()
+            if now - last_sent < _LOCATE_RESEND_COOLDOWN:
+                # Chưa đủ lâu kể từ lần gửi "deba" trước — có thể xe vẫn đang tự chạy dở
+                # (firmware không báo lại field 'driving' đáng tin cậy lúc chạy deba nên
+                # không dùng được state.driving để biết). Gửi chồng lệnh lúc này sẽ làm
+                # firmware ngắt/khởi động lại hành trình đang chạy dở → giật cục. Đợi thêm.
                 continue
             try:
                 from main import _sync_manual_lidar as _sml_locate2
@@ -1309,6 +1319,7 @@ def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag)
             except Exception:
                 pass
             send_line_command(agv_id, "deba", spd=spd, dir="toi")
+            last_sent = now
     return _run()
 
 
