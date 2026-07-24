@@ -1265,7 +1265,7 @@ def resolve_special_target_node(agv_id: str, target_type: str) -> dict:
         "resolved_map_id": resolved_map_id,
     }
 
-def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int):
+def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag):
     async def _run():
         from line_agv_handler import line_agv_handler
         while True:
@@ -1273,47 +1273,78 @@ def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int):
             state = line_agv_handler.state_store.get(agv_id)
             if not state or state.locate_then_charge_seq != seq:
                 return   # bị huỷ / thay thế bởi lượt dò vị trí khác
-            if state.current_tag is not None:
-                print(f"[LOCATE_THEN_CHARGE] {agv_id}: đã xác định vị trí tag={state.current_tag} "
-                      f"— tiếp tục lệnh Về trạm")
+            if state.current_tag is not None and state.current_tag != baseline_tag:
+                # Tag THẬT SỰ mới (khác baseline lúc bắt đầu) — xác nhận vị trí đáng tin,
+                # không chỉ dựa vào current_tag "not None" (giá trị cũ có thể vẫn còn từ
+                # trước, không phản ánh vị trí vật lý hiện tại nếu xe bị đẩy tay).
+                print(f"[LOCATE_THEN_CHARGE] {agv_id}: đã xác nhận vị trí thật tag={state.current_tag} "
+                      f"(vị trí cũ trong hệ thống trước đó: {baseline_tag}) — tiếp tục lệnh Về trạm")
                 try:
-                    send_agv_to_special_target(agv_id, "charge")
+                    from main import _sync_manual_lidar as _sml_locate
+                    _sml_locate(agv_id, force_on=True)
+                except Exception:
+                    pass
+                try:
+                    send_agv_to_special_target(agv_id, "charge", _require_locate=False)
                 except Exception as e:
                     print(f"[LOCATE_THEN_CHARGE] {agv_id}: lỗi khi tiếp tục Về trạm sau khi dò vị trí: {e}")
                 return
+            try:
+                from main import _sync_manual_lidar as _sml_locate2
+                _sml_locate2(agv_id)
+            except Exception:
+                pass
             send_line_command(agv_id, "deba", spd=spd, dir="toi")
     return _run()
 
 
 def _start_locate_then_charge(agv_id: str, spd: int = 150) -> None:
     """
-    Line AGV chưa biết vị trí hiện tại (bị đẩy tay ra khỏi bản đồ, hoặc mới bật lại
-    chưa quẹt thẻ RFID nào) mà nhận lệnh Về trạm — không thể lập lộ trình vì không có
-    điểm xuất phát. Thay vì báo lỗi, tự động chạy tiến (lệnh "deba", bỏ qua hoàn toàn
-    pathfinding) tới khi quẹt được 1 thẻ RFID bất kỳ, khi đó current_tag sẽ có giá trị
-    và lệnh Về trạm thật được tự động gửi tiếp (xem _locate_then_charge_loop_coro).
+    Trước khi Về trạm, LUÔN chạy tiến (lệnh "deba", bỏ qua hoàn toàn pathfinding/traffic
+    engine) tới khi quẹt được 1 thẻ RFID MỚI (khác vị trí đang lưu trong hệ thống) —
+    dùng cho MỌI lần gọi Về trạm của Line AGV, kể cả khi hệ thống đang "biết" 1 vị trí,
+    vì vị trí đó có thể đã LỖI THỜI (xe bị đẩy tay sang chỗ khác mà chưa đi qua thẻ nào
+    để cập nhật lại — current_tag vẫn giữ giá trị cũ, không tự về None).
+
+    Đánh đổi đã xác nhận với người vận hành: tốn thêm vài giây di chuyển mỗi lần gọi
+    Về trạm (kể cả các lần hệ thống tự gọi lại nội bộ sau khi né xe khác), và trong
+    lúc chạy "deba" xe KHÔNG được traffic engine bảo vệ (không giữ chỗ node/cạnh,
+    không né xe khác) — chấp nhận đổi lấy việc luôn xác nhận đúng vị trí thật.
     """
     from line_agv_handler import line_agv_handler
     state = line_agv_handler.state_store.get_or_create(agv_id)
     state.locate_then_charge_seq += 1
     my_seq = state.locate_then_charge_seq
-    print(f"[LOCATE_THEN_CHARGE] {agv_id}: chưa biết vị trí — chạy tiến (deba) để dò vị trí trước khi Về trạm")
+    baseline_tag = state.current_tag
+    print(f"[LOCATE_THEN_CHARGE] {agv_id}: chạy tiến (deba) xác nhận vị trí thật trước khi Về trạm "
+          f"(vị trí cũ trong hệ thống: {baseline_tag})")
+    try:
+        from main import _sync_manual_lidar as _sml_locate0
+        _sml_locate0(agv_id)
+    except Exception:
+        pass
     send_line_command(agv_id, "deba", spd=spd, dir="toi")
 
     app = get_app()
     loop = getattr(app.state, "loop", None)
     if loop and loop.is_running():
-        asyncio.run_coroutine_threadsafe(_locate_then_charge_loop_coro(agv_id, my_seq, spd), loop)
+        asyncio.run_coroutine_threadsafe(
+            _locate_then_charge_loop_coro(agv_id, my_seq, spd, baseline_tag), loop
+        )
     else:
         print(f"[LOCATE_THEN_CHARGE] {agv_id}: không lấy được event loop đang chạy — "
               f"chỉ gửi được 1 lần deba, có thể không đủ để tới thẻ RFID kế tiếp")
 
 
-def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
+def send_agv_to_special_target(agv_id: str, target_type: str, _require_locate: bool = True) -> dict:
     """
     Gửi AGV tới node đặc biệt:
     - charge: đi tới trạm sạc
     - wait: đi tới khu chờ
+
+    _require_locate: chỉ dùng nội bộ — False khi hàm này được gọi lại từ
+    _locate_then_charge_loop_coro (đã xác nhận vị trí thật xong), để tránh
+    vòng lặp gọi lại chính nó vô hạn.
 
     Trả về dict để API trả lại cho frontend.
     """
@@ -1329,14 +1360,9 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
     if not raw_map:
         raise ValueError(f"AGV {agv_id} chưa có mapCurrent/map_id")
 
-    if not current_node:
-        # Trước đây rơi thẳng vào plan_path_for_order() bên dưới với current_node=None
-        # → agv_state không có x/y → nearest_node(0,0) chọn ĐẠI 1 node gần toạ độ (0,0)
-        # trên bản đồ rồi vẫn lập/gửi lộ trình từ node sai đó, KHÔNG báo lỗi gì — xe đi
-        # lệch mà không ai biết vì sao. Chặn ở đây, báo lỗi rõ (giống _dispatch_go_to),
-        # trừ trường hợp Về trạm của Line AGV — có thể tự dò vị trí bằng "deba" trước.
+    if target_type == "charge" and _require_locate:
         from agv_registry import agv_registry as _reg_sat
-        if target_type == "charge" and _reg_sat.is_line(agv_id):
+        if _reg_sat.is_line(agv_id):
             _start_locate_then_charge(agv_id)
             return {
                 "success": True, "agv_id": agv_id,
@@ -1344,6 +1370,12 @@ def send_agv_to_special_target(agv_id: str, target_type: str) -> dict:
                 "target_name": None, "map_id": resolved_map_id,
                 "path": [], "pending": "locate_then_charge",
             }
+
+    if not current_node:
+        # Trước đây rơi thẳng vào plan_path_for_order() bên dưới với current_node=None
+        # → agv_state không có x/y → nearest_node(0,0) chọn ĐẠI 1 node gần toạ độ (0,0)
+        # trên bản đồ rồi vẫn lập/gửi lộ trình từ node sai đó, KHÔNG báo lỗi gì — xe đi
+        # lệch mà không ai biết vì sao. Chặn ở đây, báo lỗi rõ (giống _dispatch_go_to).
         raise ValueError(
             f"{agv_id}: không biết vị trí hiện tại — "
             f"hãy chọn 'Vị trí xuất phát' trên bản đồ trước khi gửi lệnh"
