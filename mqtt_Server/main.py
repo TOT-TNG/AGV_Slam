@@ -2255,6 +2255,7 @@ async def api_cancel_order(req: AgvActionRequest):
         # Xóa in-memory task queue (queue_size về 0 ngay lập tức)
         from task_queue import agv_task_queue as _tq
         _tq.cancel_all(req.agv_id)
+        _cancel_pending_locate_then_charge(req.agv_id)
 
         # Cập nhật DB: đánh dấu tất cả task pending/running của AGV thành cancelled
         if pool:
@@ -5323,14 +5324,34 @@ async def queue_status(agv_id: str):
     return agv_task_queue.status_summary(agv_id.strip())
 
 
+def _cancel_pending_locate_then_charge(agv_id: str) -> None:
+    """
+    Huỷ vòng dò-vị-trí-bằng-deba đang chờ (nếu có) — nếu không, vòng lặp không biết
+    lệnh Về trạm vừa bị huỷ, vẫn tiếp tục chờ quẹt thẻ rồi tự nối lệnh Về trạm thật
+    sau khi người dùng đã bấm hủy. Đồng thời gửi "stop" phòng khi xe đang chạy dở
+    "deba" giữa chừng (agv_task_queue.cancel_running/cancel_all không tự gửi lệnh
+    dừng thật xuống xe, chỉ dọn bookkeeping phía server).
+    """
+    from line_agv_handler import line_agv_handler
+    from agv_registry import agv_registry
+    state = line_agv_handler.state_store.get(agv_id)
+    if state:
+        state.locate_then_charge_seq += 1
+    if agv_registry.is_line(agv_id):
+        from mqtt_client import send_line_command
+        send_line_command(agv_id, "stop")
+
+
 @app.delete("/api/execute/cancel-running/{agv_id}")
 async def cancel_running_cmd(agv_id: str):
     """Force-cancel lệnh đang stuck, giải phóng AGV."""
     from task_queue import agv_task_queue
     from line_agv_handler import line_agv_handler, traffic_coordinator as _tc
-    _tc.deregister(agv_id.strip())
-    line_agv_handler.clear_route(agv_id.strip())
-    result = agv_task_queue.cancel_running(agv_id.strip())
+    agv_id = agv_id.strip()
+    _tc.deregister(agv_id)
+    line_agv_handler.clear_route(agv_id)
+    _cancel_pending_locate_then_charge(agv_id)
+    result = agv_task_queue.cancel_running(agv_id)
     if result is None:
         return {"cancelled": False, "message": f"Không có lệnh đang chạy cho {agv_id}"}
     return {"cancelled": True, "cmd": result}
@@ -5349,9 +5370,11 @@ async def cancel_all_cmds(agv_id: str):
     """Hủy lệnh đang chạy + toàn bộ hàng chờ (dùng khi AGV bị stuck)."""
     from task_queue import agv_task_queue
     from line_agv_handler import line_agv_handler, traffic_coordinator as _tc
-    _tc.deregister(agv_id.strip())
-    line_agv_handler.clear_route(agv_id.strip())
-    result = agv_task_queue.cancel_all(agv_id.strip())
+    agv_id = agv_id.strip()
+    _tc.deregister(agv_id)
+    line_agv_handler.clear_route(agv_id)
+    _cancel_pending_locate_then_charge(agv_id)
+    result = agv_task_queue.cancel_all(agv_id)
     return {"agv_id": agv_id, **result}
 
 

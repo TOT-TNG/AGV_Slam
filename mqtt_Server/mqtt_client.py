@@ -1265,22 +1265,21 @@ def resolve_special_target_node(agv_id: str, target_type: str) -> dict:
         "resolved_map_id": resolved_map_id,
     }
 
-_LOCATE_RESEND_COOLDOWN = 1.5  # giây — đủ thời gian cho 1 lượt "deba" chạy hết quãng giữa 2 thẻ
-
-
 def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag):
+    """
+    CHỈ CHỜ, KHÔNG gửi lại "deba" — đúng 1 lần gửi duy nhất (trong
+    _start_locate_then_charge) y hệt 1 lần bấm nút chạy thủ công, xe tự chạy hết quãng
+    tới thẻ kế tiếp rồi tự dừng. Gửi lặp lại mỗi lần đã gây giật cục (đè lên hành trình
+    xe đang tự chạy dở) — bỏ hẳn, chỉ còn vòng lặp này để: (1) phát hiện khi nào tag đổi
+    → nối tiếp lệnh Về trạm thật, (2) phát hiện khi bị huỷ (seq đổi) → dừng theo dõi.
+    """
     async def _run():
-        import time
         from line_agv_handler import line_agv_handler
-        # Khởi tạo = thời điểm bắt đầu, KHÔNG phải 0.0 — "deba" đầu tiên đã được gửi ngay
-        # trước khi coroutine này được lịch chạy (trong _start_locate_then_charge), nên
-        # cooldown phải tính từ đó, không được coi như "đã lâu lắm rồi" ngay từ đầu.
-        last_sent = time.monotonic()
         while True:
             await asyncio.sleep(0.4)
             state = line_agv_handler.state_store.get(agv_id)
             if not state or state.locate_then_charge_seq != seq:
-                return   # bị huỷ / thay thế bởi lượt dò vị trí khác
+                return   # bị huỷ (người dùng hủy lệnh) / thay thế bởi lượt dò vị trí khác
             if state.current_tag is not None and state.current_tag != baseline_tag:
                 # Tag THẬT SỰ mới (khác baseline lúc bắt đầu) — xác nhận vị trí đáng tin,
                 # không chỉ dựa vào current_tag "not None" (giá trị cũ có thể vẫn còn từ
@@ -1306,20 +1305,6 @@ def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag)
                 except Exception as e:
                     print(f"[LOCATE_THEN_CHARGE] {agv_id}: lỗi khi tiếp tục Về trạm sau khi dò vị trí: {e}")
                 return
-            now = time.monotonic()
-            if now - last_sent < _LOCATE_RESEND_COOLDOWN:
-                # Chưa đủ lâu kể từ lần gửi "deba" trước — có thể xe vẫn đang tự chạy dở
-                # (firmware không báo lại field 'driving' đáng tin cậy lúc chạy deba nên
-                # không dùng được state.driving để biết). Gửi chồng lệnh lúc này sẽ làm
-                # firmware ngắt/khởi động lại hành trình đang chạy dở → giật cục. Đợi thêm.
-                continue
-            try:
-                from main import _sync_manual_lidar as _sml_locate2
-                _sml_locate2(agv_id)
-            except Exception:
-                pass
-            send_line_command(agv_id, "deba", spd=spd, dir="toi")
-            last_sent = now
     return _run()
 
 
