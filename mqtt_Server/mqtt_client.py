@@ -1285,7 +1285,16 @@ def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag)
                 except Exception:
                     pass
                 try:
-                    send_agv_to_special_target(agv_id, "charge", _require_locate=False)
+                    # QUAN TRỌNG: phải chạy qua asyncio.to_thread — _run() này đang thực thi
+                    # NGAY TRÊN event loop chính (được lịch bằng run_coroutine_threadsafe nhắm
+                    # thẳng vào loop đó). Nếu gọi send_agv_to_special_target() trực tiếp ở đây,
+                    # các hàm tra cứu DB bên trong nó (find_all_nodes_by_type_via_pool...) lại
+                    # tự bridge ngược về CHÍNH loop đang bị chặn để chờ nó — tự deadlock, luôn
+                    # timeout sau 5s. Mọi nơi khác gọi send_agv_to_special_target() đều đi qua
+                    # asyncio.to_thread (main.py) đúng vì lý do này.
+                    await asyncio.to_thread(
+                        send_agv_to_special_target, agv_id, "charge", False
+                    )
                 except Exception as e:
                     print(f"[LOCATE_THEN_CHARGE] {agv_id}: lỗi khi tiếp tục Về trạm sau khi dò vị trí: {e}")
                 return
@@ -1298,7 +1307,7 @@ def _locate_then_charge_loop_coro(agv_id: str, seq: int, spd: int, baseline_tag)
     return _run()
 
 
-def _start_locate_then_charge(agv_id: str, spd: int = 150) -> None:
+def _start_locate_then_charge(agv_id: str, spd: int = 70) -> None:
     """
     Trước khi Về trạm, LUÔN chạy tiến (lệnh "deba", bỏ qua hoàn toàn pathfinding/traffic
     engine) tới khi quẹt được 1 thẻ RFID MỚI (khác vị trí đang lưu trong hệ thống) —
