@@ -5107,8 +5107,8 @@ async def execute_dispatch(req: ExecuteDispatchRequest):
         req.session_label,
     )
 
-    from task_queue import STATUS_FAILED, STATUS_QUEUED
-    if not dispatched and cmd.status == STATUS_FAILED:
+    from task_queue import STATUS_ERROR, STATUS_QUEUED
+    if not dispatched and cmd.status == STATUS_ERROR:
         raise HTTPException(
             status_code=422,
             detail=cmd.notes or "Dispatch thất bại — kiểm tra log server",
@@ -5750,6 +5750,11 @@ async def statistics_tasks(
                 if agv_id:
                     base_params.append(agv_id)
 
+                # status='error' = dispatch lỗi TỰ ĐỘNG (không phải người dùng bấm Hủy) —
+                # loại hẳn khỏi mọi số liệu thống kê (kể cả total), theo yêu cầu "Thất
+                # bại"/"Hủy" chỉ tính khi có người chủ động bấm Hủy.
+                err_clause = "AND status != 'error'"
+
                 # ── 1. Summary ─────────────────────────────────────────────────
                 cur.execute(f"""
                     SELECT
@@ -5764,7 +5769,7 @@ async def statistics_tasks(
                             THEN EXTRACT(EPOCH FROM (completed_at - started_at)) END
                         )::numeric, 1) AS avg_duration_s
                     FROM agv_task_executions
-                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause}
+                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause} {err_clause}
                 """, base_params)
                 row = cur.fetchone()
                 summary = {
@@ -5780,7 +5785,7 @@ async def statistics_tasks(
                 # ── 2. By status (pie) ─────────────────────────────────────────
                 cur.execute(f"""
                     SELECT status, COUNT(*) FROM agv_task_executions
-                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause}
+                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause} {err_clause}
                     GROUP BY status ORDER BY COUNT(*) DESC
                 """, base_params)
                 by_status = [{"status": r[0], "count": int(r[1])} for r in cur.fetchall()]
@@ -5793,7 +5798,7 @@ async def statistics_tasks(
                         SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
                         SUM(CASE WHEN status='failed' OR status='cancelled' THEN 1 ELSE 0 END) AS failed
                     FROM agv_task_executions
-                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause}
+                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause} {err_clause}
                     GROUP BY DATE(queued_at) ORDER BY day
                 """, base_params)
                 by_day = [
@@ -5808,7 +5813,7 @@ async def statistics_tasks(
                         SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
                         SUM(CASE WHEN status='failed' OR status='cancelled' THEN 1 ELSE 0 END) AS failed
                     FROM agv_task_executions
-                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause}
+                    WHERE DATE(queued_at) BETWEEN %s AND %s {agv_clause} {err_clause}
                     GROUP BY agv_id ORDER BY total DESC
                 """, base_params)
                 by_agv = [
@@ -5936,6 +5941,7 @@ async def statistics_trips(
                         END AS status
                     FROM agv_task_executions
                     WHERE DATE(queued_at) BETWEEN %s AND %s
+                      AND status != 'error'
                       {null_filter} {agv_clause}
                     {"GROUP BY session_id, agv_id, session_label" if has_session else "GROUP BY cmd_id, agv_id, command"}
                 )

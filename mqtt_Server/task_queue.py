@@ -35,6 +35,11 @@ STATUS_RUNNING   = "running"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED    = "failed"
 STATUS_CANCELLED = "cancelled"
+# Dispatch lỗi TỰ ĐỘNG (mất kết nối MQTT, không lập được lộ trình...) — KHÔNG
+# dùng STATUS_FAILED nữa. Theo yêu cầu: "Thất bại"/"Hủy" trong thống kê chỉ được
+# tính khi có người CHỦ ĐỘNG bấm Hủy — dispatch lỗi tự động vẫn giải phóng xe
+# ngay (không kẹt xe) nhưng không được tính vào thống kê Thất bại/Hủy.
+STATUS_ERROR     = "error"
 
 
 @dataclass
@@ -179,7 +184,7 @@ class AGVTaskQueue:
             self._db_insert(cmd)
             ok = self._do_dispatch(cmd)
             if not ok:
-                cmd.status       = STATUS_FAILED
+                cmd.status       = STATUS_ERROR
                 cmd.completed_at = time.time()
                 if not cmd.notes:
                     cmd.notes = "dispatch failed"
@@ -244,7 +249,7 @@ class AGVTaskQueue:
             async def _run_next():
                 ok = await asyncio.to_thread(self._do_dispatch, next_cmd)
                 if not ok:
-                    next_cmd.status       = STATUS_FAILED
+                    next_cmd.status       = STATUS_ERROR
                     next_cmd.completed_at = time.time()
                     if not next_cmd.notes:
                         next_cmd.notes = "auto-dispatch failed"
@@ -258,7 +263,7 @@ class AGVTaskQueue:
             # Fallback: đồng bộ (tránh mất lệnh nếu loop chưa sẵn sàng)
             ok = self._do_dispatch(next_cmd)
             if not ok:
-                next_cmd.status       = STATUS_FAILED
+                next_cmd.status       = STATUS_ERROR
                 next_cmd.completed_at = time.time()
                 next_cmd.notes        = "auto-dispatch failed"
                 self._running[agv_id] = None

@@ -320,6 +320,11 @@ async def _query_stats(period: str = "today", specific_date: Optional[date] = No
         label = "hôm nay"
         where = "queued_at >= CURRENT_DATE"
 
+    # status='error' = dispatch lỗi TỰ ĐỘNG (không phải người dùng bấm Hủy) —
+    # loại hẳn khỏi thống kê (kể cả tổng), chỉ "Thất bại"/"Hủy" do người dùng
+    # chủ động bấm Hủy mới được tính.
+    where += " AND status != 'error'"
+
     fc_sql, params = _factory_cond(factory, params)
     async with _db_pool.acquire() as conn:
         summary = await conn.fetchrow(f"""
