@@ -455,7 +455,25 @@ function renderTrips(d) {
   setText('r-avg-steps', d.avg_steps_per_trip != null
     ? `${_t('avg_tb')} ${d.avg_steps_per_trip.toFixed(1)} ${_t('avg_cmd_per_trip')}` : '');
 
-  // Daily bar + line (chuyến)
+  // Daily bar + line (chuyến) — khoảng lọc ≤ 5 ngày: hiện 2 cột riêng (xanh/đỏ)
+  // thay vì cột+đường, dễ so sánh từng ngày khi ít điểm dữ liệu. > 5 ngày: giữ
+  // nguyên cột+đường như cũ (đường rõ xu hướng hơn khi nhiều điểm).
+  const _daySpan = (d.date_from && d.date_to)
+    ? Math.round((new Date(d.date_to) - new Date(d.date_from)) / 86400000) + 1
+    : d.by_day.length;
+  const _failDs = (_daySpan <= 5)
+    ? { label:_t('chart_fail_cancel'), type:'bar',
+        data: d.by_day.map(r=>r.failed),
+        backgroundColor:'rgba(251,113,133,.75)', borderColor:'#fb7185',
+        borderWidth:1.5, borderRadius:6, borderSkipped:false,
+        hoverBackgroundColor:'#fb7185', order:1 }
+    : { label:_t('chart_fail_cancel'), type:'line',
+        data: d.by_day.map(r=>r.failed),
+        borderColor:'#fb7185', borderWidth:2,
+        backgroundColor:'rgba(251,113,133,.1)',
+        pointBackgroundColor:'#fb7185', pointBorderColor:'rgba(255,255,255,.9)',
+        pointBorderWidth:1.5, pointRadius:5, pointHoverRadius:7, pointStyle:'circle',
+        tension:0.35, fill:false, order:0 };
   mkBarChart('r-chart-day', d.by_day.map(r => fmtDs(r.day)),
     [
       { label:_t('chart_done'), type:'bar',
@@ -463,13 +481,7 @@ function renderTrips(d) {
         backgroundColor:'rgba(52,211,153,.75)', borderColor:'#34d399',
         borderWidth:1.5, borderRadius:6, borderSkipped:false,
         hoverBackgroundColor:'#34d399', order:1 },
-      { label:_t('chart_fail_cancel'), type:'line',
-        data: d.by_day.map(r=>r.failed),
-        borderColor:'#fb7185', borderWidth:2,
-        backgroundColor:'rgba(251,113,133,.1)',
-        pointBackgroundColor:'#fb7185', pointBorderColor:'rgba(255,255,255,.9)',
-        pointBorderWidth:1.5, pointRadius:5, pointHoverRadius:7, pointStyle:'circle',
-        tension:0.35, fill:false, order:0 },
+      _failDs,
     ], false);
 
   // Status pie (chuyến)
