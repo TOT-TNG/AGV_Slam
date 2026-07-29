@@ -178,7 +178,12 @@ async function load() {
   const tbody = document.getElementById('tbody');
   tbody.innerHTML = '<tr><td colspan="7">Đang tải…</td></tr>';
   try {
-    const res = await fetch(`data?period=${period}`);
+    // Dùng path tuyệt đối dựa theo URL hiện tại — KHÔNG dùng "data?..." tương đối:
+    // nếu URL trang không có dấu "/" cuối, trình duyệt hiểu "data" là NGANG HÀNG
+    // với slug (mất luôn đoạn fleet-x7qd92mz khỏi path) → rơi vào route forward()
+    // cũ cần X-Gateway-Key.
+    const dataUrl = location.pathname.replace(/\/+$/, '') + `/data?period=${period}`;
+    const res = await fetch(dataUrl);
     const d = await res.json();
     if (!res.ok || !Array.isArray(d.factories)) {
       throw new Error(d.detail || d.error || `Server trả về không đúng định dạng (HTTP ${res.status})`);
