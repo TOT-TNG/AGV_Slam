@@ -107,15 +107,21 @@ async def fleet_overview_data():
 
 
 @app.get(f"/_gateway/{FLEET_SLUG}/trips")
-async def fleet_overview_trips(key: str, period: str = "month"):
+async def fleet_overview_trips(key: str, period: str = "month",
+                                date_from: str | None = None, date_to: str | None = None):
     """Thống kê CHUYẾN ĐI chi tiết của đúng 1 nhà máy (bấm vào từ danh sách)."""
     factories = load_factories()
     factory = factories.get(key)
     if not factory:
         raise HTTPException(404, detail="Không tìm thấy nhà máy")
 
+    params = {"period": period}
+    if period == "custom" and date_from and date_to:
+        params["date_from"] = date_from
+        params["date_to"]   = date_to
+
     async with httpx.AsyncClient(timeout=15.0) as client:
-        res = await _call_factory_json(client, factory["frp_host"], "/api/statistics/trips", {"period": period})
+        res = await _call_factory_json(client, factory["frp_host"], "/api/statistics/trips", params)
 
     if not res["ok"]:
         raise HTTPException(502, detail=res["error"])
@@ -178,7 +184,6 @@ _FLEET_HTML = r"""<!doctype html>
 </head><body>
 <div class="wrap" id="app">
   <h1>📊 Tổng hợp AGV — Mọi nhà máy</h1>
-  <div class="sub">Xem trực tiếp từ xa, không cần vào từng nhà máy riêng lẻ.</div>
   <div id="content"></div>
 </div>
 <script>
@@ -231,22 +236,55 @@ function renderList(factories) {
 function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
 
 // ══ MÀN HÌNH 2: chi tiết chuyến đi 1 nhà máy ═════════════════════════════════
-async function showDetail(key, name, period) {
+function onPeriodChange(sel, key, name) {
+  const period = sel.value;
+  if (period === 'custom') {
+    // Chưa có ngày cụ thể — chỉ hiện 2 ô chọn ngày, chưa gọi API vội.
+    document.getElementById('custom-range').style.display = 'flex';
+    return;
+  }
+  showDetail(key, name, period);
+}
+function applyCustomRange(key, name) {
+  const df = document.getElementById('date-from').value;
+  const dt = document.getElementById('date-to').value;
+  if (!df || !dt) return;
+  showDetail(key, name, 'custom', df, dt);
+}
+
+async function showDetail(key, name, period, dateFrom, dateTo) {
   period = period || 'month';
   const c = document.getElementById('content');
+  const isCustom = period === 'custom';
   c.innerHTML = `
     <div class="backbtn"><button onclick="showList()">← Danh sách nhà máy</button></div>
     <h2 style="margin:4px 0 2px;font-size:16px">${name}</h2>
-    <select id="period" onchange="showDetail('${key}','${escAttr(name)}', this.value)">
-      <option value="week"    ${period==='week'   ?'selected':''}>Tuần này</option>
-      <option value="month"   ${period==='month'  ?'selected':''}>Tháng này</option>
-      <option value="quarter" ${period==='quarter'?'selected':''}>Quý này</option>
-      <option value="year"    ${period==='year'   ?'selected':''}>Năm nay</option>
-    </select>
-    <div class="loading">Đang tải chuyến đi…</div>`;
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select id="period" onchange="onPeriodChange(this,'${key}','${escAttr(name)}')">
+        <option value="week"    ${period==='week'   ?'selected':''}>Tuần này</option>
+        <option value="month"   ${period==='month'  ?'selected':''}>Tháng này</option>
+        <option value="quarter" ${period==='quarter'?'selected':''}>Quý này</option>
+        <option value="year"    ${period==='year'   ?'selected':''}>Năm nay</option>
+        <option value="custom"  ${isCustom            ?'selected':''}>Ngày cụ thể…</option>
+      </select>
+      <div id="custom-range" style="display:${isCustom?'flex':'none'};gap:6px;align-items:center">
+        <input type="date" id="date-from" value="${dateFrom||''}"
+          style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:8px;padding:5px 8px;font-size:13px"/>
+        <span style="color:#8ea0c2">→</span>
+        <input type="date" id="date-to" value="${dateTo||''}"
+          style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:8px;padding:5px 8px;font-size:13px"/>
+        <button onclick="applyCustomRange('${key}','${escAttr(name)}')">Áp dụng</button>
+      </div>
+    </div>
+    <div class="loading">${(isCustom && !(dateFrom && dateTo))
+      ? 'Chọn khoảng ngày rồi bấm "Áp dụng".' : 'Đang tải chuyến đi…'}</div>`;
+
+  if (isCustom && !(dateFrom && dateTo)) return;   // chờ người dùng chọn ngày rồi bấm Áp dụng
 
   try {
-    const res = await fetch(`${slugBase()}/trips?key=${encodeURIComponent(key)}&period=${period}`);
+    let url = `${slugBase()}/trips?key=${encodeURIComponent(key)}&period=${period}`;
+    if (isCustom) url += `&date_from=${dateFrom}&date_to=${dateTo}`;
+    const res = await fetch(url);
     const d = await res.json();
     if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
     renderDetail(key, name, period, d);
@@ -291,6 +329,19 @@ function renderDetail(key, name, period, d) {
   document.getElementById('content').insertAdjacentHTML('beforeend', kpiHtml);
 
   const byDay = d.by_day || [];
+  // ≤5 ngày trong khoảng lọc → 2 cột riêng (xanh/đỏ) dễ so sánh từng ngày;
+  // >5 ngày → giữ cột+đường (đường rõ xu hướng hơn khi nhiều điểm).
+  const daySpan = (d.date_from && d.date_to)
+    ? Math.round((new Date(d.date_to) - new Date(d.date_from)) / 86400000) + 1
+    : byDay.length;
+  const failDataset = (daySpan <= 5)
+    ? { label:'Thất bại/Hủy', type:'bar', data: byDay.map(r => r.failed),
+        backgroundColor:'rgba(251,113,133,.75)', borderColor:'#fb7185', borderWidth:1.5,
+        borderRadius:6, borderSkipped:false, order:1 }
+    : { label:'Thất bại/Hủy', type:'line', data: byDay.map(r => r.failed),
+        borderColor:'#fb7185', borderWidth:2, backgroundColor:'rgba(251,113,133,.1)',
+        pointBackgroundColor:'#fb7185', pointBorderColor:'rgba(255,255,255,.9)',
+        pointBorderWidth:1.5, pointRadius:4, pointHoverRadius:6, tension:.35, fill:false, order:0 };
   if (chartDay) chartDay.destroy();
   chartDay = new Chart(document.getElementById('chart-day'), {
     type: 'bar',
@@ -300,10 +351,7 @@ function renderDetail(key, name, period, d) {
         { label: 'Hoàn thành', type: 'bar', data: byDay.map(r => r.completed),
           backgroundColor: 'rgba(52,211,153,.75)', borderColor: '#34d399', borderWidth: 1.5,
           borderRadius: 6, borderSkipped: false, order: 1 },
-        { label: 'Thất bại/Hủy', type: 'line', data: byDay.map(r => r.failed),
-          borderColor: '#fb7185', borderWidth: 2, backgroundColor: 'rgba(251,113,133,.1)',
-          pointBackgroundColor: '#fb7185', pointBorderColor: 'rgba(255,255,255,.9)',
-          pointBorderWidth: 1.5, pointRadius: 4, pointHoverRadius: 6, tension: .35, fill: false, order: 0 },
+        failDataset,
       ],
     },
     options: {
