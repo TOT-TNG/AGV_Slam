@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 import websockets as ws_client
 from fastapi import FastAPI, Request, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, HTMLResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [GATEWAY] %(message)s")
 log = logging.getLogger(__name__)
@@ -21,6 +21,13 @@ app = FastAPI(title="AGV Cloud Gateway", version="1.0.0")
 CONFIG_FILE  = Path(__file__).parent / "factories.json"
 FRP_HTTP_PORT = 8090   # phải khớp vhostHTTPPort trong frps.toml
 SUBDOMAIN_HOST = "tot360.internal"  # phải khớp subdomainHost trong frps.toml
+
+# Trang tổng hợp thống kê NHIỀU nhà máy cùng lúc (xem tần suất sử dụng AGV từ xa).
+# KHÔNG dùng Gateway Key của từng nhà máy (mỗi key chỉ được phép thấy đúng 1 nhà
+# máy) — theo yêu cầu KHÔNG làm auth riêng, chỉ dựa vào việc biết đúng URL. Để
+# giảm rủi ro lộ URL bị đoán ra, dùng 1 đoạn slug dài ngẫu nhiên thay vì đường dẫn
+# dễ đoán kiểu "/dashboard". Đổi FLEET_SLUG này thành chuỗi khác nếu nghi bị lộ.
+FLEET_SLUG = "fleet-x7qd92mz"
 
 
 def load_factories() -> dict:
@@ -42,6 +49,180 @@ async def health():
         "factories_registered": list(factories.keys()),
         "total": len(factories),
     }
+
+
+# ─── Fleet overview: tổng hợp tần suất sử dụng AGV TẤT CẢ nhà máy ───────────
+# PHẢI đăng ký TRƯỚC route catch-all forward() bên dưới, nếu không catch-all sẽ
+# nuốt mất các path này (coi là forward tới 1 nhà máy, thiếu X-Gateway-Key → 400).
+
+async def _call_factory_json(client: httpx.AsyncClient, frp_host: str, path: str,
+                              params: dict | None = None) -> dict:
+    """Gọi 1 endpoint JSON của 1 nhà máy qua tunnel, trả kết quả hoặc lỗi rõ ràng."""
+    host_hdr = f"{frp_host}.{SUBDOMAIN_HOST}"
+    target   = f"http://127.0.0.1:{FRP_HTTP_PORT}/{path.lstrip('/')}"
+    try:
+        resp = await client.get(target, headers={"Host": host_hdr}, params=params or {})
+        if resp.status_code == 200:
+            return {"ok": True, "data": resp.json()}
+        return {"ok": False, "error": f"HTTP {resp.status_code}"}
+    except httpx.ConnectError:
+        return {"ok": False, "error": "Tunnel đứt — frpc tại nhà máy không kết nối"}
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "Nhà máy không phản hồi (timeout)"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get(f"/_gateway/{FLEET_SLUG}/data")
+async def fleet_overview_data(period: str = "month"):
+    """
+    Gọi song song TẤT CẢ nhà máy trong factories.json, lấy thống kê task
+    (tần suất/tỉ lệ hoàn thành-thất bại-hủy) + số AGV online/tổng — gộp vào
+    1 response duy nhất để xem so sánh giữa các nhà máy.
+    """
+    factories = load_factories()
+
+    async def _one(key: str, factory: dict) -> dict:
+        frp_host = factory["frp_host"]
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            stats_res, agvs_res = await asyncio.gather(
+                _call_factory_json(client, frp_host, "/api/statistics/tasks", {"period": period}),
+                _call_factory_json(client, frp_host, "/api/execute/agv-list"),
+            )
+
+        entry = {"key": key, "name": factory.get("name", frp_host), "frp_host": frp_host}
+        if stats_res["ok"]:
+            s = stats_res["data"]["summary"]
+            entry["stats"] = {
+                "total": s["total"], "completed": s["completed"],
+                "failed": s["failed"], "cancelled": s["cancelled"],
+                "running": s["running"], "queued": s["queued"],
+            }
+        else:
+            entry["stats_error"] = stats_res["error"]
+
+        if agvs_res["ok"]:
+            agv_list = agvs_res["data"] if isinstance(agvs_res["data"], list) else agvs_res["data"].get("agvs", [])
+            online = sum(1 for a in agv_list if str(a.get("connection", "")).upper() == "ONLINE")
+            entry["agvs"] = {"online": online, "total": len(agv_list)}
+        else:
+            entry["agvs_error"] = agvs_res["error"]
+
+        return entry
+
+    results = await asyncio.gather(*[_one(k, f) for k, f in factories.items()])
+    return {"period": period, "factories": list(results)}
+
+
+@app.get(f"/_gateway/{FLEET_SLUG}")
+async def fleet_overview_page():
+    return HTMLResponse(_FLEET_HTML)
+
+
+_FLEET_HTML = r"""<!doctype html>
+<html lang="vi"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tổng hợp AGV — Mọi nhà máy</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  body{margin:0;background:#0b1326;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:20px 16px}
+  h1{font-size:18px;margin:0 0 4px}
+  .sub{color:#8ea0c2;font-size:12px;margin-bottom:18px}
+  select,button{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#fff;
+    border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer}
+  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid rgba(255,255,255,.08)}
+  th{color:#8ea0c2;font-weight:600;font-size:11px;text-transform:uppercase}
+  .ok{color:#34d399}.bad{color:#fb7185}.warn{color:#fbbf24}
+  .chartwrap{height:320px;position:relative;margin-top:24px;background:rgba(255,255,255,.03);
+    border-radius:12px;padding:16px}
+  .err{font-size:11px;color:#fb7185}
+</style>
+</head><body>
+<div class="wrap">
+  <h1>📊 Tổng hợp tần suất sử dụng AGV — Mọi nhà máy</h1>
+  <div class="sub">Xem trực tiếp từ xa, không cần vào từng nhà máy riêng lẻ.</div>
+  <select id="period" onchange="load()">
+    <option value="week">Tuần này</option>
+    <option value="month" selected>Tháng này</option>
+    <option value="quarter">Quý này</option>
+    <option value="year">Năm nay</option>
+  </select>
+  <button onclick="load()">🔄 Làm mới</button>
+
+  <table>
+    <thead><tr>
+      <th>Nhà máy</th><th>AGV online</th><th>Tổng task</th>
+      <th>Hoàn thành</th><th>Thất bại</th><th>Đã hủy</th><th>Đang chạy</th>
+    </tr></thead>
+    <tbody id="tbody"><tr><td colspan="7">Đang tải…</td></tr></tbody>
+  </table>
+
+  <div class="chartwrap"><canvas id="chart"></canvas></div>
+</div>
+<script>
+let chart = null;
+async function load() {
+  const period = document.getElementById('period').value;
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '<tr><td colspan="7">Đang tải…</td></tr>';
+  try {
+    const res = await fetch(`data?period=${period}`);
+    const d = await res.json();
+    renderTable(d.factories);
+    renderChart(d.factories);
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" class="err">Lỗi tải dữ liệu: ${e.message}</td></tr>`;
+  }
+}
+function renderTable(factories) {
+  const tbody = document.getElementById('tbody');
+  if (!factories.length) { tbody.innerHTML = '<tr><td colspan="7">Chưa có nhà máy nào đăng ký.</td></tr>'; return; }
+  tbody.innerHTML = factories.map(f => {
+    const agv = f.agvs ? `<span class="ok">${f.agvs.online}</span> / ${f.agvs.total}`
+                        : `<span class="err">${f.agvs_error || 'lỗi'}</span>`;
+    if (!f.stats) {
+      return `<tr><td>${f.name}</td><td>${agv}</td>
+        <td colspan="5" class="err">${f.stats_error || 'Không lấy được thống kê'}</td></tr>`;
+    }
+    const s = f.stats;
+    return `<tr><td>${f.name}</td><td>${agv}</td>
+      <td>${s.total}</td><td class="ok">${s.completed}</td>
+      <td class="bad">${s.failed}</td><td class="warn">${s.cancelled}</td><td>${s.running}</td></tr>`;
+  }).join('');
+}
+function renderChart(factories) {
+  const ok = factories.filter(f => f.stats);
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('chart'), {
+    type: 'bar',
+    data: {
+      labels: ok.map(f => f.name),
+      datasets: [
+        { label: 'Hoàn thành', data: ok.map(f => f.stats.completed),
+          backgroundColor: 'rgba(52,211,153,.75)', borderColor: '#34d399', borderWidth: 1.5,
+          borderRadius: 6, borderSkipped: false },
+        { label: 'Thất bại/Hủy', data: ok.map(f => f.stats.failed + f.stats.cancelled),
+          backgroundColor: 'rgba(251,113,133,.75)', borderColor: '#fb7185', borderWidth: 1.5,
+          borderRadius: 6, borderSkipped: false },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#fff' } } },
+      scales: {
+        x: { ticks: { color: 'rgba(255,255,255,.75)' }, grid: { color: 'rgba(255,255,255,.05)' } },
+        y: { ticks: { color: 'rgba(255,255,255,.75)' }, grid: { color: 'rgba(255,255,255,.08)' }, beginAtZero: true },
+      },
+    },
+  });
+}
+load();
+</script>
+</body></html>
+"""
 
 
 # ─── Forward tất cả request còn lại ─────────────────────────────────────────
