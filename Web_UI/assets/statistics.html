@@ -60,6 +60,22 @@
   .pbar-wrap{display:flex;align-items:center;gap:6px}
   .pbar{height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.1);width:50px;flex-shrink:0}
   .pbar-fill{height:100%;border-radius:3px}
+
+  /* ── AGV live status chips ── */
+  .agv-chip{background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:10px 14px;display:flex;flex-direction:column;gap:6px;min-width:140px}
+  .agv-chip-top{display:flex;align-items:center;gap:6px;font-weight:700;font-size:13px}
+  .agv-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .agv-dot.on{background:#34d399;box-shadow:0 0 6px #34d399}
+  .agv-dot.off{background:#64748b}
+  .agv-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;
+    letter-spacing:.04em;width:fit-content}
+  .agv-badge.busy{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3)}
+  .agv-badge.free{background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3)}
+  .agv-badge.off{background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid rgba(148,163,184,.25)}
+  .agv-batt{display:flex;align-items:center;gap:5px;font-size:11px;font-family:'JetBrains Mono',monospace}
+  .agv-batt-bar{width:36px;height:8px;border-radius:3px;background:rgba(255,255,255,.1);overflow:hidden;flex-shrink:0}
+  .agv-batt-fill{height:100%;border-radius:3px}
 </style>
 </head>
 <body style="height:100vh;display:flex;flex-direction:column;overflow:hidden">
@@ -104,6 +120,14 @@
 
 <!-- ══ CONTENT ══ -->
 <div id="content">
+
+  <!-- ══════════ TRẠNG THÁI AGV TRỰC TIẾP (luôn hiện, không theo tab/kỳ lọc) ══════════ -->
+  <div class="cc">
+    <div class="cc-title"><span class="material-symbols-outlined" style="font-size:14px;color:#fff">smart_toy</span><span data-i18n="agv_live_status">Trạng thái AGV trực tiếp</span></div>
+    <div id="agv-status-row" style="display:flex;flex-wrap:wrap;gap:10px">
+      <span style="color:#fff;font-size:12px" data-i18n="loading">Đang tải…</span>
+    </div>
+  </div>
 
   <!-- ══════════ VIEW: NHIỆM VỤ ══════════ -->
   <div class="view-section active" id="view-tasks">
@@ -249,6 +273,7 @@
 const _lang = new URLSearchParams(location.search).get('lang') || 'vi';
 const _I = {
   vi:{
+    agv_live_status:'Trạng thái AGV trực tiếp',agv_busy:'Đang bận',agv_free:'Đang rảnh',agv_offline:'Ngoại tuyến',
     view_tasks:'Nhiệm vụ',view_trips:'Chuyến đi AGV',
     period_week:'Tuần',period_month:'Tháng',period_quarter:'Quý',period_year:'Năm',period_custom:'Tùy chỉnh',
     apply:'Áp dụng',all_agv:'Tất cả AGV',refresh:'Làm mới',
@@ -258,7 +283,7 @@ const _I = {
     kpi_active_time:'Tổng TG hoạt động',kpi_active_sub:'xe đang di chuyển',
     kpi_avg_trip:'TG TB / chuyến',
     chart_tasks_by_day:'Nhiệm vụ theo ngày',chart_status_dist:'Phân bổ trạng thái',
-    chart_agv_perf:'Hiệu suất AGV',chart_top_dest:'Top điểm đến',
+    chart_agv_perf:'Hiệu suất AGV',chart_top_dest:'Top Tổ nhận hàng',team_prefix:'Tổ',
     chart_trips_by_day:'Chuyến đi theo ngày',chart_trip_status:'Trạng thái chuyến',
     chart_agv_trips:'Hiệu suất AGV (chuyến)',chart_top_wf:'Top loại workflow',
     col_total:'Tổng',col_done:'✓',col_fail:'✗',col_rate:'Tỉ lệ',
@@ -271,6 +296,7 @@ const _I = {
     loading:'Đang tải…',
   },
   en:{
+    agv_live_status:'Live AGV Status',agv_busy:'Busy',agv_free:'Free',agv_offline:'Offline',
     view_tasks:'Tasks',view_trips:'AGV Trips',
     period_week:'Week',period_month:'Month',period_quarter:'Quarter',period_year:'Year',period_custom:'Custom',
     apply:'Apply',all_agv:'All AGVs',refresh:'Refresh',
@@ -280,7 +306,7 @@ const _I = {
     kpi_active_time:'Total Active Time',kpi_active_sub:'vehicle moving',
     kpi_avg_trip:'Avg. per Trip',
     chart_tasks_by_day:'Tasks by Day',chart_status_dist:'Status Distribution',
-    chart_agv_perf:'AGV Performance',chart_top_dest:'Top Destinations',
+    chart_agv_perf:'AGV Performance',chart_top_dest:'Top Delivery Teams',team_prefix:'Team',
     chart_trips_by_day:'Trips by Day',chart_trip_status:'Trip Status',
     chart_agv_trips:'AGV Performance (Trips)',chart_top_wf:'Top Workflow Types',
     col_total:'Total',col_done:'✓',col_fail:'✗',col_rate:'Rate',
@@ -386,6 +412,30 @@ function hideError() {
   if (el) el.style.display = 'none';
 }
 
+// ── Chart "theo ngày": ≤5 ngày trong khoảng lọc → 2 cột riêng (xanh/đỏ) dễ so
+// sánh từng ngày; >5 ngày → giữ cột+đường như cũ (đường rõ xu hướng hơn khi
+// nhiều điểm). Dùng chung cho cả tab Nhiệm vụ và Chuyến đi.
+function _daySpanOf(d) {
+  return (d.date_from && d.date_to)
+    ? Math.round((new Date(d.date_to) - new Date(d.date_from)) / 86400000) + 1
+    : d.by_day.length;
+}
+function _failDatasetByDay(d) {
+  const data = d.by_day.map(r => r.failed);
+  if (_daySpanOf(d) <= 5) {
+    return { label:_t('chart_fail_cancel'), type:'bar', data,
+      backgroundColor:'rgba(251,113,133,.75)', borderColor:'#fb7185',
+      borderWidth:1.5, borderRadius:6, borderSkipped:false,
+      hoverBackgroundColor:'#fb7185', order:1 };
+  }
+  return { label:_t('chart_fail_cancel'), type:'line', data,
+    borderColor:'#fb7185', borderWidth:2,
+    backgroundColor:'rgba(251,113,133,.1)',
+    pointBackgroundColor:'#fb7185', pointBorderColor:'rgba(255,255,255,.9)',
+    pointBorderWidth:1.5, pointRadius:5, pointHoverRadius:7, pointStyle:'circle',
+    tension:0.35, fill:false, order:0 };
+}
+
 // ══ RENDER: NHIỆM VỤ ══════════════════════════════════════════════════════════
 function renderTasks(d) {
   const s = d.summary;
@@ -407,13 +457,7 @@ function renderTasks(d) {
         backgroundColor:'rgba(52,211,153,.75)', borderColor:'#34d399',
         borderWidth:1.5, borderRadius:6, borderSkipped:false,
         hoverBackgroundColor:'#34d399', order:1 },
-      { label:_t('chart_fail_cancel'), type:'line',
-        data: d.by_day.map(r=>r.failed),
-        borderColor:'#fb7185', borderWidth:2,
-        backgroundColor:'rgba(251,113,133,.1)',
-        pointBackgroundColor:'#fb7185', pointBorderColor:'rgba(255,255,255,.9)',
-        pointBorderWidth:1.5, pointRadius:5, pointHoverRadius:7, pointStyle:'circle',
-        tension:0.35, fill:false, order:0 },
+      _failDatasetByDay(d),
     ], false);
 
   // Status pie
@@ -432,7 +476,7 @@ function renderTasks(d) {
 
   // Top destinations horizontal bar
   mkHBar('t-chart-dest',
-    d.top_destinations.map(r => `Tag ${r.node}`),
+    d.top_destinations.map(r => `${_t('team_prefix')} ${r.node}`),
     d.top_destinations.map(r => r.count),
     d.top_destinations.map((_,i) => BAR_PALETTE[i % BAR_PALETTE.length]),
     _t('visits'));
@@ -455,25 +499,7 @@ function renderTrips(d) {
   setText('r-avg-steps', d.avg_steps_per_trip != null
     ? `${_t('avg_tb')} ${d.avg_steps_per_trip.toFixed(1)} ${_t('avg_cmd_per_trip')}` : '');
 
-  // Daily bar + line (chuyến) — khoảng lọc ≤ 5 ngày: hiện 2 cột riêng (xanh/đỏ)
-  // thay vì cột+đường, dễ so sánh từng ngày khi ít điểm dữ liệu. > 5 ngày: giữ
-  // nguyên cột+đường như cũ (đường rõ xu hướng hơn khi nhiều điểm).
-  const _daySpan = (d.date_from && d.date_to)
-    ? Math.round((new Date(d.date_to) - new Date(d.date_from)) / 86400000) + 1
-    : d.by_day.length;
-  const _failDs = (_daySpan <= 5)
-    ? { label:_t('chart_fail_cancel'), type:'bar',
-        data: d.by_day.map(r=>r.failed),
-        backgroundColor:'rgba(251,113,133,.75)', borderColor:'#fb7185',
-        borderWidth:1.5, borderRadius:6, borderSkipped:false,
-        hoverBackgroundColor:'#fb7185', order:1 }
-    : { label:_t('chart_fail_cancel'), type:'line',
-        data: d.by_day.map(r=>r.failed),
-        borderColor:'#fb7185', borderWidth:2,
-        backgroundColor:'rgba(251,113,133,.1)',
-        pointBackgroundColor:'#fb7185', pointBorderColor:'rgba(255,255,255,.9)',
-        pointBorderWidth:1.5, pointRadius:5, pointHoverRadius:7, pointStyle:'circle',
-        tension:0.35, fill:false, order:0 };
+  // Daily bar + line (chuyến)
   mkBarChart('r-chart-day', d.by_day.map(r => fmtDs(r.day)),
     [
       { label:_t('chart_done'), type:'bar',
@@ -481,7 +507,7 @@ function renderTrips(d) {
         backgroundColor:'rgba(52,211,153,.75)', borderColor:'#34d399',
         borderWidth:1.5, borderRadius:6, borderSkipped:false,
         hoverBackgroundColor:'#34d399', order:1 },
-      _failDs,
+      _failDatasetByDay(d),
     ], false);
 
   // Status pie (chuyến)
@@ -707,8 +733,50 @@ function populateAgvFilter(byAgv) {
   sel.value = cur;
 }
 
+// ── Trạng thái AGV trực tiếp (bận/rảnh + pin) — độc lập với kỳ lọc/tab ─────────
+function battColor(pct) {
+  if (pct == null) return '#64748b';
+  if (pct <= 20) return '#fb7185';
+  if (pct <= 50) return '#fbbf24';
+  return '#34d399';
+}
+async function loadAgvStatus() {
+  const row = document.getElementById('agv-status-row');
+  try {
+    const res = await fetch(`${API}/api/execute/agv-list`);
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : (data.agvs || []);
+    if (!list.length) {
+      row.innerHTML = `<span style="color:#fff;font-size:12px">${_t('no_data')}</span>`;
+      return;
+    }
+    row.innerHTML = list.map(a => {
+      const online = String(a.connection || '').toUpperCase() === 'ONLINE';
+      const busy   = !!a.is_busy;
+      const batt   = (a.battery === null || a.battery === undefined) ? null : Math.round(a.battery);
+      const badgeCls = !online ? 'off' : (busy ? 'busy' : 'free');
+      const badgeTxt = !online ? _t('agv_offline') : (busy ? _t('agv_busy') : _t('agv_free'));
+      const battHtml = batt == null ? '' : `
+        <div class="agv-batt">
+          <div class="agv-batt-bar"><div class="agv-batt-fill" style="width:${batt}%;background:${battColor(batt)}"></div></div>
+          <span style="color:${battColor(batt)}">${batt}%</span>
+        </div>`;
+      return `
+        <div class="agv-chip">
+          <div class="agv-chip-top"><span class="agv-dot ${online?'on':'off'}"></span>${esc(a.agv_id)}</div>
+          <span class="agv-badge ${badgeCls}">${badgeTxt}</span>
+          ${battHtml}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    row.innerHTML = `<span style="color:#fb7185;font-size:12px">⚠ ${esc(e.message)}</span>`;
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 setPeriod('year');
+loadAgvStatus();
+setInterval(loadAgvStatus, 5000);
 </script>
 </body>
 </html>
