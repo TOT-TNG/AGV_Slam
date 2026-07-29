@@ -768,6 +768,22 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE agv_task_executions ADD COLUMN IF NOT EXISTS session_label VARCHAR(200)"
                 )
                 print("[DB] Columns agv_task_executions.session_id/session_label ensured")
+
+                # ── Dọn rác 'running'/'queued' mồ côi từ lần chạy trước ──────────
+                # agv_task_queue (task_queue.py) chỉ giữ hàng đợi TRONG RAM, không
+                # khôi phục lại từ DB — nên bất kỳ dòng nào còn 'running'/'queued'
+                # tại thời điểm SERVER VỪA KHỞI ĐỘNG chắc chắn là rác từ 1 tiến
+                # trình trước đó đã tắt (crash/restart) giữa chừng, không phải lệnh
+                # thật đang chạy (in-memory queue lúc này luôn rỗng). Không dọn sẽ
+                # bị tính nhầm là "chuyến đang chạy" mãi mãi trong thống kê.
+                _stale = await _conn.execute("""
+                    UPDATE agv_task_executions
+                    SET status = 'error', completed_at = NOW(),
+                        notes = COALESCE(NULLIF(notes, ''), '') || ' [stale: bỏ rơi từ lần chạy trước]'
+                    WHERE status IN ('running', 'queued')
+                """)
+                print(f"[DB] Dọn lệnh mồ côi 'running'/'queued' từ lần chạy trước: {_stale}")
+
                 # Cột agv_devices
                 await _conn.execute(
                     "ALTER TABLE agv_devices ADD COLUMN IF NOT EXISTS map_id TEXT"
@@ -5822,14 +5838,40 @@ async def statistics_tasks(
                     for r in cur.fetchall()
                 ]
 
-                # ── 5. Top destinations ────────────────────────────────────────
+                # ── 5. Top Tổ nhận hàng (chỉ điểm DROPOFF có gán Tổ — bỏ qua điểm
+                # lấy hàng/pickup). KHÔNG join theo agv_devices.map_id — giá trị đó có
+                # thể lệch/cũ so với map thật của lịch sử task (đã xác nhận thực tế:
+                # map_id trong agv_devices khác map_id chứa node trong agv_map_points).
+                # Có 2 kiểu cấu hình Tổ trên node, gộp cả 2 (UNION ALL):
+                #   1. Node "team" thường (agvCompat thường): action->>'team'
+                #   2. Node rơ-moóc (trailer_role): action->'trailer_drop_teams' — MẢNG
+                #      nhiều Tổ cùng lúc, CHỈ lấy trailer_role='drop' (trả hàng),
+                #      bỏ 'pickup' (lấy rơ-moóc) theo đúng yêu cầu.
+                dest_agv_clause = "AND te.agv_id = %s" if agv_id else ""
+                _dest_params = base_params + base_params
                 cur.execute(f"""
-                    SELECT dest_node, COUNT(*) AS cnt
-                    FROM agv_task_executions
-                    WHERE DATE(queued_at) BETWEEN %s AND %s
-                      AND dest_node IS NOT NULL AND dest_node <> '' {agv_clause}
-                    GROUP BY dest_node ORDER BY cnt DESC LIMIT 10
-                """, base_params)
+                    SELECT team, COUNT(*) AS cnt FROM (
+                        SELECT (mp.action->>'team')::int AS team
+                        FROM agv_task_executions te
+                        JOIN agv_map_points mp ON mp.name_id = te.dest_node
+                        WHERE DATE(te.queued_at) BETWEEN %s AND %s
+                          AND te.dest_node IS NOT NULL AND te.dest_node <> '' {dest_agv_clause}
+                          AND mp.action->>'locationType' = 'DROPOFF'
+                          AND mp.action->>'team' IS NOT NULL
+
+                        UNION ALL
+
+                        SELECT team_elem::int AS team
+                        FROM agv_task_executions te
+                        JOIN agv_map_points mp ON mp.name_id = te.dest_node
+                        CROSS JOIN LATERAL jsonb_array_elements_text(mp.action->'trailer_drop_teams') AS team_elem
+                        WHERE DATE(te.queued_at) BETWEEN %s AND %s
+                          AND te.dest_node IS NOT NULL AND te.dest_node <> '' {dest_agv_clause}
+                          AND mp.action->>'locationType' = 'DROPOFF'
+                          AND mp.action->>'trailer_role' = 'drop'
+                    ) x
+                    GROUP BY team ORDER BY cnt DESC LIMIT 10
+                """, _dest_params)
                 top_destinations = [{"node": r[0], "count": int(r[1])} for r in cur.fetchall()]
 
                 return {
