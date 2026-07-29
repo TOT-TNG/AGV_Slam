@@ -84,29 +84,38 @@ async def fleet_overview_data(period: str = "month"):
 
     async def _one(key: str, factory: dict) -> dict:
         frp_host = factory["frp_host"]
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            stats_res, agvs_res = await asyncio.gather(
-                _call_factory_json(client, frp_host, "/api/statistics/tasks", {"period": period}),
-                _call_factory_json(client, frp_host, "/api/execute/agv-list"),
-            )
-
         entry = {"key": key, "name": factory.get("name", frp_host), "frp_host": frp_host}
-        if stats_res["ok"]:
-            s = stats_res["data"]["summary"]
-            entry["stats"] = {
-                "total": s["total"], "completed": s["completed"],
-                "failed": s["failed"], "cancelled": s["cancelled"],
-                "running": s["running"], "queued": s["queued"],
-            }
-        else:
-            entry["stats_error"] = stats_res["error"]
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                stats_res, agvs_res = await asyncio.gather(
+                    _call_factory_json(client, frp_host, "/api/statistics/tasks", {"period": period}),
+                    _call_factory_json(client, frp_host, "/api/execute/agv-list"),
+                )
 
-        if agvs_res["ok"]:
-            agv_list = agvs_res["data"] if isinstance(agvs_res["data"], list) else agvs_res["data"].get("agvs", [])
-            online = sum(1 for a in agv_list if str(a.get("connection", "")).upper() == "ONLINE")
-            entry["agvs"] = {"online": online, "total": len(agv_list)}
-        else:
-            entry["agvs_error"] = agvs_res["error"]
+            if stats_res["ok"]:
+                s = (stats_res["data"] or {}).get("summary") or {}
+                entry["stats"] = {
+                    "total":     s.get("total", 0),     "completed": s.get("completed", 0),
+                    "failed":    s.get("failed", 0),    "cancelled": s.get("cancelled", 0),
+                    "running":   s.get("running", 0),   "queued":    s.get("queued", 0),
+                }
+            else:
+                entry["stats_error"] = stats_res["error"]
+
+            if agvs_res["ok"]:
+                raw = agvs_res["data"]
+                agv_list = raw if isinstance(raw, list) else (raw or {}).get("agvs", [])
+                online = sum(1 for a in agv_list if str((a or {}).get("connection", "")).upper() == "ONLINE")
+                entry["agvs"] = {"online": online, "total": len(agv_list)}
+            else:
+                entry["agvs_error"] = agvs_res["error"]
+        except Exception as e:
+            # 1 nhà máy lỗi bất thường (format lạ, exception nội bộ...) KHÔNG được
+            # kéo sập cả trang — ghi lỗi riêng cho đúng nhà máy đó, các nhà máy khác
+            # vẫn hiển thị bình thường.
+            log.error("fleet_overview: lỗi xử lý nhà máy %s: %s", key, e)
+            entry.setdefault("stats_error", str(e))
+            entry.setdefault("agvs_error", str(e))
 
         return entry
 
@@ -171,6 +180,9 @@ async function load() {
   try {
     const res = await fetch(`data?period=${period}`);
     const d = await res.json();
+    if (!res.ok || !Array.isArray(d.factories)) {
+      throw new Error(d.detail || d.error || `Server trả về không đúng định dạng (HTTP ${res.status})`);
+    }
     renderTable(d.factories);
     renderChart(d.factories);
   } catch (e) {
