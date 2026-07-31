@@ -24,10 +24,11 @@ SUBDOMAIN_HOST = "tot360.internal"  # phải khớp subdomainHost trong frps.tom
 
 # Trang tổng hợp thống kê NHIỀU nhà máy cùng lúc (xem tần suất sử dụng AGV từ xa).
 # KHÔNG dùng Gateway Key của từng nhà máy (mỗi key chỉ được phép thấy đúng 1 nhà
-# máy) — theo yêu cầu KHÔNG làm auth riêng, chỉ dựa vào việc biết đúng URL. Để
-# giảm rủi ro lộ URL bị đoán ra, dùng 1 đoạn slug dài ngẫu nhiên thay vì đường dẫn
-# dễ đoán kiểu "/dashboard". Đổi FLEET_SLUG này thành chuỗi khác nếu nghi bị lộ.
-FLEET_SLUG = "fleet-x7qd92mz"
+# máy) — theo yêu cầu KHÔNG làm auth riêng, chỉ dựa vào việc biết đúng URL.
+# LƯU Ý: slug hiện đặt dễ nhớ theo yêu cầu ("statistic") — không còn khó đoán
+# như bản trước. Ai biết/đoán được URL này đều xem được dữ liệu tổng hợp mọi
+# nhà máy, không cần đăng nhập gì cả. Đổi FLEET_SLUG nếu nghi bị lộ.
+FLEET_SLUG = "statistic"
 
 
 def load_factories() -> dict:
