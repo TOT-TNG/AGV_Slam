@@ -1,0 +1,63 @@
+menu "WiFi Signal Monitor Configuration"
+
+    config WIFI_MON_SSID
+        string "5GHz WiFi SSID (mạng cần kiểm tra)"
+        default ""
+
+    config WIFI_MON_PASSWORD
+        string "5GHz WiFi Password"
+        default ""
+
+    config WIFI_MON_SERVER_HOST
+        string "Backend base URL (qua Cloud Gateway)"
+        default "https://iot.tot360.com.vn/acs"
+        help
+            Base URL của Cloud Gateway trên VPS. Firmware sẽ POST tới
+            "<host>/api/wifi/report" và "<host>/api/wifi/alert".
+
+    config WIFI_MON_GATEWAY_KEY
+        string "X-Gateway-Key (khóa định tuyến của nhà máy)"
+        default ""
+        help
+            Giống hệt key mà mobile app / dashboard dùng để gọi tới nhà máy
+            này qua Cloud Gateway (xem factories.json trên VPS). Gateway
+            dùng key này để forward request tới đúng mqtt_Server của nhà
+            máy — không phải bí mật riêng cho thiết bị WiFi monitor.
+
+    config WIFI_MON_DEVICE_ID
+        string "Device ID (định danh thiết bị, duy nhất trong 1 nhà máy)"
+        default "WIFI-MON-01"
+
+    config WIFI_MON_RSSI_GOOD
+        int "Ngưỡng tín hiệu TỐT (dBm, số âm)"
+        default -65
+        help
+            RSSI >= ngưỡng này được coi là tín hiệu tốt (thoát trạng thái yếu).
+
+    config WIFI_MON_RSSI_WEAK
+        int "Ngưỡng tín hiệu YẾU (dBm, số âm)"
+        default -70
+        help
+            RSSI < ngưỡng này được coi là tín hiệu yếu. Khoảng cách với
+            ngưỡng TỐT tạo hysteresis, tránh chuyển trạng thái liên tục khi
+            RSSI dao động quanh biên.
+
+    config WIFI_MON_SAMPLE_INTERVAL_S
+        int "Chu kỳ đo RSSI (giây)"
+        default 10
+
+    config WIFI_MON_ALERT_INTERVAL_S
+        int "Chu kỳ gửi cảnh báo khi đang yếu (giây)"
+        default 60
+        help
+            Đúng yêu cầu "tín hiệu yếu thì 1 phút báo 1 lần".
+
+    config WIFI_MON_OUTAGE_ALERT_COUNT
+        int "Số lần cảnh báo yếu liên tiếp trước khi tính là outage"
+        default 5
+        help
+            Sau N lần cảnh báo yếu liên tiếp (mặc định 5, tức ~5 phút với
+            chu kỳ cảnh báo 60s) mà chưa hồi phục, thiết bị bắt đầu tính
+            thời gian outage cho tới khi tín hiệu tốt trở lại.
+
+endmenu

@@ -1,0 +1,12 @@
+# Mục tiêu build mặc định: ESP32-C5 (WiFi 2.4GHz + 5GHz)
+CONFIG_IDF_TARGET="esp32c5"
+
+# Cần cho esp_crt_bundle_attach() để verify TLS khi gọi HTTPS tới
+# iot.tot360.com.vn qua esp_http_client (xem http_report.c)
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# Không commit sdkconfig thật (chứa cấu hình cục bộ) — xem .gitignore.
+# Các giá trị bí mật (SSID/mật khẩu WiFi, X-Gateway-Key) đặt qua
+# `idf.py menuconfig` > "WiFi Signal Monitor Configuration", KHÔNG hardcode
+# trong source.

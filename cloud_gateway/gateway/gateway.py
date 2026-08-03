@@ -129,6 +129,43 @@ async def fleet_overview_trips(key: str, period: str = "month",
     return res["data"]
 
 
+@app.get(f"/_gateway/{FLEET_SLUG}/wifi-devices")
+async def fleet_wifi_devices(key: str):
+    """Danh sách thiết bị giám sát WiFi 5GHz + trạng thái hiện tại của 1 nhà máy
+    (tab 'Tín hiệu WiFi' trong màn hình chi tiết nhà máy)."""
+    factories = load_factories()
+    factory = factories.get(key)
+    if not factory:
+        raise HTTPException(404, detail="Không tìm thấy nhà máy")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await _call_factory_json(client, factory["frp_host"], "/api/wifi/devices")
+
+    if not res["ok"]:
+        raise HTTPException(502, detail=res["error"])
+    return res["data"]
+
+
+@app.get(f"/_gateway/{FLEET_SLUG}/wifi-history")
+async def fleet_wifi_history(key: str, device_id: str, hours: int = 24):
+    """Lịch sử RSSI + sự kiện (yếu/outage/phục hồi) của 1 thiết bị WiFi tại 1
+    nhà máy, dùng để vẽ biểu đồ phổ tín hiệu."""
+    factories = load_factories()
+    factory = factories.get(key)
+    if not factory:
+        raise HTTPException(404, detail="Không tìm thấy nhà máy")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await _call_factory_json(
+            client, factory["frp_host"], "/api/wifi/history",
+            {"device_id": device_id, "hours": hours},
+        )
+
+    if not res["ok"]:
+        raise HTTPException(502, detail=res["error"])
+    return res["data"]
+
+
 @app.get(f"/_gateway/{FLEET_SLUG}")
 async def fleet_overview_page():
     return HTMLResponse(_FLEET_HTML)
@@ -181,6 +218,33 @@ _FLEET_HTML = r"""<!doctype html>
   .chartwrap{height:280px;position:relative}
   .err{font-size:12px;color:#fb7185;padding:16px 0}
   .loading{color:#8ea0c2;font-size:13px;padding:20px 0}
+
+  /* ── Tab chuyến đi / WiFi trong màn hình chi tiết ── */
+  .dtab-row{display:flex;gap:3px;margin:14px 0 14px;border-bottom:1px solid rgba(255,255,255,.08)}
+  .dtab{padding:7px 16px;border-radius:9px 9px 0 0;font-size:12.5px;font-weight:600;cursor:pointer;
+    border:1px solid transparent;background:transparent;color:#8ea0c2}
+  .dtab:hover{color:#fff}
+  .dtab.active{color:#fff;background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.1);border-bottom-color:transparent}
+
+  /* ── Tab khoảng thời gian (WiFi) ── */
+  .wtab{padding:4px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;
+    border:1px solid rgba(255,255,255,.1);background:transparent;color:#fff}
+  .wtab:hover{border-color:rgba(255,255,255,.4)}
+  .wtab.active{background:rgba(129,140,248,.3);border-color:rgba(129,140,248,.6)}
+
+  /* ── Thẻ trạng thái thiết bị WiFi trực tiếp ── */
+  .wifi-chip{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;
+    padding:10px 14px;display:flex;flex-direction:column;gap:6px;min-width:150px}
+  .wifi-chip-top{display:flex;align-items:center;gap:6px;font-weight:700;font-size:13px}
+  .wifi-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+  .wifi-dot.on{background:#34d399;box-shadow:0 0 6px #34d399}
+  .wifi-dot.off{background:#64748b}
+  .wifi-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;text-transform:uppercase;
+    letter-spacing:.04em;width:fit-content}
+  .wifi-badge.good{background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3)}
+  .wifi-badge.weak{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3)}
+  .wifi-badge.outage{background:rgba(251,113,133,.15);color:#fb7185;border:1px solid rgba(251,113,133,.3)}
+  .wifi-badge.offline{background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid rgba(148,163,184,.25)}
 </style>
 </head><body>
 <div class="wrap" id="app">
@@ -188,8 +252,11 @@ _FLEET_HTML = r"""<!doctype html>
   <div id="content"></div>
 </div>
 <script>
-let chartDay = null, chartStatus = null;
+let chartDay = null, chartStatus = null, wifiChart = null;
 let factoriesCache = [];
+let curDetailTab = 'trips';   // 'trips' | 'wifi' — tab đang chọn trong màn hình chi tiết nhà máy
+let wifiRangeHours = 24;
+let wifiThresholds = { good: -65, weak: -70 };
 
 function slugBase() { return location.pathname.replace(/\/+$/, ''); }
 
@@ -254,12 +321,33 @@ function applyCustomRange(key, name) {
 }
 
 async function showDetail(key, name, period, dateFrom, dateTo) {
-  period = period || 'month';
   const c = document.getElementById('content');
-  const isCustom = period === 'custom';
   c.innerHTML = `
     <div class="backbtn"><button onclick="showList()">← Danh sách nhà máy</button></div>
     <h2 style="margin:4px 0 2px;font-size:16px">${name}</h2>
+    <div class="dtab-row">
+      <button class="dtab ${curDetailTab==='trips'?'active':''}" onclick="setDetailTab('${key}','${escAttr(name)}','trips')">🚚 Chuyến đi</button>
+      <button class="dtab ${curDetailTab==='wifi'?'active':''}" onclick="setDetailTab('${key}','${escAttr(name)}','wifi')">📶 Tín hiệu WiFi</button>
+    </div>
+    <div id="detail-body"><div class="loading">Đang tải…</div></div>`;
+
+  if (curDetailTab === 'wifi') {
+    await renderWifiTab(key, name);
+  } else {
+    await renderTripsTab(key, name, period, dateFrom, dateTo);
+  }
+}
+
+function setDetailTab(key, name, tab) {
+  curDetailTab = tab;
+  showDetail(key, name);
+}
+
+async function renderTripsTab(key, name, period, dateFrom, dateTo) {
+  period = period || 'month';
+  const isCustom = period === 'custom';
+  const body = document.getElementById('detail-body');
+  body.innerHTML = `
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <select id="period" onchange="onPeriodChange(this,'${key}','${escAttr(name)}')">
         <option value="week"    ${period==='week'   ?'selected':''}>Tuần này</option>
@@ -290,9 +378,126 @@ async function showDetail(key, name, period, dateFrom, dateTo) {
     if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
     renderDetail(key, name, period, d);
   } catch (e) {
-    document.getElementById('content').insertAdjacentHTML('beforeend',
+    document.getElementById('detail-body').insertAdjacentHTML('beforeend',
       `<div class="err">⚠ Lỗi tải chuyến đi: ${e.message}</div>`);
   }
+}
+
+// ══ TAB: TÍN HIỆU WIFI (1 nhà máy) ═══════════════════════════════════════════
+async function renderWifiTab(key, name) {
+  const body = document.getElementById('detail-body');
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <select id="wifi-device" onchange="loadWifiHistory('${key}')" style="min-width:160px">
+        <option value="">Chọn thiết bị…</option>
+      </select>
+      <div style="display:flex;gap:3px">
+        <button class="wtab" data-h="1" onclick="setWifiRange('${key}',1)">1 giờ</button>
+        <button class="wtab" data-h="6" onclick="setWifiRange('${key}',6)">6 giờ</button>
+        <button class="wtab active" data-h="24" onclick="setWifiRange('${key}',24)">24 giờ</button>
+        <button class="wtab" data-h="168" onclick="setWifiRange('${key}',168)">7 ngày</button>
+      </div>
+    </div>
+    <div class="chartcard" style="margin-bottom:14px">
+      <div class="chartcard-title">📶 Trạng thái thiết bị trực tiếp</div>
+      <div id="wifi-status-row" style="display:flex;flex-wrap:wrap;gap:10px">
+        <span class="loading">Đang tải…</span>
+      </div>
+    </div>
+    <div class="chartcard">
+      <div class="chartcard-title">Phổ tín hiệu RSSI theo thời gian</div>
+      <div class="chartwrap"><canvas id="wifi-chart-rssi"></canvas></div>
+    </div>`;
+  wifiRangeHours = 24;
+  await loadWifiDevices(key);
+}
+
+function setWifiRange(key, h) {
+  wifiRangeHours = h;
+  document.querySelectorAll('#detail-body .wtab').forEach(b => b.classList.toggle('active', Number(b.dataset.h) === h));
+  loadWifiHistory(key);
+}
+
+async function loadWifiDevices(key) {
+  const row = document.getElementById('wifi-status-row');
+  try {
+    const res = await fetch(`${slugBase()}/wifi-devices?key=${encodeURIComponent(key)}`);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
+    const list = d.devices || [];
+    if (d.thresholds) wifiThresholds = d.thresholds;
+
+    const sel = document.getElementById('wifi-device');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Chọn thiết bị…</option>' +
+      list.map(dv => `<option value="${escAttr(dv.device_id)}">${dv.device_id}</option>`).join('');
+    sel.value = cur || (list[0] ? list[0].device_id : '');
+
+    if (!list.length) {
+      row.innerHTML = `<span style="color:#8ea0c2;font-size:12px">Chưa có thiết bị nào gửi dữ liệu.</span>`;
+    } else {
+      const labelOf = { good:'Tốt', weak:'Yếu', outage:'Outage', offline:'Ngoại tuyến' };
+      row.innerHTML = list.map(dv => `
+        <div class="wifi-chip">
+          <div class="wifi-chip-top"><span class="wifi-dot ${dv.state==='offline'?'off':'on'}"></span>${dv.device_id}</div>
+          <span class="wifi-badge ${dv.state}">${labelOf[dv.state] || dv.state}</span>
+          <span style="font-size:11px;color:#8ea0c2;font-family:monospace">${dv.rssi!=null?dv.rssi+' dBm':'—'}</span>
+        </div>`).join('');
+    }
+    await loadWifiHistory(key);
+  } catch (e) {
+    row.innerHTML = `<span style="color:#fb7185;font-size:12px">⚠ ${e.message}</span>`;
+  }
+}
+
+async function loadWifiHistory(key) {
+  const deviceId = document.getElementById('wifi-device').value;
+  if (!deviceId) { renderWifiChart([], deviceId); return; }
+  try {
+    const res = await fetch(`${slugBase()}/wifi-history?key=${encodeURIComponent(key)}&device_id=${encodeURIComponent(deviceId)}&hours=${wifiRangeHours}`);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
+    renderWifiChart(d.samples || [], deviceId);
+  } catch (e) {
+    console.error('[WIFI]', e);
+  }
+}
+
+function renderWifiChart(samples, deviceId) {
+  const labels = samples.map(s => fmtWifiTime(s.recorded_at));
+  const rssiData = samples.map(s => s.rssi);
+  if (wifiChart) wifiChart.destroy();
+  wifiChart = new Chart(document.getElementById('wifi-chart-rssi'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: deviceId ? `RSSI — ${deviceId}` : 'RSSI', data: rssiData,
+          borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)',
+          borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:.25, fill:true, order:0 },
+        { label:'Ngưỡng tốt', data: labels.map(()=>wifiThresholds.good),
+          borderColor:'rgba(52,211,153,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1 },
+        { label:'Ngưỡng yếu', data: labels.map(()=>wifiThresholds.weak),
+          borderColor:'rgba(251,113,133,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color:'#fff', boxWidth:10, usePointStyle:true, pointStyle:'circle', font:{size:11} } } },
+      scales: {
+        x: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10}, maxTicksLimit:12 }, grid:{ color:'rgba(255,255,255,.05)' } },
+        y: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10} }, grid:{ color:'rgba(255,255,255,.08)' } },
+      },
+    },
+  });
+}
+
+function fmtWifiTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
+  if (wifiRangeHours <= 24) return `${hh}:${mm}`;
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${hh}:${mm}`;
 }
 
 function fmtDur(sec) {
@@ -327,7 +532,7 @@ function renderDetail(key, name, period, d) {
         <div class="chartwrap"><canvas id="chart-status"></canvas></div>
       </div>
     </div>`;
-  document.getElementById('content').insertAdjacentHTML('beforeend', kpiHtml);
+  document.getElementById('detail-body').insertAdjacentHTML('beforeend', kpiHtml);
 
   const byDay = d.by_day || [];
   // ≤5 ngày trong khoảng lọc → 2 cột riêng (xanh/đỏ) dễ so sánh từng ngày;

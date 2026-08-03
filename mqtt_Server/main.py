@@ -839,6 +839,39 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE agv_tasks ADD COLUMN IF NOT EXISTS order_info JSONB"
                 )
                 print("[DB] Column agv_tasks.order_info ensured")
+
+                # ── Giám sát tín hiệu WiFi 5GHz (thiết bị ESP32-C5) ───────────────
+                await _conn.execute("""
+                    CREATE TABLE IF NOT EXISTS wifi_signal_samples (
+                        id           BIGSERIAL PRIMARY KEY,
+                        device_id    VARCHAR(64) NOT NULL,
+                        rssi         SMALLINT NOT NULL,
+                        ssid         VARCHAR(64),
+                        channel      SMALLINT,
+                        band         VARCHAR(8) DEFAULT '5GHz',
+                        recorded_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                """)
+                await _conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_wifi_samples_device_time "
+                    "ON wifi_signal_samples (device_id, recorded_at DESC)"
+                )
+                await _conn.execute("""
+                    CREATE TABLE IF NOT EXISTS wifi_signal_events (
+                        id                SERIAL PRIMARY KEY,
+                        device_id         VARCHAR(64) NOT NULL,
+                        event_type        VARCHAR(20) NOT NULL,
+                        rssi              SMALLINT,
+                        consecutive_count SMALLINT,
+                        outage_seconds    INTEGER,
+                        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                """)
+                await _conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_wifi_events_device_time "
+                    "ON wifi_signal_events (device_id, recorded_at DESC)"
+                )
+                print("[DB] Tables wifi_signal_samples / wifi_signal_events ready")
         except Exception as _te:
             print(f"[DB] Create table error (non-fatal): {_te}")
 
@@ -6245,6 +6278,201 @@ async def schedule_teams():
         )
     return {"teams": [{"team_id": r['team_id'],
                        "label": f"Tổ {r['team_id']}"} for r in rows if r['team_id']]}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Giám sát tín hiệu WiFi 5GHz (thiết bị ESP32-C5)
+# Ngưỡng dùng để suy ra trạng thái hiện tại của thiết bị ở /api/wifi/devices —
+# việc quyết định khi nào gửi cảnh báo weak_signal/outage_start/recovered là
+# do chính firmware ESP32 tự làm (máy trạng thái cục bộ), server chỉ lưu lại.
+# ══════════════════════════════════════════════════════════════════════════
+WIFI_RSSI_GOOD_THRESHOLD = -65   # dBm, >= mức này coi là tín hiệu tốt
+WIFI_RSSI_WEAK_THRESHOLD = -70   # dBm, < mức này coi là tín hiệu yếu
+WIFI_DEVICE_STALE_SECONDS = 120  # mẫu cuối cũ hơn mức này → coi là offline
+
+
+class WifiSampleIn(BaseModel):
+    device_id: str
+    rssi: int
+    ssid: str | None = None
+    channel: int | None = None
+    band: str = "5GHz"
+
+
+class WifiEventIn(BaseModel):
+    device_id: str
+    event_type: str   # weak_signal | outage_start | recovered | disconnected | reconnected
+    rssi: int | None = None
+    consecutive_count: int | None = None
+    outage_seconds: int | None = None
+
+
+@app.post("/api/wifi/report")
+async def wifi_report(body: WifiSampleIn):
+    """Nhận 1 mẫu cường độ tín hiệu WiFi (RSSI) liên tục từ thiết bị ESP32-C5.
+    Đây là nguồn dữ liệu cho biểu đồ 'phổ tín hiệu' trên dashboard."""
+    import psycopg2, os
+
+    DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    def _run():
+        conn = psycopg2.connect(DB_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO wifi_signal_samples (device_id, rssi, ssid, channel, band) "
+                    "VALUES (%s,%s,%s,%s,%s)",
+                    (body.device_id, body.rssi, body.ssid, body.channel, body.band),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    try:
+        await asyncio.to_thread(_run)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/wifi/alert")
+async def wifi_alert(body: WifiEventIn):
+    """Nhận 1 sự kiện tín hiệu WiFi (tín hiệu yếu / bắt đầu outage / đã phục
+    hồi / mất kết nối / kết nối lại) từ thiết bị ESP32-C5."""
+    import psycopg2, os
+
+    DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    def _run():
+        conn = psycopg2.connect(DB_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO wifi_signal_events "
+                    "(device_id, event_type, rssi, consecutive_count, outage_seconds) "
+                    "VALUES (%s,%s,%s,%s,%s)",
+                    (body.device_id, body.event_type, body.rssi,
+                     body.consecutive_count, body.outage_seconds),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    try:
+        await asyncio.to_thread(_run)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/wifi/history")
+async def wifi_history(device_id: str, hours: int = 24):
+    """Lịch sử mẫu RSSI + sự kiện của 1 thiết bị trong N giờ gần nhất,
+    dùng để vẽ biểu đồ phổ tín hiệu trên dashboard."""
+    import psycopg2, os
+
+    DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    def _run():
+        conn = psycopg2.connect(DB_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT rssi, ssid, channel, band, recorded_at "
+                    "FROM wifi_signal_samples "
+                    "WHERE device_id = %s AND recorded_at >= NOW() - (%s || ' hours')::interval "
+                    "ORDER BY recorded_at ASC",
+                    (device_id, hours),
+                )
+                samples = [
+                    {"rssi": r[0], "ssid": r[1], "channel": r[2], "band": r[3],
+                     "recorded_at": r[4].isoformat()}
+                    for r in cur.fetchall()
+                ]
+                cur.execute(
+                    "SELECT event_type, rssi, consecutive_count, outage_seconds, recorded_at "
+                    "FROM wifi_signal_events "
+                    "WHERE device_id = %s AND recorded_at >= NOW() - (%s || ' hours')::interval "
+                    "ORDER BY recorded_at ASC",
+                    (device_id, hours),
+                )
+                events = [
+                    {"event_type": r[0], "rssi": r[1], "consecutive_count": r[2],
+                     "outage_seconds": r[3], "recorded_at": r[4].isoformat()}
+                    for r in cur.fetchall()
+                ]
+            return {"samples": samples, "events": events}
+        finally:
+            conn.close()
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/wifi/devices")
+async def wifi_devices():
+    """Danh sách thiết bị giám sát WiFi kèm RSSI mới nhất và trạng thái hiện
+    tại (good/weak/outage/offline), dùng cho dropdown lọc và dải trạng thái
+    trực tiếp trên dashboard.
+
+    'outage' lấy theo sự kiện outage_start/recovered mới nhất do chính
+    firmware gửi lên (đúng nghĩa 'yếu kéo dài ≥ 5 lần cảnh báo liên tiếp'),
+    không suy diễn lại từ ngưỡng RSSI thô — tránh lệch với máy trạng thái
+    trên thiết bị."""
+    import psycopg2, os
+    from datetime import datetime, timezone
+
+    DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    def _run():
+        conn = psycopg2.connect(DB_URL)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT ON (device_id) device_id, rssi, ssid, recorded_at
+                    FROM wifi_signal_samples
+                    ORDER BY device_id, recorded_at DESC
+                """)
+                sample_rows = cur.fetchall()
+                cur.execute("""
+                    SELECT DISTINCT ON (device_id) device_id, event_type
+                    FROM wifi_signal_events
+                    WHERE event_type IN ('outage_start', 'recovered')
+                    ORDER BY device_id, recorded_at DESC
+                """)
+                last_outage_event = {row[0]: row[1] for row in cur.fetchall()}
+            devices = []
+            now = datetime.now(timezone.utc)
+            for device_id, rssi, ssid, recorded_at in sample_rows:
+                age_s = (now - recorded_at).total_seconds()
+                if age_s > WIFI_DEVICE_STALE_SECONDS:
+                    state = "offline"
+                elif last_outage_event.get(device_id) == "outage_start":
+                    state = "outage"
+                elif rssi >= WIFI_RSSI_GOOD_THRESHOLD:
+                    state = "good"
+                else:
+                    state = "weak"
+                devices.append({
+                    "device_id": device_id, "rssi": rssi, "ssid": ssid,
+                    "state": state, "last_seen": recorded_at.isoformat(),
+                })
+            return {
+                "devices": devices,
+                "thresholds": {
+                    "good": WIFI_RSSI_GOOD_THRESHOLD,
+                    "weak": WIFI_RSSI_WEAK_THRESHOLD,
+                },
+            }
+        finally:
+            conn.close()
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 if __name__ == "__main__":
