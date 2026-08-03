@@ -3570,10 +3570,21 @@ class LineAGVHandler:
             # xem _pending_confirm_only_legs) → BỎ QUA hoàn toàn logic móc, rơi
             # xuống nhánh "chờ xác nhận" như AGV carry (không móc lại — hàng
             # được chuyển tay từ xe Tổ đó sang xe đang kéo).
+            # Node 'trailer_staging' (điểm thả hàng đầy CỐ ĐỊNH) LUÔN phải tự động,
+            # KHÔNG được phép rơi vào "chờ xác nhận" dù có dấu _pending_confirm_only_legs
+            # sót lại từ 1 lượt điều phối khác hay không (dấu đó chỉ nhằm cho các điểm
+            # giao/lấy hàng theo Tổ trong milk-run, không áp dụng cho node staging).
+            _na_ws_stg = {}
+            try:
+                from mqtt_client import map_manager as _mm_ws_stg
+                _na_ws_stg = (getattr(_mm_ws_stg, 'node_actions', {}) or {}).get(str(state.current_tag)) or {}
+            except Exception:
+                pass
+            _is_trailer_staging_ws = str(_na_ws_stg.get('trailer_staging', '')).lower() == 'yes'
             _confirm_only_key_ws = (agv_id, str(state.current_tag))
-            _is_confirm_only_ws = _confirm_only_key_ws in _pending_confirm_only_legs
-            if _is_confirm_only_ws:
-                _pending_confirm_only_legs.discard(_confirm_only_key_ws)
+            _is_confirm_only_ws = (_confirm_only_key_ws in _pending_confirm_only_legs) and not _is_trailer_staging_ws
+            if _confirm_only_key_ws in _pending_confirm_only_legs:
+                _pending_confirm_only_legs.discard(_confirm_only_key_ws)   # dọn dấu, kể cả khi bị staging ghi đè
             if agv_registry.get_config(agv_id).get('agv_type') == 'trailer' and not _is_confirm_only_ws:
                 self._handle_trailer_hook_arrival(agv_id, state, route)
                 return
@@ -3653,9 +3664,18 @@ class LineAGVHandler:
             # đi thẳng luôn, không chờ. AGV carry/loại khác hoàn toàn không đụng.
             # NGOẠI LỆ: node "chỉ xác nhận" (milk-run nhiều Tổ) — xem giải thích
             # đầy đủ ở nhánh arrived_wait_sys.
+            # Node 'trailer_staging' LUÔN tự động — xem giải thích đầy đủ ở nhánh
+            # arrived_wait_sys, áp dụng y hệt cho arrived_wait_user.
+            _na_wu_stg = {}
+            try:
+                from mqtt_client import map_manager as _mm_wu_stg
+                _na_wu_stg = (getattr(_mm_wu_stg, 'node_actions', {}) or {}).get(str(state.current_tag)) or {}
+            except Exception:
+                pass
+            _is_trailer_staging_wu = str(_na_wu_stg.get('trailer_staging', '')).lower() == 'yes'
             _confirm_only_key_wu = (agv_id, str(state.current_tag))
-            _is_confirm_only_wu = _confirm_only_key_wu in _pending_confirm_only_legs
-            if _is_confirm_only_wu:
+            _is_confirm_only_wu = (_confirm_only_key_wu in _pending_confirm_only_legs) and not _is_trailer_staging_wu
+            if _confirm_only_key_wu in _pending_confirm_only_legs:
                 _pending_confirm_only_legs.discard(_confirm_only_key_wu)
             if agv_registry.get_config(agv_id).get('agv_type') == 'trailer' and not _is_confirm_only_wu:
                 self._handle_trailer_hook_arrival(agv_id, state, _route_wu)
