@@ -3574,13 +3574,27 @@ class LineAGVHandler:
             # KHÔNG được phép rơi vào "chờ xác nhận" dù có dấu _pending_confirm_only_legs
             # sót lại từ 1 lượt điều phối khác hay không (dấu đó chỉ nhằm cho các điểm
             # giao/lấy hàng theo Tổ trong milk-run, không áp dụng cho node staging).
+            # QUAN TRỌNG: chỉ coi là "tới node staging thật" nếu node đó ĐÚNG LÀ đích
+            # được giao ban đầu (agv_task_queue._running.dest_node) — không phải điểm
+            # dừng TẠM do bị chiếm đích thật (staging redirect chống kẹt đường,
+            # main.py ~3030-3167, không liên quan gì tới trailer_staging) — nếu không
+            # check, xe đi NGANG QUA node 81 lúc đường đi (không phải đích) vì kẹt
+            # đường cũng bị hiểu nhầm là "đã tới đích thả hàng".
             _na_ws_stg = {}
             try:
                 from mqtt_client import map_manager as _mm_ws_stg
                 _na_ws_stg = (getattr(_mm_ws_stg, 'node_actions', {}) or {}).get(str(state.current_tag)) or {}
             except Exception:
                 pass
-            _is_trailer_staging_ws = str(_na_ws_stg.get('trailer_staging', '')).lower() == 'yes'
+            _queued_dest_is_here_ws = False
+            try:
+                from task_queue import agv_task_queue as _atq_stg_ws
+                _run_stg_ws = _atq_stg_ws._running.get(agv_id)
+                _queued_dest_is_here_ws = bool(_run_stg_ws and str(getattr(_run_stg_ws, 'dest_node', '') or '').strip() == str(state.current_tag).strip())
+            except Exception:
+                pass
+            _is_trailer_staging_ws = (str(_na_ws_stg.get('trailer_staging', '')).lower() == 'yes'
+                                       and _queued_dest_is_here_ws)
             _confirm_only_key_ws = (agv_id, str(state.current_tag))
             _is_confirm_only_ws = (_confirm_only_key_ws in _pending_confirm_only_legs) and not _is_trailer_staging_ws
             if _confirm_only_key_ws in _pending_confirm_only_legs:
@@ -3672,7 +3686,17 @@ class LineAGVHandler:
                 _na_wu_stg = (getattr(_mm_wu_stg, 'node_actions', {}) or {}).get(str(state.current_tag)) or {}
             except Exception:
                 pass
-            _is_trailer_staging_wu = str(_na_wu_stg.get('trailer_staging', '')).lower() == 'yes'
+            # Chỉ tính là "tới staging thật" nếu node đúng là đích được giao ban đầu —
+            # xem giải thích đầy đủ ở nhánh arrived_wait_sys.
+            _queued_dest_is_here_wu = False
+            try:
+                from task_queue import agv_task_queue as _atq_stg_wu
+                _run_stg_wu = _atq_stg_wu._running.get(agv_id)
+                _queued_dest_is_here_wu = bool(_run_stg_wu and str(getattr(_run_stg_wu, 'dest_node', '') or '').strip() == str(state.current_tag).strip())
+            except Exception:
+                pass
+            _is_trailer_staging_wu = (str(_na_wu_stg.get('trailer_staging', '')).lower() == 'yes'
+                                       and _queued_dest_is_here_wu)
             _confirm_only_key_wu = (agv_id, str(state.current_tag))
             _is_confirm_only_wu = (_confirm_only_key_wu in _pending_confirm_only_legs) and not _is_trailer_staging_wu
             if _confirm_only_key_wu in _pending_confirm_only_legs:
