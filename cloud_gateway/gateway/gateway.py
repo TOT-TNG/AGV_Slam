@@ -262,6 +262,11 @@ let wifiPollTimer = null;     // setInterval đang chạy để tự làm mới 
 
 function stopWifiPolling() {
   if (wifiPollTimer) { clearInterval(wifiPollTimer); wifiPollTimer = null; }
+  // Hủy chart cũ — canvas của nó sẽ bị gỡ khỏi DOM khi rời tab, giữ lại
+  // instance sẽ khiến lần vào tab sau "update" vào canvas đã chết, không
+  // hiển thị gì mà cũng không lỗi.
+  if (wifiChart) { wifiChart.destroy(); wifiChart = null; }
+  wifiChartKey = null;
 }
 
 function slugBase() { return location.pathname.replace(/\/+$/, ''); }
@@ -489,10 +494,28 @@ async function loadWifiHistory(key) {
   }
 }
 
+// key = thiết bị + khoảng thời gian đang xem — đổi 1 trong 2 thì phải vẽ lại
+// chart từ đầu; còn giữ nguyên thì chỉ cập nhật dữ liệu tại chỗ (không
+// destroy/recreate) để Chart.js tự animate mượt kiểu "trượt sang trái"
+// thay vì xóa-vẽ-lại nhấp nháy mỗi 5s.
+let wifiChartKey = null;
+
 function renderWifiChart(samples, deviceId) {
   const labels = samples.map(s => fmtWifiTime(s.recorded_at));
   const rssiData = samples.map(s => s.rssi);
+  const key = `${deviceId}|${wifiRangeHours}`;
+
+  if (wifiChart && wifiChartKey === key) {
+    wifiChart.data.labels = labels;
+    wifiChart.data.datasets[0].data = rssiData;
+    wifiChart.data.datasets[1].data = labels.map(() => wifiThresholds.good);
+    wifiChart.data.datasets[2].data = labels.map(() => wifiThresholds.weak);
+    wifiChart.update();
+    return;
+  }
+
   if (wifiChart) wifiChart.destroy();
+  wifiChartKey = key;
   wifiChart = new Chart(document.getElementById('wifi-chart-rssi'), {
     type: 'line',
     data: {
@@ -509,6 +532,7 @@ function renderWifiChart(samples, deviceId) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      animation: { duration: 400, easing: 'linear' },
       plugins: { legend: { labels: { color:'#fff', boxWidth:10, usePointStyle:true, pointStyle:'circle', font:{size:11} } } },
       scales: {
         x: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10}, maxTicksLimit:12 }, grid:{ color:'rgba(255,255,255,.05)' } },
