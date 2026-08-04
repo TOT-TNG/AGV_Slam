@@ -245,6 +245,7 @@ _FLEET_HTML = r"""<!doctype html>
   .wifi-badge.weak{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3)}
   .wifi-badge.outage{background:rgba(251,113,133,.15);color:#fb7185;border:1px solid rgba(251,113,133,.3)}
   .wifi-badge.offline{background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid rgba(148,163,184,.25)}
+  @keyframes wifi-pulse{0%,100%{opacity:1}50%{opacity:.35}}
 </style>
 </head><body>
 <div class="wrap" id="app">
@@ -257,11 +258,17 @@ let factoriesCache = [];
 let curDetailTab = 'trips';   // 'trips' | 'wifi' — tab đang chọn trong màn hình chi tiết nhà máy
 let wifiRangeHours = 24;
 let wifiThresholds = { good: -65, weak: -70 };
+let wifiPollTimer = null;     // setInterval đang chạy để tự làm mới tab WiFi (chế độ realtime)
+
+function stopWifiPolling() {
+  if (wifiPollTimer) { clearInterval(wifiPollTimer); wifiPollTimer = null; }
+}
 
 function slugBase() { return location.pathname.replace(/\/+$/, ''); }
 
 // ══ MÀN HÌNH 1: danh sách nhà máy ═══════════════════════════════════════════
 async function showList() {
+  stopWifiPolling();
   const c = document.getElementById('content');
   c.innerHTML = `
     <div class="loading">Đang tải danh sách nhà máy…</div>`;
@@ -344,6 +351,7 @@ function setDetailTab(key, name, tab) {
 }
 
 async function renderTripsTab(key, name, period, dateFrom, dateTo) {
+  stopWifiPolling();
   period = period || 'month';
   const isCustom = period === 'custom';
   const body = document.getElementById('detail-body');
@@ -384,7 +392,10 @@ async function renderTripsTab(key, name, period, dateFrom, dateTo) {
 }
 
 // ══ TAB: TÍN HIỆU WIFI (1 nhà máy) ═══════════════════════════════════════════
+const WIFI_POLL_MS = 5000;   // chu kỳ tự làm mới — chế độ xem realtime
+
 async function renderWifiTab(key, name) {
+  stopWifiPolling();
   const body = document.getElementById('detail-body');
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
@@ -397,6 +408,10 @@ async function renderWifiTab(key, name) {
         <button class="wtab active" data-h="24" onclick="setWifiRange('${key}',24)">24 giờ</button>
         <button class="wtab" data-h="168" onclick="setWifiRange('${key}',168)">7 ngày</button>
       </div>
+      <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:#8ea0c2">
+        <span style="width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 6px #34d399;animation:wifi-pulse 1.5s ease-in-out infinite"></span>
+        LIVE · cập nhật lúc <span id="wifi-last-update">—</span>
+      </span>
     </div>
     <div class="chartcard" style="margin-bottom:14px">
       <div class="chartcard-title">📶 Trạng thái thiết bị trực tiếp</div>
@@ -410,6 +425,7 @@ async function renderWifiTab(key, name) {
     </div>`;
   wifiRangeHours = 24;
   await loadWifiDevices(key);
+  wifiPollTimer = setInterval(() => loadWifiDevices(key), WIFI_POLL_MS);
 }
 
 function setWifiRange(key, h) {
@@ -427,11 +443,21 @@ async function loadWifiDevices(key) {
     const list = d.devices || [];
     if (d.thresholds) wifiThresholds = d.thresholds;
 
+    // Chỉ thêm option còn thiếu (không rebuild toàn bộ dropdown) — tránh
+    // giật/đóng dropdown mỗi lần poll realtime (5s/lần).
     const sel = document.getElementById('wifi-device');
     const cur = sel.value;
-    sel.innerHTML = '<option value="">Chọn thiết bị…</option>' +
-      list.map(dv => `<option value="${escAttr(dv.device_id)}">${dv.device_id}</option>`).join('');
+    const exist = new Set([...sel.options].map(o => o.value));
+    list.forEach(dv => {
+      if (dv.device_id && !exist.has(dv.device_id)) {
+        const o = document.createElement('option');
+        o.value = dv.device_id; o.textContent = dv.device_id;
+        sel.appendChild(o);
+      }
+    });
     sel.value = cur || (list[0] ? list[0].device_id : '');
+    document.getElementById('wifi-last-update').textContent =
+      new Date().toLocaleTimeString('vi-VN');
 
     if (!list.length) {
       row.innerHTML = `<span style="color:#8ea0c2;font-size:12px">Chưa có thiết bị nào gửi dữ liệu.</span>`;
