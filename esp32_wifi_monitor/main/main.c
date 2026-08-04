@@ -13,7 +13,7 @@
  */
 #include <string.h>
 
-#include "esp_wifi.h"
+#include <esp_wifi.h>
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -26,9 +26,10 @@ static const char *TAG = "wifi_mon_main";
 
 static void _wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)data;
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+    // Không tự esp_wifi_connect() ngay khi STA_START — phải đợi
+    // esp_wifi_set_band_mode() chạy xong trước (xem _wifi_init_sta), nếu
+    // không có thể connect trước khi ép được băng tần 5GHz.
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGW(TAG, "WiFi disconnected, dang thu ket noi lai...");
         esp_wifi_connect();
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
@@ -53,15 +54,16 @@ static void _wifi_init_sta(void) {
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
 
     // Ép kết nối băng tần 5GHz — ESP32-C5 hỗ trợ dual-band (2.4/5GHz), nếu
     // không ép band thiết bị có thể tự rớt xuống 2.4GHz trên AP phát cả 2
-    // băng tần, làm sai mục đích kiểm tra 5GHz. API `esp_wifi_set_band_mode`
-    // dành riêng cho chip dual-band (ESP-IDF 5.3+) — kiểm tra lại tên
-    // enum/API này khớp với version ESP-IDF thực tế cài đặt khi build.
+    // băng tần, làm sai mục đích kiểm tra 5GHz. `esp_wifi_set_band_mode()`
+    // yêu cầu driver WiFi đã esp_wifi_start() — gọi trước đó sẽ lỗi
+    // ESP_ERR_WIFI_NOT_STARTED (đã xác nhận trên board thật esp32c5-eco2).
     ESP_ERROR_CHECK(esp_wifi_set_band_mode(WIFI_BAND_MODE_5G_ONLY));
 
-    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_connect());
 }
 
 void app_main(void) {

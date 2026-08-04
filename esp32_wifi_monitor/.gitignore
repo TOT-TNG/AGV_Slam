@@ -1,3 +1,9 @@
 build/
+.pio/
+# sdkconfig thật (SSID/mật khẩu WiFi, X-Gateway-Key) — không commit dưới
+# bất kỳ tên nào PlatformIO/idf.py sinh ra (vd sdkconfig.esp32-c5-devkitc-1,
+# sdkconfig.esp32-c5-devkitc-1.old). Chỉ sdkconfig.defaults (giá trị mặc
+# định an toàn) được phép commit.
 sdkconfig
-sdkconfig.old
+sdkconfig.*
+!sdkconfig.defaults

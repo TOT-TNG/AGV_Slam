@@ -49,7 +49,8 @@ static esp_err_t _post_json(const char *path, const char *json_body) {
 }
 
 esp_err_t wifi_report_post_sample(const char *device_id, int rssi,
-                                   const char *ssid, int channel) {
+                                   const char *ssid, int channel,
+                                   const char *bssid) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", device_id);
     cJSON_AddNumberToObject(root, "rssi", rssi);
@@ -60,6 +61,9 @@ esp_err_t wifi_report_post_sample(const char *device_id, int rssi,
         cJSON_AddNumberToObject(root, "channel", channel);
     }
     cJSON_AddStringToObject(root, "band", "5GHz");
+    if (bssid && bssid[0]) {
+        cJSON_AddStringToObject(root, "bssid", bssid);
+    }
 
     char *body = cJSON_PrintUnformatted(root);
     esp_err_t err = _post_json("/api/wifi/report", body);
@@ -87,6 +91,24 @@ esp_err_t wifi_report_post_event(const char *device_id, const char *event_type,
 
     char *body = cJSON_PrintUnformatted(root);
     ESP_LOGI(TAG, "Event %s: %s", event_type, body);
+    esp_err_t err = _post_json("/api/wifi/alert", body);
+
+    cJSON_free(body);
+    cJSON_Delete(root);
+    return err;
+}
+
+esp_err_t wifi_report_post_roam(const char *device_id, const char *old_bssid,
+                                 const char *new_bssid, int rssi) {
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "device_id", device_id);
+    cJSON_AddStringToObject(root, "event_type", "roamed");
+    cJSON_AddNumberToObject(root, "rssi", rssi);
+    cJSON_AddStringToObject(root, "old_bssid", old_bssid);
+    cJSON_AddStringToObject(root, "new_bssid", new_bssid);
+
+    char *body = cJSON_PrintUnformatted(root);
+    ESP_LOGI(TAG, "Event roamed: %s", body);
     esp_err_t err = _post_json("/api/wifi/alert", body);
 
     cJSON_free(body);

@@ -36,6 +36,14 @@ static int64_t s_outage_start_us = 0;
 // Theo dõi cạnh lên/xuống của kết nối để chỉ báo disconnected/reconnected
 // đúng 1 lần mỗi lần đổi trạng thái, không spam mỗi chu kỳ đo.
 static bool s_was_connected = false;
+// BSSID (MAC AP) của lần đo trước — so sánh để phát hiện roaming, phục vụ
+// quản lý roaming AGV. Rỗng nghĩa là chưa có dữ liệu để so sánh.
+static char s_last_bssid[18] = "";
+
+static void _format_bssid(const uint8_t *mac, char *out, size_t out_len) {
+    snprintf(out, out_len, "%02x:%02x:%02x:%02x:%02x:%02x",
+              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
 
 static void _handle_disconnected(void) {
     if (s_was_connected) {
@@ -45,7 +53,7 @@ static void _handle_disconnected(void) {
     }
 }
 
-static void _handle_sample(int rssi, const char *ssid, int channel) {
+static void _handle_sample(int rssi, const char *ssid, int channel, const char *bssid) {
     if (!s_was_connected) {
         ESP_LOGI(TAG, "Da ket noi lai WiFi");
         wifi_report_post_event(DEVICE_ID, "reconnected", &rssi, NULL, NULL);
@@ -54,7 +62,13 @@ static void _handle_sample(int rssi, const char *ssid, int channel) {
         // đánh giá lại theo đúng RSSI vừa đo được của lần kết nối mới.
     }
 
-    wifi_report_post_sample(DEVICE_ID, rssi, ssid, channel);
+    if (s_last_bssid[0] != '\0' && strcmp(s_last_bssid, bssid) != 0) {
+        ESP_LOGW(TAG, "Roaming: %s -> %s (rssi=%d)", s_last_bssid, bssid, rssi);
+        wifi_report_post_roam(DEVICE_ID, s_last_bssid, bssid, rssi);
+    }
+    strlcpy(s_last_bssid, bssid, sizeof(s_last_bssid));
+
+    wifi_report_post_sample(DEVICE_ID, rssi, ssid, channel, bssid);
 
     int64_t now_us = esp_timer_get_time();
 
@@ -110,7 +124,9 @@ static void _monitor_task(void *arg) {
         wifi_ap_record_t ap_info;
         esp_err_t err = esp_wifi_sta_get_ap_info(&ap_info);
         if (err == ESP_OK) {
-            _handle_sample((int8_t)ap_info.rssi, (const char *)ap_info.ssid, ap_info.primary);
+            char bssid_str[18];
+            _format_bssid(ap_info.bssid, bssid_str, sizeof(bssid_str));
+            _handle_sample((int8_t)ap_info.rssi, (const char *)ap_info.ssid, ap_info.primary, bssid_str);
         } else {
             _handle_disconnected();
         }

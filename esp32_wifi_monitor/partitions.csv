@@ -1,0 +1,8 @@
+# Name,   Type, SubType, Offset,   Size,     Flags
+# Bảng phân vùng riêng cho board 4MB flash — bảng mặc định của ESP-IDF chỉ
+# cấp 1MB cho app "factory", không đủ chứa firmware (mbedTLS cert bundle +
+# esp_http_client + cJSON khiến ảnh > 1.14MB). Thiết bị không cần OTA nên
+# chỉ cần 1 phân vùng app, cấp hẳn 3MB cho thoải mái, vẫn dư trong 4MB.
+nvs,      data, nvs,     0x9000,  0x6000,
+phy_init, data, phy,     0xf000,  0x1000,
+factory,  app,  factory, 0x10000, 0x300000,

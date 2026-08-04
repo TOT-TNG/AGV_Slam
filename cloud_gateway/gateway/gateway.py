@@ -473,6 +473,7 @@ async function loadWifiDevices(key) {
           <div class="wifi-chip-top"><span class="wifi-dot ${dv.state==='offline'?'off':'on'}"></span>${dv.device_id}</div>
           <span class="wifi-badge ${dv.state}">${labelOf[dv.state] || dv.state}</span>
           <span style="font-size:11px;color:#8ea0c2;font-family:monospace">${dv.rssi!=null?dv.rssi+' dBm':'—'}</span>
+          <span style="font-size:10px;color:#64748b;font-family:monospace" title="MAC của AP đang kết nối (BSSID)">${dv.bssid || '—'}</span>
         </div>`).join('');
     }
     await loadWifiHistory(key);

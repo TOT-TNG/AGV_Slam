@@ -871,6 +871,17 @@ async def lifespan(app: FastAPI):
                     "CREATE INDEX IF NOT EXISTS idx_wifi_events_device_time "
                     "ON wifi_signal_events (device_id, recorded_at DESC)"
                 )
+                # BSSID (MAC của AP) — phục vụ quản lý roaming AGV: biết AGV
+                # đang bám AP nào, và ghi lại sự kiện 'roamed' khi đổi AP.
+                await _conn.execute(
+                    "ALTER TABLE wifi_signal_samples ADD COLUMN IF NOT EXISTS bssid VARCHAR(17)"
+                )
+                await _conn.execute(
+                    "ALTER TABLE wifi_signal_events ADD COLUMN IF NOT EXISTS old_bssid VARCHAR(17)"
+                )
+                await _conn.execute(
+                    "ALTER TABLE wifi_signal_events ADD COLUMN IF NOT EXISTS new_bssid VARCHAR(17)"
+                )
                 print("[DB] Tables wifi_signal_samples / wifi_signal_events ready")
         except Exception as _te:
             print(f"[DB] Create table error (non-fatal): {_te}")
@@ -6297,14 +6308,17 @@ class WifiSampleIn(BaseModel):
     ssid: str | None = None
     channel: int | None = None
     band: str = "5GHz"
+    bssid: str | None = None   # MAC của AP đang kết nối — phục vụ quản lý roaming AGV
 
 
 class WifiEventIn(BaseModel):
     device_id: str
-    event_type: str   # weak_signal | outage_start | recovered | disconnected | reconnected
+    event_type: str   # weak_signal | outage_start | recovered | disconnected | reconnected | roamed
     rssi: int | None = None
     consecutive_count: int | None = None
     outage_seconds: int | None = None
+    old_bssid: str | None = None   # chỉ dùng khi event_type == 'roamed'
+    new_bssid: str | None = None
 
 
 @app.post("/api/wifi/report")
@@ -6320,9 +6334,9 @@ async def wifi_report(body: WifiSampleIn):
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO wifi_signal_samples (device_id, rssi, ssid, channel, band) "
-                    "VALUES (%s,%s,%s,%s,%s)",
-                    (body.device_id, body.rssi, body.ssid, body.channel, body.band),
+                    "INSERT INTO wifi_signal_samples (device_id, rssi, ssid, channel, band, bssid) "
+                    "VALUES (%s,%s,%s,%s,%s,%s)",
+                    (body.device_id, body.rssi, body.ssid, body.channel, body.band, body.bssid),
                 )
             conn.commit()
         finally:
@@ -6349,10 +6363,11 @@ async def wifi_alert(body: WifiEventIn):
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO wifi_signal_events "
-                    "(device_id, event_type, rssi, consecutive_count, outage_seconds) "
-                    "VALUES (%s,%s,%s,%s,%s)",
+                    "(device_id, event_type, rssi, consecutive_count, outage_seconds, old_bssid, new_bssid) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
                     (body.device_id, body.event_type, body.rssi,
-                     body.consecutive_count, body.outage_seconds),
+                     body.consecutive_count, body.outage_seconds,
+                     body.old_bssid, body.new_bssid),
                 )
             conn.commit()
         finally:
@@ -6378,7 +6393,7 @@ async def wifi_history(device_id: str, hours: int = 24):
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT rssi, ssid, channel, band, recorded_at "
+                    "SELECT rssi, ssid, channel, band, recorded_at, bssid "
                     "FROM wifi_signal_samples "
                     "WHERE device_id = %s AND recorded_at >= NOW() - (%s || ' hours')::interval "
                     "ORDER BY recorded_at ASC",
@@ -6386,11 +6401,12 @@ async def wifi_history(device_id: str, hours: int = 24):
                 )
                 samples = [
                     {"rssi": r[0], "ssid": r[1], "channel": r[2], "band": r[3],
-                     "recorded_at": r[4].isoformat()}
+                     "recorded_at": r[4].isoformat(), "bssid": r[5]}
                     for r in cur.fetchall()
                 ]
                 cur.execute(
-                    "SELECT event_type, rssi, consecutive_count, outage_seconds, recorded_at "
+                    "SELECT event_type, rssi, consecutive_count, outage_seconds, recorded_at, "
+                    "old_bssid, new_bssid "
                     "FROM wifi_signal_events "
                     "WHERE device_id = %s AND recorded_at >= NOW() - (%s || ' hours')::interval "
                     "ORDER BY recorded_at ASC",
@@ -6398,7 +6414,8 @@ async def wifi_history(device_id: str, hours: int = 24):
                 )
                 events = [
                     {"event_type": r[0], "rssi": r[1], "consecutive_count": r[2],
-                     "outage_seconds": r[3], "recorded_at": r[4].isoformat()}
+                     "outage_seconds": r[3], "recorded_at": r[4].isoformat(),
+                     "old_bssid": r[5], "new_bssid": r[6]}
                     for r in cur.fetchall()
                 ]
             return {"samples": samples, "events": events}
@@ -6431,7 +6448,7 @@ async def wifi_devices():
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT DISTINCT ON (device_id) device_id, rssi, ssid, recorded_at
+                    SELECT DISTINCT ON (device_id) device_id, rssi, ssid, recorded_at, bssid
                     FROM wifi_signal_samples
                     ORDER BY device_id, recorded_at DESC
                 """)
@@ -6445,7 +6462,7 @@ async def wifi_devices():
                 last_outage_event = {row[0]: row[1] for row in cur.fetchall()}
             devices = []
             now = datetime.now(timezone.utc)
-            for device_id, rssi, ssid, recorded_at in sample_rows:
+            for device_id, rssi, ssid, recorded_at, bssid in sample_rows:
                 age_s = (now - recorded_at).total_seconds()
                 if age_s > WIFI_DEVICE_STALE_SECONDS:
                     state = "offline"
@@ -6456,7 +6473,7 @@ async def wifi_devices():
                 else:
                     state = "weak"
                 devices.append({
-                    "device_id": device_id, "rssi": rssi, "ssid": ssid,
+                    "device_id": device_id, "rssi": rssi, "ssid": ssid, "bssid": bssid,
                     "state": state, "last_seen": recorded_at.isoformat(),
                 })
             return {
