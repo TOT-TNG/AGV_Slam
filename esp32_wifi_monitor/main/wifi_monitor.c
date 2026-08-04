@@ -68,6 +68,7 @@ static void _handle_sample(int rssi, const char *ssid, int channel, const char *
     }
     strlcpy(s_last_bssid, bssid, sizeof(s_last_bssid));
 
+    ESP_LOGI(TAG, "Mau: rssi=%d bssid=%s ssid=%s kenh=%d", rssi, bssid, ssid, channel);
     wifi_report_post_sample(DEVICE_ID, rssi, ssid, channel, bssid);
 
     int64_t now_us = esp_timer_get_time();
