@@ -6381,12 +6381,22 @@ async def wifi_alert(body: WifiEventIn):
 
 
 @app.get("/api/wifi/history")
-async def wifi_history(device_id: str, hours: int = 24):
-    """Lịch sử mẫu RSSI + sự kiện của 1 thiết bị trong N giờ gần nhất,
-    dùng để vẽ biểu đồ phổ tín hiệu trên dashboard."""
+async def wifi_history(device_id: str, hours: int = 24,
+                        date_from: str | None = None, date_to: str | None = None):
+    """Lịch sử mẫu RSSI + sự kiện của 1 thiết bị, dùng để vẽ biểu đồ phổ tín
+    hiệu trên dashboard. Lọc theo `hours` (N giờ gần nhất) mặc định, hoặc
+    theo khoảng thời gian tuyệt đối `date_from`/`date_to` (ISO 8601, ưu
+    tiên hơn `hours` nếu cả 2 đều có mặt)."""
     import psycopg2, os
 
     DB_URL = os.getenv("DATABASE_URL", "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV")
+
+    if date_from and date_to:
+        time_clause = "recorded_at >= %s AND recorded_at <= %s"
+        time_params = (date_from, date_to)
+    else:
+        time_clause = "recorded_at >= NOW() - (%s || ' hours')::interval"
+        time_params = (hours,)
 
     def _run():
         conn = psycopg2.connect(DB_URL)
@@ -6395,9 +6405,9 @@ async def wifi_history(device_id: str, hours: int = 24):
                 cur.execute(
                     "SELECT rssi, ssid, channel, band, recorded_at, bssid "
                     "FROM wifi_signal_samples "
-                    "WHERE device_id = %s AND recorded_at >= NOW() - (%s || ' hours')::interval "
+                    f"WHERE device_id = %s AND {time_clause} "
                     "ORDER BY recorded_at ASC",
-                    (device_id, hours),
+                    (device_id, *time_params),
                 )
                 samples = [
                     {"rssi": r[0], "ssid": r[1], "channel": r[2], "band": r[3],
@@ -6408,9 +6418,9 @@ async def wifi_history(device_id: str, hours: int = 24):
                     "SELECT event_type, rssi, consecutive_count, outage_seconds, recorded_at, "
                     "old_bssid, new_bssid "
                     "FROM wifi_signal_events "
-                    "WHERE device_id = %s AND recorded_at >= NOW() - (%s || ' hours')::interval "
+                    f"WHERE device_id = %s AND {time_clause} "
                     "ORDER BY recorded_at ASC",
-                    (device_id, hours),
+                    (device_id, *time_params),
                 )
                 events = [
                     {"event_type": r[0], "rssi": r[1], "consecutive_count": r[2],

@@ -147,18 +147,24 @@ async def fleet_wifi_devices(key: str):
 
 
 @app.get(f"/_gateway/{FLEET_SLUG}/wifi-history")
-async def fleet_wifi_history(key: str, device_id: str, hours: int = 24):
+async def fleet_wifi_history(key: str, device_id: str, hours: int = 24,
+                              date_from: str | None = None, date_to: str | None = None):
     """Lịch sử RSSI + sự kiện (yếu/outage/phục hồi) của 1 thiết bị WiFi tại 1
-    nhà máy, dùng để vẽ biểu đồ phổ tín hiệu."""
+    nhà máy, dùng để vẽ biểu đồ phổ tín hiệu. Hỗ trợ lọc theo `hours` (mặc
+    định) hoặc khoảng thời gian tuyệt đối `date_from`/`date_to`."""
     factories = load_factories()
     factory = factories.get(key)
     if not factory:
         raise HTTPException(404, detail="Không tìm thấy nhà máy")
 
+    params = {"device_id": device_id, "hours": hours}
+    if date_from and date_to:
+        params["date_from"] = date_from
+        params["date_to"] = date_to
+
     async with httpx.AsyncClient(timeout=15.0) as client:
         res = await _call_factory_json(
-            client, factory["frp_host"], "/api/wifi/history",
-            {"device_id": device_id, "hours": hours},
+            client, factory["frp_host"], "/api/wifi/history", params,
         )
 
     if not res["ok"]:
@@ -260,6 +266,7 @@ let wifiRangeHours = 24;
 let wifiThresholds = { good: -65, weak: -70 };
 let wifiPollTimer = null;     // setInterval đang chạy để tự làm mới tab WiFi (chế độ realtime)
 let wifiDevicesList = [];     // danh sách thiết bị lần load gần nhất — dùng cho chế độ "Tất cả thiết bị"
+let wifiCustomFrom = null, wifiCustomTo = null;   // khoảng thời gian tùy chọn (datetime-local), null = đang dùng mốc mặc định
 let wifiCharts = {};          // deviceId -> Chart.js instance (có thể nhiều chart cùng lúc)
 let wifiChartsKey = null;     // tập thiết bị đang vẽ + khoảng thời gian — đổi thì vẽ lại, giữ nguyên thì chỉ update
 
@@ -417,11 +424,20 @@ async function renderWifiTab(key, name) {
         <button class="wtab" data-h="6" onclick="setWifiRange('${key}',6)">6 giờ</button>
         <button class="wtab active" data-h="24" onclick="setWifiRange('${key}',24)">24 giờ</button>
         <button class="wtab" data-h="168" onclick="setWifiRange('${key}',168)">7 ngày</button>
+        <button class="wtab" data-h="custom" onclick="setWifiRange('${key}','custom')">Tùy chỉnh…</button>
       </div>
       <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px;color:#8ea0c2">
         <span style="width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 6px #34d399;animation:wifi-pulse 1.5s ease-in-out infinite"></span>
         LIVE · cập nhật lúc <span id="wifi-last-update">—</span>
       </span>
+    </div>
+    <div id="wifi-custom-range" style="display:none;gap:6px;align-items:center;margin:-6px 0 14px">
+      <input type="datetime-local" id="wifi-date-from"
+        style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:8px;padding:5px 8px;font-size:13px"/>
+      <span style="color:#8ea0c2">→</span>
+      <input type="datetime-local" id="wifi-date-to"
+        style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:8px;padding:5px 8px;font-size:13px"/>
+      <button onclick="applyWifiCustomRange('${key}')">Áp dụng</button>
     </div>
     <div class="chartcard" style="margin-bottom:14px">
       <div class="chartcard-title">📶 Trạng thái thiết bị trực tiếp</div>
@@ -431,13 +447,32 @@ async function renderWifiTab(key, name) {
     </div>
     <div id="wifi-charts-container"></div>`;
   wifiRangeHours = 24;
+  wifiCustomFrom = null;
+  wifiCustomTo = null;
   await loadWifiDevices(key);
   wifiPollTimer = setInterval(() => loadWifiDevices(key), WIFI_POLL_MS);
 }
 
 function setWifiRange(key, h) {
+  document.querySelectorAll('#detail-body .wtab').forEach(b => b.classList.toggle('active', b.dataset.h === String(h)));
+  const customDiv = document.getElementById('wifi-custom-range');
+  if (h === 'custom') {
+    customDiv.style.display = 'flex';
+    return;   // chờ người dùng chọn ngày giờ rồi bấm "Áp dụng"
+  }
+  customDiv.style.display = 'none';
+  wifiCustomFrom = null;
+  wifiCustomTo = null;
   wifiRangeHours = h;
-  document.querySelectorAll('#detail-body .wtab').forEach(b => b.classList.toggle('active', Number(b.dataset.h) === h));
+  loadWifiHistory(key);
+}
+
+function applyWifiCustomRange(key) {
+  const from = document.getElementById('wifi-date-from').value;
+  const to = document.getElementById('wifi-date-to').value;
+  if (!from || !to) return;
+  wifiCustomFrom = from;
+  wifiCustomTo = to;
   loadWifiHistory(key);
 }
 
@@ -502,7 +537,13 @@ async function loadWifiHistory(key) {
 
   try {
     const results = await Promise.all(targets.map(async deviceId => {
-      const res = await fetch(`${slugBase()}/wifi-history?key=${encodeURIComponent(key)}&device_id=${encodeURIComponent(deviceId)}&hours=${wifiRangeHours}`);
+      let url = `${slugBase()}/wifi-history?key=${encodeURIComponent(key)}&device_id=${encodeURIComponent(deviceId)}`;
+      if (wifiCustomFrom && wifiCustomTo) {
+        url += `&date_from=${encodeURIComponent(wifiCustomFrom)}&date_to=${encodeURIComponent(wifiCustomTo)}`;
+      } else {
+        url += `&hours=${wifiRangeHours}`;
+      }
+      const res = await fetch(url);
       const d = await res.json();
       if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
       return { deviceId, samples: d.samples || [] };
@@ -513,12 +554,23 @@ async function loadWifiHistory(key) {
   }
 }
 
+// Khoảng thời gian đang xem thực tế (giờ) — dùng để quyết định định dạng
+// nhãn trục thời gian trên chart (xem fmtWifiTime), tính cả khi đang ở
+// chế độ tùy chọn khoảng ngày giờ cụ thể.
+function wifiEffectiveSpanHours() {
+  if (wifiCustomFrom && wifiCustomTo) {
+    return (new Date(wifiCustomTo) - new Date(wifiCustomFrom)) / 3600000;
+  }
+  return wifiRangeHours;
+}
+
 // key = tập thiết bị đang vẽ + khoảng thời gian — đổi 1 trong 2 thì vẽ lại
 // toàn bộ chart từ đầu; giữ nguyên thì chỉ cập nhật dữ liệu tại chỗ (không
 // destroy/recreate) để Chart.js tự animate mượt kiểu "trượt sang trái"
 // thay vì xóa-vẽ-lại nhấp nháy mỗi 5s.
 function renderWifiCharts(results) {
-  const key = results.map(r => r.deviceId).join(',') + '|' + wifiRangeHours;
+  const rangeKey = (wifiCustomFrom && wifiCustomTo) ? `${wifiCustomFrom}~${wifiCustomTo}` : wifiRangeHours;
+  const key = results.map(r => r.deviceId).join(',') + '|' + rangeKey;
   const container = document.getElementById('wifi-charts-container');
 
   if (key === wifiChartsKey) {
@@ -579,7 +631,7 @@ function fmtWifiTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   const hh = String(d.getHours()).padStart(2,'0'), mm = String(d.getMinutes()).padStart(2,'0');
-  if (wifiRangeHours <= 24) return `${hh}:${mm}`;
+  if (wifiEffectiveSpanHours() <= 24) return `${hh}:${mm}`;
   return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${hh}:${mm}`;
 }
 
