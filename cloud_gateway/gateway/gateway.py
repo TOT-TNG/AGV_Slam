@@ -253,20 +253,24 @@ _FLEET_HTML = r"""<!doctype html>
   <div id="content"></div>
 </div>
 <script>
-let chartDay = null, chartStatus = null, wifiChart = null;
+let chartDay = null, chartStatus = null;
 let factoriesCache = [];
 let curDetailTab = 'trips';   // 'trips' | 'wifi' — tab đang chọn trong màn hình chi tiết nhà máy
 let wifiRangeHours = 24;
 let wifiThresholds = { good: -65, weak: -70 };
 let wifiPollTimer = null;     // setInterval đang chạy để tự làm mới tab WiFi (chế độ realtime)
+let wifiDevicesList = [];     // danh sách thiết bị lần load gần nhất — dùng cho chế độ "Tất cả thiết bị"
+let wifiCharts = {};          // deviceId -> Chart.js instance (có thể nhiều chart cùng lúc)
+let wifiChartsKey = null;     // tập thiết bị đang vẽ + khoảng thời gian — đổi thì vẽ lại, giữ nguyên thì chỉ update
 
 function stopWifiPolling() {
   if (wifiPollTimer) { clearInterval(wifiPollTimer); wifiPollTimer = null; }
   // Hủy chart cũ — canvas của nó sẽ bị gỡ khỏi DOM khi rời tab, giữ lại
   // instance sẽ khiến lần vào tab sau "update" vào canvas đã chết, không
   // hiển thị gì mà cũng không lỗi.
-  if (wifiChart) { wifiChart.destroy(); wifiChart = null; }
-  wifiChartKey = null;
+  Object.values(wifiCharts).forEach(c => c.destroy());
+  wifiCharts = {};
+  wifiChartsKey = null;
 }
 
 function slugBase() { return location.pathname.replace(/\/+$/, ''); }
@@ -406,6 +410,7 @@ async function renderWifiTab(key, name) {
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px">
       <select id="wifi-device" onchange="loadWifiHistory('${key}')" style="min-width:160px">
         <option value="">Chọn thiết bị…</option>
+        <option value="__all__">📊 Tất cả thiết bị</option>
       </select>
       <div style="display:flex;gap:3px">
         <button class="wtab" data-h="1" onclick="setWifiRange('${key}',1)">1 giờ</button>
@@ -424,10 +429,7 @@ async function renderWifiTab(key, name) {
         <span class="loading">Đang tải…</span>
       </div>
     </div>
-    <div class="chartcard">
-      <div class="chartcard-title">Phổ tín hiệu RSSI theo thời gian</div>
-      <div class="chartwrap"><canvas id="wifi-chart-rssi"></canvas></div>
-    </div>`;
+    <div id="wifi-charts-container"></div>`;
   wifiRangeHours = 24;
   await loadWifiDevices(key);
   wifiPollTimer = setInterval(() => loadWifiDevices(key), WIFI_POLL_MS);
@@ -446,6 +448,7 @@ async function loadWifiDevices(key) {
     const d = await res.json();
     if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
     const list = d.devices || [];
+    wifiDevicesList = list;
     if (d.thresholds) wifiThresholds = d.thresholds;
 
     // Chỉ thêm option còn thiếu (không rebuild toàn bộ dropdown) — tránh
@@ -483,63 +486,92 @@ async function loadWifiDevices(key) {
 }
 
 async function loadWifiHistory(key) {
-  const deviceId = document.getElementById('wifi-device').value;
-  if (!deviceId) { renderWifiChart([], deviceId); return; }
+  const sel = document.getElementById('wifi-device').value;
+  const container = document.getElementById('wifi-charts-container');
+  if (!sel) {
+    Object.values(wifiCharts).forEach(c => c.destroy());
+    wifiCharts = {}; wifiChartsKey = null;
+    container.innerHTML = '';
+    return;
+  }
+  // Chế độ "Tất cả thiết bị" → vẽ 1 chart/thiết bị; ngược lại chỉ 1 thiết bị.
+  const targets = sel === '__all__'
+    ? wifiDevicesList.map(d => d.device_id)
+    : [sel];
+  if (!targets.length) { container.innerHTML = '<div class="loading">Chưa có thiết bị nào.</div>'; return; }
+
   try {
-    const res = await fetch(`${slugBase()}/wifi-history?key=${encodeURIComponent(key)}&device_id=${encodeURIComponent(deviceId)}&hours=${wifiRangeHours}`);
-    const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
-    renderWifiChart(d.samples || [], deviceId);
+    const results = await Promise.all(targets.map(async deviceId => {
+      const res = await fetch(`${slugBase()}/wifi-history?key=${encodeURIComponent(key)}&device_id=${encodeURIComponent(deviceId)}&hours=${wifiRangeHours}`);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
+      return { deviceId, samples: d.samples || [] };
+    }));
+    renderWifiCharts(results);
   } catch (e) {
     console.error('[WIFI]', e);
   }
 }
 
-// key = thiết bị + khoảng thời gian đang xem — đổi 1 trong 2 thì phải vẽ lại
-// chart từ đầu; còn giữ nguyên thì chỉ cập nhật dữ liệu tại chỗ (không
+// key = tập thiết bị đang vẽ + khoảng thời gian — đổi 1 trong 2 thì vẽ lại
+// toàn bộ chart từ đầu; giữ nguyên thì chỉ cập nhật dữ liệu tại chỗ (không
 // destroy/recreate) để Chart.js tự animate mượt kiểu "trượt sang trái"
 // thay vì xóa-vẽ-lại nhấp nháy mỗi 5s.
-let wifiChartKey = null;
+function renderWifiCharts(results) {
+  const key = results.map(r => r.deviceId).join(',') + '|' + wifiRangeHours;
+  const container = document.getElementById('wifi-charts-container');
 
-function renderWifiChart(samples, deviceId) {
-  const labels = samples.map(s => fmtWifiTime(s.recorded_at));
-  const rssiData = samples.map(s => s.rssi);
-  const key = `${deviceId}|${wifiRangeHours}`;
-
-  if (wifiChart && wifiChartKey === key) {
-    wifiChart.data.labels = labels;
-    wifiChart.data.datasets[0].data = rssiData;
-    wifiChart.data.datasets[1].data = labels.map(() => wifiThresholds.good);
-    wifiChart.data.datasets[2].data = labels.map(() => wifiThresholds.weak);
-    wifiChart.update();
+  if (key === wifiChartsKey) {
+    // Cùng tập thiết bị + khoảng thời gian như lần trước → chỉ update dữ liệu.
+    results.forEach(({ deviceId, samples }) => {
+      const chart = wifiCharts[deviceId];
+      if (!chart) return;
+      const labels = samples.map(s => fmtWifiTime(s.recorded_at));
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = samples.map(s => s.rssi);
+      chart.data.datasets[1].data = labels.map(() => wifiThresholds.good);
+      chart.data.datasets[2].data = labels.map(() => wifiThresholds.weak);
+      chart.update();
+    });
     return;
   }
 
-  if (wifiChart) wifiChart.destroy();
-  wifiChartKey = key;
-  wifiChart = new Chart(document.getElementById('wifi-chart-rssi'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        { label: deviceId ? `RSSI — ${deviceId}` : 'RSSI', data: rssiData,
-          borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)',
-          borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:.25, fill:true, order:0 },
-        { label:'Ngưỡng tốt', data: labels.map(()=>wifiThresholds.good),
-          borderColor:'rgba(52,211,153,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1 },
-        { label:'Ngưỡng yếu', data: labels.map(()=>wifiThresholds.weak),
-          borderColor:'rgba(251,113,133,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1 },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      animation: { duration: 400, easing: 'linear' },
-      plugins: { legend: { labels: { color:'#fff', boxWidth:10, usePointStyle:true, pointStyle:'circle', font:{size:11} } } },
-      scales: {
-        x: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10}, maxTicksLimit:12 }, grid:{ color:'rgba(255,255,255,.05)' } },
-        y: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10} }, grid:{ color:'rgba(255,255,255,.08)' } },
+  // Tập thiết bị/khoảng thời gian đổi — vẽ lại toàn bộ từ đầu.
+  Object.values(wifiCharts).forEach(c => c.destroy());
+  wifiCharts = {};
+  wifiChartsKey = key;
+  container.innerHTML = results.map(({ deviceId }) => `
+    <div class="chartcard" style="margin-bottom:14px">
+      <div class="chartcard-title">Phổ tín hiệu RSSI — ${deviceId}</div>
+      <div class="chartwrap"><canvas id="wifi-chart-${deviceId}"></canvas></div>
+    </div>`).join('');
+
+  results.forEach(({ deviceId, samples }) => {
+    const labels = samples.map(s => fmtWifiTime(s.recorded_at));
+    wifiCharts[deviceId] = new Chart(document.getElementById(`wifi-chart-${deviceId}`), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: `RSSI — ${deviceId}`, data: samples.map(s => s.rssi),
+            borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)',
+            borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:.25, fill:true, order:0 },
+          { label:'Ngưỡng tốt', data: labels.map(()=>wifiThresholds.good),
+            borderColor:'rgba(52,211,153,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1 },
+          { label:'Ngưỡng yếu', data: labels.map(()=>wifiThresholds.weak),
+            borderColor:'rgba(251,113,133,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1 },
+        ],
       },
-    },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 400, easing: 'linear' },
+        plugins: { legend: { labels: { color:'#fff', boxWidth:10, usePointStyle:true, pointStyle:'circle', font:{size:11} } } },
+        scales: {
+          x: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10}, maxTicksLimit:12 }, grid:{ color:'rgba(255,255,255,.05)' } },
+          y: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10} }, grid:{ color:'rgba(255,255,255,.08)' } },
+        },
+      },
+    });
   });
 }
 
