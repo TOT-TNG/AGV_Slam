@@ -1692,10 +1692,17 @@ class LineAGVHandler:
                           f"{state.hook_raise_retries}/{HOOK_RAISE_MAX_RETRIES}")
                     self._send_hook_raise_delayed(agv_id, delay=0.0)
                 else:
-                    print(f"[LINE_AGV] {agv_id}: đã gửi lại {HOOK_RAISE_MAX_RETRIES} lần "
-                          f"vẫn không có phản hồi NÂNG móc — dừng thử tự động, "
-                          f"cần kiểm tra thủ công")
+                    _msg_hk_retry = (f"⚠️ AGV {agv_id}: gửi lại {HOOK_RAISE_MAX_RETRIES} lần "
+                          f"vẫn không có phản hồi NÂNG móc tại node {state.current_tag} — "
+                          f"dừng thử tự động, cần kiểm tra thủ công (hook_state hiện tại "
+                          f"có thể KHÔNG đúng thực tế).")
+                    print(f"[LINE_AGV] {agv_id}: {_msg_hk_retry}")
                     state.hook_raise_sent_at = 0.0   # tránh lặp lại log này mỗi tick
+                    try:
+                        from telegram_bot import notify_error as _tg_notify_hk
+                        _tg_notify_hk(_msg_hk_retry)
+                    except Exception as _e_tg_hk:
+                        print(f"[LINE_AGV] {agv_id}: gửi Telegram cảnh báo NÂNG móc lỗi: {_e_tg_hk}")
 
         # ── CỨU KẸT: AGV DỪNG GIỮA route (nghi ngờ firmware lỡ dừng/mất gói) ─────
         # Từng bị TẮT HẲN (comment) vì có thể ghi đè mất _trailer_exit_steps (tắt

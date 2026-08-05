@@ -17,6 +17,19 @@
 
 $ErrorActionPreference = "Stop"
 
+# -- 0. Kiem tra quyen Administrator -------------------------------------------
+# Restart-Service/Stop-Service can quyen admin de mo handle dieu khien service.
+# Neu khong co quyen nay, Get-Service van chay binh thuong (chi doc) nhung
+# Restart-Service se bao loi kho hieu "Cannot open ... service on computer '.'".
+$currentPrincipal = New-Object Security.Principal.WindowsPrincipal(
+    [Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "[UPDATE] LOI: Ban dang chay PowerShell KHONG co quyen Administrator." -ForegroundColor Red
+    Write-Host "[UPDATE] Buoc restart Windows Service can quyen admin de thuc hien." -ForegroundColor Red
+    Write-Host "[UPDATE] Hay dong cua so nay, mo lai PowerShell bang 'Run as Administrator' roi chay lai script." -ForegroundColor Yellow
+    exit 1
+}
+
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $MqttDir    = Split-Path -Parent $ScriptDir            # mqtt_Server/
 $RootDir    = Split-Path -Parent $MqttDir              # thu muc goc project
@@ -65,17 +78,29 @@ if ($pgBin) {
 }
 
 # -- 4. Restart 2 Windows Service (neu da cai) --------------------------------
+$restartFailed = $false
 foreach ($svcName in @("AGVmqttServer", "AGVWebUI")) {
     $svc = Get-Service -Name $svcName -ErrorAction SilentlyContinue
     if ($svc) {
         Write-Host "[UPDATE] Restart service '$svcName' ..." -ForegroundColor Cyan
-        Restart-Service -Name $svcName -Force
-        Start-Sleep -Seconds 3
-        $svc = Get-Service -Name $svcName
-        Write-Host "[UPDATE] $svcName -> $($svc.Status)"
+        try {
+            Restart-Service -Name $svcName -Force -ErrorAction Stop
+            Start-Sleep -Seconds 3
+            $svc = Get-Service -Name $svcName
+            Write-Host "[UPDATE] $svcName -> $($svc.Status)"
+        } catch {
+            $restartFailed = $true
+            Write-Host "[UPDATE] LOI khi restart '$svcName': $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "[UPDATE] Thu restart tay bang Services.msc (chay voi quyen Administrator) hoac lenh: Restart-Service -Name $svcName -Force" -ForegroundColor Yellow
+        }
     } else {
         Write-Host "[UPDATE] Service '$svcName' chua duoc cai - bo qua restart (chay deploy\install_service_windows.ps1 / install_service_webui_windows.ps1 neu muon cai service)." -ForegroundColor Yellow
     }
+}
+if ($restartFailed) {
+    Write-Host ""
+    Write-Host "[UPDATE] Code/schema da cap nhat xong, nhung co it nhat 1 service restart LOI (xem chi tiet o tren)." -ForegroundColor Red
+    exit 1
 }
 
 Write-Host ""

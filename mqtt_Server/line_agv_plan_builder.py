@@ -31,8 +31,6 @@ ACTION_REVERSE_BLIND = 36 # Lùi mù theo thời gian (v = ms) — chỉ dùng k
 
 SPEED_FAST     = 120   # byte mặc định khi edge không cấu hình speed
 SPEED_SLOW     = 60    # byte tốc độ tiếp cận nút rẽ (N-1 pattern)
-SPEED_STOP     = 30    # byte tiếp cận điểm DỪNG cuối (WAIT_SYS/WAIT_CHARGE)
-                       # Thấp hơn SPEED_SLOW để đảm bảo AGV kịp dừng trên cạnh ngắn
 LOOKAHEAD      = 4    # số node/cửa sổ rolling (≤5 node) — tránh tràn UART buffer Arduino (128B)
 RETRY_TIMEOUT  = 4.0   # giây, thời gian chờ ACK trước khi retry
 
@@ -450,32 +448,17 @@ def _build_steps(
         if need_restore_lidar and turn_at_current is None and not force_lidar_off:
             steps.append({"t": tag, "a": ACTION_LIDAR_ON, "v": 0})
 
-        # Tốc độ edge từ nút hiện tại → nút tiếp theo
+        # Tốc độ edge từ nút hiện tại → nút tiếp theo — luôn theo đúng tốc độ đã
+        # cấu hình trên map (không tự ép chậm lại ở điểm dừng cuối nữa — người
+        # dùng tự cài chậm ở edge nào cần chậm).
         spd          = _edge_speed(full_path, global_i, edge_speeds)
         spd_approach = min(spd, SPEED_SLOW)   # tốc độ tiếp cận nút rẽ
-        spd_stop     = min(spd, SPEED_STOP)   # tốc độ tiếp cận điểm DỪNG cuối (rất chậm)
 
         # Tại node N-1 (ngay trước đích cuối): chèn DIR_BWD NẾU plan đang đi fwd nhưng
         # charger cần approach bwd (lùi vào). Nếu plan đã là bwd từ đầu → KHÔNG chèn thêm
         # vì DIR_BWD thứ 2 sau TURN sẽ override/cancel lệnh rẽ, làm AGV đi nhầm hướng.
         is_pre_final     = final_approach_bwd and (global_i == w_end - 1) and direction == 'fwd'
 
-        # Ngay trước điểm dừng cuối: giảm tốc xuống SPEED_STOP chỉ khi THỰC SỰ CẦN DỪNG CHÍNH XÁC:
-        #   - Supply node (arrival_action='wait_sys'/'wait_user'): cạnh ngắn, cần v=30
-        #   - Charger (wait_charge): covered bởi is_pre_final, nhưng giữ backup
-        #   - Transit: luôn cần dừng chính xác (cạnh có thể ngắn)
-        # KHÔNG giảm tốc cho delivery endpoint thông thường (arrival_action='')
-        # vì AGV có đủ không gian dừng, và v=30 có thể gây dừng sớm ở node trước.
-        _dest_na_stop   = node_actions.get(str(full_path[w_end]), {}) or {}
-        _dest_arr_stop  = str(_dest_na_stop.get('arrival_action', '') or '').lower()
-        _needs_slow_stop = (
-            _dest_arr_stop in ('wait_sys', 'wait_user', 'wait_charge')
-            or task_type in ('transit', 'return_charge')
-        )
-        approaching_stop = (
-            (global_i + 1 == w_end) and is_final and not is_pre_final
-            and _needs_slow_stop
-        )
         if is_pre_final:
             print(f"[PLAN] {_agv} | node {tag}: DIR_BWD inserted (final_approach_bwd → dest={full_path[w_end]})")
 
@@ -496,7 +479,7 @@ def _build_steps(
                 steps.append({"t": tag, "a": ACTION_RUN, "v": 0})
                 incoming_lidar_off = True   # LIDAR đã OFF cho rẽ tiếp
             else:
-                spd_val = (spd_stop if approaching_stop else spd_approach) if (is_pre_final or approaching_stop) else spd
+                spd_val = spd_approach if is_pre_final else spd
                 steps.append({"t": tag, "a": ACTION_SPEED, "v": spd_val})
                 if force_lidar_off:
                     steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
@@ -521,8 +504,7 @@ def _build_steps(
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
                     steps.append({"t": tag, "a": ACTION_RUN,     "v": 0})
                 else:
-                    _spd_straight = spd_stop if approaching_stop else spd
-                    steps.append({"t": tag, "a": ACTION_SPEED, "v": _spd_straight})
+                    steps.append({"t": tag, "a": ACTION_SPEED, "v": spd})
                     if force_lidar_off:
                         steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                         incoming_lidar_off = True
