@@ -60,4 +60,12 @@ menu "WiFi Signal Monitor Configuration"
             chu kỳ cảnh báo 60s) mà chưa hồi phục, thiết bị bắt đầu tính
             thời gian outage cho tới khi tín hiệu tốt trở lại.
 
+    config WIFI_MON_NOISE_INTERVAL_S
+        int "Chu kỳ đo nhiễu nền RF (giây)"
+        default 60
+        help
+            Đo nhiễu cần bật tạm chế độ promiscuous (~500ms mỗi lần) nên đo
+            thưa hơn nhiều so với RSSI, tránh tốn tài nguyên/băng thông
+            không cần thiết. Dùng để tính SNR = RSSI - noise floor.
+
 endmenu

@@ -573,6 +573,11 @@ function renderWifiCharts(results) {
   const key = results.map(r => r.deviceId).join(',') + '|' + rangeKey;
   const container = document.getElementById('wifi-charts-container');
 
+  // SNR (dB) = RSSI - noise_floor — chỉ tính được ở mẫu có đo nhiễu (thưa
+  // hơn RSSI nhiều, ~60s/lần); null ở các mẫu còn lại → Chart.js tự nối
+  // qua chỗ trống nhờ spanGaps.
+  const snrOf = s => (s.noise_floor != null ? s.rssi - s.noise_floor : null);
+
   if (key === wifiChartsKey) {
     // Cùng tập thiết bị + khoảng thời gian như lần trước → chỉ update dữ liệu.
     results.forEach(({ deviceId, samples }) => {
@@ -583,6 +588,7 @@ function renderWifiCharts(results) {
       chart.data.datasets[0].data = samples.map(s => s.rssi);
       chart.data.datasets[1].data = labels.map(() => wifiThresholds.good);
       chart.data.datasets[2].data = labels.map(() => wifiThresholds.weak);
+      chart.data.datasets[3].data = samples.map(snrOf);
       chart.update();
     });
     return;
@@ -594,7 +600,7 @@ function renderWifiCharts(results) {
   wifiChartsKey = key;
   container.innerHTML = results.map(({ deviceId }) => `
     <div class="chartcard" style="margin-bottom:14px">
-      <div class="chartcard-title">Phổ tín hiệu RSSI — ${deviceId}</div>
+      <div class="chartcard-title">Phổ tín hiệu RSSI &amp; nhiễu nền (SNR) — ${deviceId}</div>
       <div class="chartwrap"><canvas id="wifi-chart-${deviceId}"></canvas></div>
     </div>`).join('');
 
@@ -607,11 +613,15 @@ function renderWifiCharts(results) {
         datasets: [
           { label: `RSSI — ${deviceId}`, data: samples.map(s => s.rssi),
             borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,.12)',
-            borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:.25, fill:true, order:0 },
+            borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:.25, fill:true, order:0, yAxisID:'y' },
           { label:'Ngưỡng tốt', data: labels.map(()=>wifiThresholds.good),
-            borderColor:'rgba(52,211,153,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1 },
+            borderColor:'rgba(52,211,153,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1, yAxisID:'y' },
           { label:'Ngưỡng yếu', data: labels.map(()=>wifiThresholds.weak),
-            borderColor:'rgba(251,113,133,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1 },
+            borderColor:'rgba(251,113,133,.7)', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, order:1, yAxisID:'y' },
+          { label:'SNR (dB)', data: samples.map(snrOf),
+            borderColor:'#fbbf24', backgroundColor:'transparent',
+            borderWidth:1.5, pointRadius:2, pointHoverRadius:4, tension:.25, fill:false, order:0,
+            spanGaps: true, yAxisID:'y1' },
         ],
       },
       options: {
@@ -620,7 +630,10 @@ function renderWifiCharts(results) {
         plugins: { legend: { labels: { color:'#fff', boxWidth:10, usePointStyle:true, pointStyle:'circle', font:{size:11} } } },
         scales: {
           x: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10}, maxTicksLimit:12 }, grid:{ color:'rgba(255,255,255,.05)' } },
-          y: { ticks:{ color:'rgba(255,255,255,.75)', font:{size:10} }, grid:{ color:'rgba(255,255,255,.08)' } },
+          y: { position:'left', ticks:{ color:'rgba(255,255,255,.75)', font:{size:10} }, grid:{ color:'rgba(255,255,255,.08)' },
+               title:{ display:true, text:'dBm', color:'rgba(255,255,255,.6)', font:{size:10} } },
+          y1: { position:'right', ticks:{ color:'rgba(251,191,36,.8)', font:{size:10} }, grid:{ display:false },
+                title:{ display:true, text:'SNR (dB)', color:'rgba(251,191,36,.7)', font:{size:10} } },
         },
       },
     });

@@ -50,7 +50,7 @@ static esp_err_t _post_json(const char *path, const char *json_body) {
 
 esp_err_t wifi_report_post_sample(const char *device_id, int rssi,
                                    const char *ssid, int channel,
-                                   const char *bssid) {
+                                   const char *bssid, const int *noise_floor) {
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "device_id", device_id);
     cJSON_AddNumberToObject(root, "rssi", rssi);
@@ -63,6 +63,9 @@ esp_err_t wifi_report_post_sample(const char *device_id, int rssi,
     cJSON_AddStringToObject(root, "band", "5GHz");
     if (bssid && bssid[0]) {
         cJSON_AddStringToObject(root, "bssid", bssid);
+    }
+    if (noise_floor) {
+        cJSON_AddNumberToObject(root, "noise_floor", *noise_floor);
     }
 
     char *body = cJSON_PrintUnformatted(root);

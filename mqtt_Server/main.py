@@ -882,6 +882,11 @@ async def lifespan(app: FastAPI):
                 await _conn.execute(
                     "ALTER TABLE wifi_signal_events ADD COLUMN IF NOT EXISTS new_bssid VARCHAR(17)"
                 )
+                # Nhiễu nền RF (dBm, đo qua promiscuous mode ~60s/lần, thưa
+                # hơn RSSI) — dùng tính SNR = rssi - noise_floor trên dashboard.
+                await _conn.execute(
+                    "ALTER TABLE wifi_signal_samples ADD COLUMN IF NOT EXISTS noise_floor SMALLINT"
+                )
                 print("[DB] Tables wifi_signal_samples / wifi_signal_events ready")
         except Exception as _te:
             print(f"[DB] Create table error (non-fatal): {_te}")
@@ -6308,7 +6313,8 @@ class WifiSampleIn(BaseModel):
     ssid: str | None = None
     channel: int | None = None
     band: str = "5GHz"
-    bssid: str | None = None   # MAC của AP đang kết nối — phục vụ quản lý roaming AGV
+    bssid: str | None = None       # MAC của AP đang kết nối — phục vụ quản lý roaming AGV
+    noise_floor: int | None = None  # dBm, đo thưa hơn rssi (~60s/lần) — dùng tính SNR
 
 
 class WifiEventIn(BaseModel):
@@ -6334,9 +6340,10 @@ async def wifi_report(body: WifiSampleIn):
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO wifi_signal_samples (device_id, rssi, ssid, channel, band, bssid) "
-                    "VALUES (%s,%s,%s,%s,%s,%s)",
-                    (body.device_id, body.rssi, body.ssid, body.channel, body.band, body.bssid),
+                    "INSERT INTO wifi_signal_samples (device_id, rssi, ssid, channel, band, bssid, noise_floor) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (body.device_id, body.rssi, body.ssid, body.channel, body.band,
+                     body.bssid, body.noise_floor),
                 )
             conn.commit()
         finally:
@@ -6403,7 +6410,7 @@ async def wifi_history(device_id: str, hours: int = 24,
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT rssi, ssid, channel, band, recorded_at, bssid "
+                    "SELECT rssi, ssid, channel, band, recorded_at, bssid, noise_floor "
                     "FROM wifi_signal_samples "
                     f"WHERE device_id = %s AND {time_clause} "
                     "ORDER BY recorded_at ASC",
@@ -6411,7 +6418,7 @@ async def wifi_history(device_id: str, hours: int = 24,
                 )
                 samples = [
                     {"rssi": r[0], "ssid": r[1], "channel": r[2], "band": r[3],
-                     "recorded_at": r[4].isoformat(), "bssid": r[5]}
+                     "recorded_at": r[4].isoformat(), "bssid": r[5], "noise_floor": r[6]}
                     for r in cur.fetchall()
                 ]
                 cur.execute(

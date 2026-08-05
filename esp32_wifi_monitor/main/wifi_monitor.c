@@ -22,6 +22,8 @@ static const char *TAG = "wifi_monitor";
 #define ALERT_INTERVAL_US   ((int64_t)CONFIG_WIFI_MON_ALERT_INTERVAL_S * 1000000LL)
 #define OUTAGE_ALERT_COUNT  CONFIG_WIFI_MON_OUTAGE_ALERT_COUNT
 #define DEVICE_ID        CONFIG_WIFI_MON_DEVICE_ID
+#define NOISE_INTERVAL_US    ((int64_t)CONFIG_WIFI_MON_NOISE_INTERVAL_S * 1000000LL)
+#define NOISE_CAPTURE_WINDOW_MS 500   // thời gian bật promiscuous mode mỗi lần đo nhiễu
 
 typedef enum {
     STATE_GOOD = 0,
@@ -39,10 +41,58 @@ static bool s_was_connected = false;
 // BSSID (MAC AP) của lần đo trước — so sánh để phát hiện roaming, phục vụ
 // quản lý roaming AGV. Rỗng nghĩa là chưa có dữ liệu để so sánh.
 static char s_last_bssid[18] = "";
+static int64_t s_last_noise_us = 0;
+
+// Trạng thái đo nhiễu qua promiscuous mode — cộng dồn noise_floor của mọi
+// gói tin bắt được trên kênh hiện tại (không chỉ gói của AP mình) trong 1
+// cửa sổ ngắn, rồi lấy trung bình. Truy cập từ cả task chính lẫn callback
+// của driver WiFi nên đánh dấu volatile.
+static volatile int32_t s_noise_sum = 0;
+static volatile int s_noise_count = 0;
+static volatile bool s_noise_capturing = false;
 
 static void _format_bssid(const uint8_t *mac, char *out, size_t out_len) {
     snprintf(out, out_len, "%02x:%02x:%02x:%02x:%02x:%02x",
               mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+static void _promisc_rx_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
+    (void)type;
+    if (!s_noise_capturing) {
+        return;
+    }
+    const wifi_promiscuous_pkt_t *pkt = (const wifi_promiscuous_pkt_t *)buf;
+    s_noise_sum += pkt->rx_ctrl.noise_floor;
+    s_noise_count++;
+}
+
+// Bật tạm promiscuous mode (~NOISE_CAPTURE_WINDOW_MS) trên đúng kênh đang
+// kết nối để lấy noise_floor trung bình của mọi gói tin trên kênh — không
+// đổi kênh nên không làm gián đoạn kết nối STA hiện tại. Trả false nếu
+// không bắt được gói nào trong cửa sổ đo (kênh quá yên tĩnh/lỗi).
+static bool _measure_noise_floor_avg(int *out_avg) {
+    s_noise_sum = 0;
+    s_noise_count = 0;
+    s_noise_capturing = true;
+
+    esp_wifi_set_promiscuous_rx_cb(&_promisc_rx_cb);
+    esp_err_t err = esp_wifi_set_promiscuous(true);
+    if (err != ESP_OK) {
+        s_noise_capturing = false;
+        ESP_LOGW(TAG, "Khong bat duoc promiscuous mode de do nhieu: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(NOISE_CAPTURE_WINDOW_MS));
+
+    s_noise_capturing = false;
+    esp_wifi_set_promiscuous(false);
+
+    if (s_noise_count == 0) {
+        return false;
+    }
+    *out_avg = (int)(s_noise_sum / s_noise_count);
+    return true;
 }
 
 static void _handle_disconnected(void) {
@@ -54,6 +104,8 @@ static void _handle_disconnected(void) {
 }
 
 static void _handle_sample(int rssi, const char *ssid, int channel, const char *bssid) {
+    int64_t now_us = esp_timer_get_time();
+
     if (!s_was_connected) {
         ESP_LOGI(TAG, "Da ket noi lai WiFi");
         wifi_report_post_event(DEVICE_ID, "reconnected", &rssi, NULL, NULL);
@@ -68,10 +120,20 @@ static void _handle_sample(int rssi, const char *ssid, int channel, const char *
     }
     strlcpy(s_last_bssid, bssid, sizeof(s_last_bssid));
 
-    ESP_LOGI(TAG, "Mau: rssi=%d bssid=%s ssid=%s kenh=%d", rssi, bssid, ssid, channel);
-    wifi_report_post_sample(DEVICE_ID, rssi, ssid, channel, bssid);
+    // Đo nhiễu nền RF thưa hơn RSSI nhiều (mặc định 60s/lần) — mỗi lần đo
+    // tốn ~500ms bật promiscuous mode nên không làm mỗi chu kỳ như RSSI.
+    int noise_floor = 0;
+    bool have_noise = false;
+    if (now_us - s_last_noise_us >= NOISE_INTERVAL_US) {
+        have_noise = _measure_noise_floor_avg(&noise_floor);
+        s_last_noise_us = now_us;
+        if (have_noise) {
+            ESP_LOGI(TAG, "Nhieu nen: %d dBm (SNR=%d dB)", noise_floor, rssi - noise_floor);
+        }
+    }
 
-    int64_t now_us = esp_timer_get_time();
+    ESP_LOGI(TAG, "Mau: rssi=%d bssid=%s ssid=%s kenh=%d", rssi, bssid, ssid, channel);
+    wifi_report_post_sample(DEVICE_ID, rssi, ssid, channel, bssid, have_noise ? &noise_floor : NULL);
 
     switch (s_state) {
     case STATE_GOOD:
