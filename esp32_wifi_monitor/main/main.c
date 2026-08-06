@@ -52,6 +52,14 @@ static void _wifi_init_sta(void) {
     strlcpy((char *)wifi_config.sta.ssid, CONFIG_WIFI_MON_SSID, sizeof(wifi_config.sta.ssid));
     strlcpy((char *)wifi_config.sta.password, CONFIG_WIFI_MON_PASSWORD, sizeof(wifi_config.sta.password));
 
+    // Mặc định (zero-init) là WIFI_FAST_SCAN — dừng quét ngay khi gặp AP
+    // ĐẦU TIÊN trùng SSID, không quét hết để so RSSI. Với mạng có nhiều AP
+    // cùng phát 1 SSID (roaming), điều này khiến thiết bị bám nhầm AP xa
+    // thay vì AP gần/mạnh nhất (đã xác nhận qua thực tế: 2 board đặt cách
+    // xa nhau vẫn cùng bám 1 AP). Ép quét hết kênh rồi chọn theo RSSI.
+    wifi_config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
+    wifi_config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
