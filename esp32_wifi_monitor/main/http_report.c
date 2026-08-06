@@ -10,6 +10,14 @@
 
 static const char *TAG = "wifi_http_report";
 
+// Chuỗi băng tần gửi lên backend — tự chọn theo khả năng thật của chip
+// (project build chung code cho cả ESP32-C5 5GHz lẫn ESP32-S3 2.4GHz).
+#if CONFIG_SOC_WIFI_SUPPORT_5G
+#define WIFI_MON_BAND_STR "5GHz"
+#else
+#define WIFI_MON_BAND_STR "2.4GHz"
+#endif
+
 // Lỗi POST chỉ log cảnh báo, không bao giờ chặn vòng lặp đo RSSI của
 // wifi_monitor.c — mạng chập chờn tạm thời không được làm rớt phép đo.
 static esp_err_t _post_json(const char *path, const char *json_body) {
@@ -60,7 +68,7 @@ esp_err_t wifi_report_post_sample(const char *device_id, int rssi,
     if (channel > 0) {
         cJSON_AddNumberToObject(root, "channel", channel);
     }
-    cJSON_AddStringToObject(root, "band", "5GHz");
+    cJSON_AddStringToObject(root, "band", WIFI_MON_BAND_STR);
     if (bssid && bssid[0]) {
         cJSON_AddStringToObject(root, "bssid", bssid);
     }

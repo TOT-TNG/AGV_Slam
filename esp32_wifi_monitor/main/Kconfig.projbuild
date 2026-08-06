@@ -1,11 +1,11 @@
 menu "WiFi Signal Monitor Configuration"
 
     config WIFI_MON_SSID
-        string "5GHz WiFi SSID (mạng cần kiểm tra)"
+        string "WiFi SSID (mạng cần kiểm tra — 5GHz trên ESP32-C5, 2.4GHz trên ESP32-S3)"
         default ""
 
     config WIFI_MON_PASSWORD
-        string "5GHz WiFi Password"
+        string "WiFi Password"
         default ""
 
     config WIFI_MON_SERVER_HOST

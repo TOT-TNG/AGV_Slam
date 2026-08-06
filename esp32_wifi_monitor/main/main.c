@@ -64,12 +64,18 @@ static void _wifi_init_sta(void) {
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    // Ép kết nối băng tần 5GHz — ESP32-C5 hỗ trợ dual-band (2.4/5GHz), nếu
-    // không ép band thiết bị có thể tự rớt xuống 2.4GHz trên AP phát cả 2
-    // băng tần, làm sai mục đích kiểm tra 5GHz. `esp_wifi_set_band_mode()`
+    // Ép băng tần theo đúng khả năng thật của chip — không hardcode 5GHz vì
+    // project này build chung code cho cả ESP32-C5 (dual-band) lẫn ESP32-S3
+    // (chỉ 2.4GHz, dùng để so sánh song song trên dashboard). Với chip
+    // không có CONFIG_SOC_WIFI_SUPPORT_5G, gọi WIFI_BAND_MODE_5G_ONLY sẽ
+    // lỗi ESP_ERR_INVALID_ARG (theo tài liệu esp_wifi.h). `esp_wifi_set_band_mode()`
     // yêu cầu driver WiFi đã esp_wifi_start() — gọi trước đó sẽ lỗi
     // ESP_ERR_WIFI_NOT_STARTED (đã xác nhận trên board thật esp32c5-eco2).
+#if CONFIG_SOC_WIFI_SUPPORT_5G
     ESP_ERROR_CHECK(esp_wifi_set_band_mode(WIFI_BAND_MODE_5G_ONLY));
+#else
+    ESP_ERROR_CHECK(esp_wifi_set_band_mode(WIFI_BAND_MODE_2G_ONLY));
+#endif
 
     ESP_ERROR_CHECK(esp_wifi_connect());
 }
