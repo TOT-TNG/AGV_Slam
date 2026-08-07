@@ -16,6 +16,7 @@
 #include <esp_wifi.h>
 #include "esp_event.h"
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
@@ -35,6 +36,40 @@ static void _wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, vo
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "Da co IP, bat dau giam sat tin hieu");
     }
+}
+
+// Quét chủ động (blocking) và in ra TOÀN BỘ AP nhìn thấy được — chẩn đoán
+// khi không rõ vì sao esp_wifi_connect() không tìm thấy AP mong đợi, thay
+// vì suy đoán qua thông báo lỗi chung chung "Haven't to connect...".
+static void _scan_and_log_aps(void) {
+    wifi_scan_config_t scan_config = { 0 };
+    esp_err_t err = esp_wifi_scan_start(&scan_config, true);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Quet WiFi that bai: %s", esp_err_to_name(err));
+        return;
+    }
+
+    uint16_t num = 0;
+    esp_wifi_scan_get_ap_num(&num);
+    ESP_LOGI(TAG, "===== Quet thay %d AP =====", num);
+    if (num == 0) {
+        ESP_LOGW(TAG, "Khong quet thay AP nao ca (ke ca AP khac)!");
+        return;
+    }
+
+    wifi_ap_record_t *records = calloc(num, sizeof(wifi_ap_record_t));
+    if (!records) {
+        ESP_LOGW(TAG, "Khong du RAM de luu ket qua quet");
+        return;
+    }
+    esp_wifi_scan_get_ap_records(&num, records);
+    for (int i = 0; i < num; i++) {
+        ESP_LOGI(TAG, "  [%d] SSID='%s' rssi=%d kenh=%d authmode=%d bssid=" MACSTR,
+                 i, (const char *)records[i].ssid, records[i].rssi,
+                 records[i].primary, records[i].authmode, MAC2STR(records[i].bssid));
+    }
+    ESP_LOGI(TAG, "===========================");
+    free(records);
 }
 
 static void _wifi_init_sta(void) {
@@ -93,6 +128,11 @@ static void _wifi_init_sta(void) {
 #if CONFIG_SOC_WIFI_SUPPORT_5G
     ESP_ERROR_CHECK(esp_wifi_set_band_mode(WIFI_BAND_MODE_5G_ONLY));
 #endif
+
+    // Chẩn đoán: in ra toàn bộ AP thấy được trước khi thử connect, để biết
+    // chắc SSID cấu hình có thật sự xuất hiện trong kết quả quét hay không
+    // (và với thông số gì) thay vì chỉ dựa vào thông báo lỗi chung chung.
+    _scan_and_log_aps();
 
     ESP_ERROR_CHECK(esp_wifi_connect());
 }
