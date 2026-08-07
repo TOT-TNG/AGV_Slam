@@ -48,6 +48,22 @@ static void _wifi_init_sta(void) {
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &_wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &_wifi_event_handler, NULL));
 
+    // Mã quốc gia mặc định của ESP-IDF là "01" (world safe mode), chỉ cho
+    // quét kênh 2.4GHz 1-11 — Việt Nam hợp pháp dùng tới kênh 13, nên nếu
+    // AP phát ở kênh 12/13 thiết bị sẽ không bao giờ quét thấy (đã xác nhận
+    // thực tế trên board S3: SSID có thật, đúng vị trí, điện thoại bắt được
+    // bình thường, nhưng ESP32 báo "Haven't to connect to a suitable AP").
+    // "VN" không nằm trong danh sách mã quốc gia esp_wifi_set_country_code()
+    // hỗ trợ, nên khai báo thẳng qua esp_wifi_set_country() cho phép đủ
+    // kênh 1-13 thay vì phụ thuộc bảng mã quốc gia dựng sẵn.
+    wifi_country_t country = {
+        .cc = "01",
+        .schan = 1,
+        .nchan = 13,
+        .policy = WIFI_COUNTRY_POLICY_MANUAL,
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_country(&country));
+
     wifi_config_t wifi_config = { 0 };
     strlcpy((char *)wifi_config.sta.ssid, CONFIG_WIFI_MON_SSID, sizeof(wifi_config.sta.ssid));
     strlcpy((char *)wifi_config.sta.password, CONFIG_WIFI_MON_PASSWORD, sizeof(wifi_config.sta.password));
