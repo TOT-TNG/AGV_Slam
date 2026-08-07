@@ -42,7 +42,11 @@ static void _wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, vo
 // khi không rõ vì sao esp_wifi_connect() không tìm thấy AP mong đợi, thay
 // vì suy đoán qua thông báo lỗi chung chung "Haven't to connect...".
 static void _scan_and_log_aps(void) {
-    wifi_scan_config_t scan_config = { 0 };
+    // LƯU Ý: zero-init wifi_scan_config_t sẽ khiến scan_time.active.max = 0
+    // (dừng 0ms mỗi kênh — quá nhanh để bắt được beacon nào, quét luôn ra 0
+    // AP dù thật sự có sóng). Phải dùng macro default (max=120ms) của driver.
+    wifi_scan_config_t scan_config = WIFI_SCAN_PARAMS_DEFAULT_CONFIG();
+    scan_config.show_hidden = true;
     esp_err_t err = esp_wifi_scan_start(&scan_config, true);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Quet WiFi that bai: %s", esp_err_to_name(err));
