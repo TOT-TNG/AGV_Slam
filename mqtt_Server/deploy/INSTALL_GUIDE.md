@@ -177,6 +177,13 @@ Web UI truy cập qua: `http://<IP-bất-kỳ-của-máy>:8000`
 
 Chạy thử ở bước 7 thành công rồi mới làm bước này.
 
+> ⚠️ **Chỉ cần làm 1 LẦN DUY NHẤT cho mỗi máy**, không phải chạy lại mỗi khi
+> có bản cập nhật. Đây là bước "đăng ký" service — Windows/Linux sẽ tự nhớ
+> vĩnh viễn, tự khởi động lại cùng máy mãi mãi mà không cần chạy lại các lệnh
+> ở mục này. Muốn nạp code mới cho service đã cài, dùng script **cập nhật**
+> ở Bước 9 (`update_windows.ps1` / `update_linux.sh`) — script đó tự restart
+> service có sẵn, không cần cài lại từ đầu.
+
 ### Windows (dùng NSSM, quyền Administrator)
 ```
 powershell -ExecutionPolicy Bypass -File deploy\install_service_windows.ps1
@@ -230,9 +237,11 @@ và `Web_UI`. Trên Linux chạy tay bằng 2 terminal riêng (hoặc `&`/`tmux`
 ## 9. Cập nhật hệ thống (không cần cài lại từ đầu)
 
 Sau lần cài đầu tiên, khi có code mới (git pull về, hoặc copy file cập nhật
-thủ công), **không cần lặp lại toàn bộ Bước 3** (không cần cài lại
-Python/PostgreSQL/Mosquitto, không tạo lại venv, không tạo lại database) —
-chỉ cần chạy script cập nhật, nó tự nạp code mới lên venv/service đã có sẵn.
+thủ công), **không cần lặp lại toàn bộ Bước 3 lẫn Bước 8** (không cần cài lại
+Python/PostgreSQL/Mosquitto, không tạo lại venv, không tạo lại database,
+không cài lại service) — chỉ cần chạy script cập nhật ở mục này, nó tự nạp
+code mới lên venv/service đã có sẵn từ Bước 8. **Đây mới là bước bạn sẽ chạy
+lặp lại thường xuyên** mỗi khi có bản mới, khác với Bước 8 (chỉ 1 lần).
 
 ### Windows
 ```powershell

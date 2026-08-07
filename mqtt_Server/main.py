@@ -1948,6 +1948,196 @@ async def agv_upload_full_json(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500, headers=_CORS)
 
 
+async def _ensure_map_schema(conn) -> None:
+    """Đảm bảo đủ bảng/cột cho bản đồ (agv_maps + node/edge) — dùng chung cho cả
+    luồng upload thủ công (HTTP /api/agv/map/upload-full) lẫn AGV SLAM tự gửi bản
+    đồ quét về qua MQTT (xem handle_slam_map_upload)."""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS agv_maps (
+            id           TEXT PRIMARY KEY,
+            name         TEXT,
+            origin_x     FLOAT DEFAULT 0,
+            origin_y     FLOAT DEFAULT 0,
+            origin_theta FLOAT DEFAULT 0,
+            image_path   TEXT,
+            modify_time  TIMESTAMPTZ DEFAULT NOW(),
+            layer        INT DEFAULT 0,
+            updated_at   TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    # Tỉ lệ ảnh/thế giới thật (m/pixel) — bản đồ AGV SLAM quét về cần cột này để
+    # MapConfigure vẽ đúng tỉ lệ; bản đồ upload thủ công trước giờ không có, để
+    # NULL (frontend tự fallback theo RES_DEFAULT).
+    await conn.execute("""
+        ALTER TABLE agv_maps ADD COLUMN IF NOT EXISTS resolution DOUBLE PRECISION
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS agv_map_points (
+            id        SERIAL PRIMARY KEY,
+            map_id    TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
+            name_id   TEXT,
+            name      TEXT,
+            x         FLOAT, y FLOAT, theta FLOAT DEFAULT 0,
+            type      INT DEFAULT 0,
+            zone      TEXT DEFAULT '',
+            action    JSONB DEFAULT '{}',
+            speed     FLOAT DEFAULT 0.5,
+            carrier   INT DEFAULT 0,
+            available BOOLEAN DEFAULT FALSE,
+            accuracy  INT DEFAULT 0
+        )
+    """)
+    # Index hỗ trợ query nhanh team mapping (action->>'team')
+    await conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_map_points_team
+        ON agv_map_points ((action->>'team'))
+        WHERE action->>'locationType' = 'DROPOFF'
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS agv_map_roads (
+            id             SERIAL PRIMARY KEY,
+            map_id         TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
+            name           TEXT DEFAULT '',
+            id_source      TEXT, id_dest TEXT,
+            point_start_x  FLOAT, point_start_y FLOAT,
+            point_end_x    FLOAT, point_end_y FLOAT,
+            width          FLOAT DEFAULT 0.95,
+            speed          FLOAT DEFAULT 0.3,
+            move_direction INT DEFAULT 0,
+            distance       FLOAT DEFAULT 0,
+            lidar_off      BOOLEAN DEFAULT FALSE,
+            lidar_off_dir  TEXT DEFAULT 'none'
+        )
+    """)
+    await conn.execute("""
+        ALTER TABLE agv_map_roads
+        ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE
+    """)
+    await conn.execute("""
+        ALTER TABLE agv_map_roads
+        ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'
+    """)
+    await conn.execute("""
+        ALTER TABLE agv_map_roads
+        ADD COLUMN IF NOT EXISTS speed_bwd FLOAT
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS agv_map_benziers (
+            id                    SERIAL PRIMARY KEY,
+            map_id                TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
+            name                  TEXT DEFAULT '',
+            id_source             TEXT, id_dest TEXT,
+            point_start_x         FLOAT, point_start_y FLOAT,
+            point_end_x           FLOAT, point_end_y FLOAT,
+            curve_point_start_x   FLOAT, curve_point_start_y FLOAT,
+            curve_point_end_x     FLOAT, curve_point_end_y FLOAT,
+            width                 FLOAT DEFAULT 0.3,
+            speed                 FLOAT DEFAULT 0.3,
+            move_direction        INT DEFAULT 0,
+            lidar_off             BOOLEAN DEFAULT FALSE,
+            lidar_off_dir         TEXT DEFAULT 'none'
+        )
+    """)
+    await conn.execute("""
+        ALTER TABLE agv_map_benziers
+        ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE
+    """)
+    await conn.execute("""
+        ALTER TABLE agv_map_benziers
+        ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'
+    """)
+    await conn.execute("""
+        ALTER TABLE agv_map_benziers
+        ADD COLUMN IF NOT EXISTS speed_bwd FLOAT
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS agv_map_codes (
+            id      SERIAL PRIMARY KEY,
+            map_id  TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
+            code_id TEXT, code TEXT,
+            x FLOAT, y FLOAT, theta FLOAT DEFAULT 0
+        )
+    """)
+
+
+def _save_map_image(map_id: str, image_b64: str) -> str | None:
+    """Giải mã ảnh bản đồ base64 và ghi ra MAP_DIR/{map_id}.png — dùng chung cho
+    upload thủ công (HTTP) lẫn AGV SLAM gửi bản đồ quét về (MQTT). Trả về
+    image_path dạng "maps/{map_id}.png" (khớp cột agv_maps.image_path) hoặc None
+    nếu không có/không giải mã được ảnh."""
+    if not image_b64:
+        return None
+    if image_b64.startswith("data:"):
+        image_b64 = image_b64.split(",", 1)[1]
+    try:
+        image_data = base64.b64decode(image_b64)
+        if len(image_data) < 1000:  # quá nhỏ → lỗi base64
+            raise Exception("Base64 quá ngắn")
+    except Exception as e:
+        print(f"[MAP] Lỗi decode ảnh: {e}")
+        return None
+
+    MAP_DIR.mkdir(parents=True, exist_ok=True)
+    image_file = MAP_DIR / f"{map_id}.png"
+    with open(image_file, "wb") as f:
+        f.write(image_data)
+    print(f"[MAP] Đã lưu ảnh: {image_file} ({len(image_data)} bytes)")
+    return f"maps/{map_id}.png"
+
+
+async def handle_slam_map_upload(agv_id: str, payload: dict) -> dict:
+    """AGV SLAM gửi bản đồ quét laser về qua MQTT (topic .../map, xem on_message
+    trong mqtt_client.py) — lưu ảnh + upsert agv_maps. KHÁC upload thủ công
+    (_do_upload_map): KHÔNG đụng agv_map_points/roads/benziers — node/edge do
+    người dùng đặt tay qua MapConfigure vẫn giữ nguyên qua các lần quét lại.
+
+    Payload kỳ vọng: {mapId?, mapName?, resolution?, origin:{x,y,theta}, image}
+    """
+    global last_map_id
+    if pool is None:
+        print(f"[SLAM_MAP] {agv_id}: DB pool chưa khởi tạo, bỏ qua")
+        return {"status": "error", "detail": "db pool not ready"}
+
+    map_id   = str(payload.get("mapId") or uuid.uuid4())
+    map_name = str(payload.get("mapName") or "").strip() or f"map_{map_id}"
+    resolution = payload.get("resolution")
+    resolution = float(resolution) if resolution not in (None, "") else None
+    origin = payload.get("origin") or {}
+    origin_x = float(origin.get("x", 0) or 0)
+    origin_y = float(origin.get("y", 0) or 0)
+    origin_theta = float(origin.get("theta", 0) or 0)
+
+    image_path = _save_map_image(map_id, payload.get("image") or "")
+
+    async with pool.acquire() as conn:
+        await _ensure_map_schema(conn)
+        is_new = not await conn.fetchval("SELECT 1 FROM agv_maps WHERE id = $1", map_id)
+        if is_new:
+            await conn.execute("""
+                INSERT INTO agv_maps (id, name, origin_x, origin_y, origin_theta, image_path, resolution)
+                VALUES ($1,$2,$3,$4,$5,$6,$7)
+            """, map_id, map_name, origin_x, origin_y, origin_theta, image_path, resolution)
+            print(f"[SLAM_MAP] {agv_id}: tạo map mới {map_id} ({map_name}) từ bản đồ quét")
+        else:
+            await conn.execute("""
+                UPDATE agv_maps SET
+                    name = CASE WHEN $2 <> '' THEN $2 ELSE name END,
+                    origin_x = $3, origin_y = $4, origin_theta = $5,
+                    image_path = COALESCE($6, image_path),
+                    resolution = COALESCE($7, resolution),
+                    updated_at = NOW()
+                WHERE id = $1
+            """, map_id, map_name, origin_x, origin_y, origin_theta, image_path, resolution)
+            print(f"[SLAM_MAP] {agv_id}: cập nhật map {map_id} — giữ nguyên node/edge đã đặt")
+
+        # Bản đồ AGV vừa gửi về coi là bản đồ hiện tại của chính nó
+        await conn.execute("UPDATE agv_devices SET map_id = $1 WHERE name = $2", map_id, agv_id)
+
+    last_map_id = map_id
+    return {"status": "success", "map_id": map_id, "map_name": map_name,
+            "image_saved": image_path, "is_new": is_new}
+
+
 async def _do_upload_map(payload: dict):
     global last_map_id
 
@@ -1957,106 +2147,7 @@ async def _do_upload_map(payload: dict):
     if pool is None:
         raise Exception("Database pool chưa khởi tạo")
     async with pool.acquire() as conn:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS agv_maps (
-                id           TEXT PRIMARY KEY,
-                name         TEXT,
-                origin_x     FLOAT DEFAULT 0,
-                origin_y     FLOAT DEFAULT 0,
-                origin_theta FLOAT DEFAULT 0,
-                image_path   TEXT,
-                modify_time  TIMESTAMPTZ DEFAULT NOW(),
-                layer        INT DEFAULT 0,
-                updated_at   TIMESTAMPTZ DEFAULT NOW()
-            )
-        """)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS agv_map_points (
-                id        SERIAL PRIMARY KEY,
-                map_id    TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
-                name_id   TEXT,
-                name      TEXT,
-                x         FLOAT, y FLOAT, theta FLOAT DEFAULT 0,
-                type      INT DEFAULT 0,
-                zone      TEXT DEFAULT '',
-                action    JSONB DEFAULT '{}',
-                speed     FLOAT DEFAULT 0.5,
-                carrier   INT DEFAULT 0,
-                available BOOLEAN DEFAULT FALSE,
-                accuracy  INT DEFAULT 0
-            )
-        """)
-        # Index hỗ trợ query nhanh team mapping (action->>'team')
-        await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_map_points_team
-            ON agv_map_points ((action->>'team'))
-            WHERE action->>'locationType' = 'DROPOFF'
-        """)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS agv_map_roads (
-                id             SERIAL PRIMARY KEY,
-                map_id         TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
-                name           TEXT DEFAULT '',
-                id_source      TEXT, id_dest TEXT,
-                point_start_x  FLOAT, point_start_y FLOAT,
-                point_end_x    FLOAT, point_end_y FLOAT,
-                width          FLOAT DEFAULT 0.95,
-                speed          FLOAT DEFAULT 0.3,
-                move_direction INT DEFAULT 0,
-                distance       FLOAT DEFAULT 0,
-                lidar_off      BOOLEAN DEFAULT FALSE,
-                lidar_off_dir  TEXT DEFAULT 'none'
-            )
-        """)
-        await conn.execute("""
-            ALTER TABLE agv_map_roads
-            ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE
-        """)
-        await conn.execute("""
-            ALTER TABLE agv_map_roads
-            ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'
-        """)
-        await conn.execute("""
-            ALTER TABLE agv_map_roads
-            ADD COLUMN IF NOT EXISTS speed_bwd FLOAT
-        """)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS agv_map_benziers (
-                id                    SERIAL PRIMARY KEY,
-                map_id                TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
-                name                  TEXT DEFAULT '',
-                id_source             TEXT, id_dest TEXT,
-                point_start_x         FLOAT, point_start_y FLOAT,
-                point_end_x           FLOAT, point_end_y FLOAT,
-                curve_point_start_x   FLOAT, curve_point_start_y FLOAT,
-                curve_point_end_x     FLOAT, curve_point_end_y FLOAT,
-                width                 FLOAT DEFAULT 0.3,
-                speed                 FLOAT DEFAULT 0.3,
-                move_direction        INT DEFAULT 0,
-                lidar_off             BOOLEAN DEFAULT FALSE,
-                lidar_off_dir         TEXT DEFAULT 'none'
-            )
-        """)
-        await conn.execute("""
-            ALTER TABLE agv_map_benziers
-            ADD COLUMN IF NOT EXISTS lidar_off BOOLEAN DEFAULT FALSE
-        """)
-        await conn.execute("""
-            ALTER TABLE agv_map_benziers
-            ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'
-        """)
-        await conn.execute("""
-            ALTER TABLE agv_map_benziers
-            ADD COLUMN IF NOT EXISTS speed_bwd FLOAT
-        """)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS agv_map_codes (
-                id      SERIAL PRIMARY KEY,
-                map_id  TEXT REFERENCES agv_maps(id) ON DELETE CASCADE,
-                code_id TEXT, code TEXT,
-                x FLOAT, y FLOAT, theta FLOAT DEFAULT 0
-            )
-        """)
+        await _ensure_map_schema(conn)
 
     # ================== LẤY THÔNG TIN TỪ robot_maps ==================
     robot_maps = payload.get("robot_maps", {})
@@ -2089,26 +2180,9 @@ async def _do_upload_map(payload: dict):
     if not image_b64:
         print("Không có ảnh base64!")
 
-    image_path = None
-    if image_b64:
-        if image_b64.startswith("data:"):
-            image_b64 = image_b64.split(",", 1)[1]
-
-        try:
-            image_data = base64.b64decode(image_b64)
-            if len(image_data) < 1000:  # quá nhỏ → lỗi base64
-                raise Exception("Base64 quá ngắn")
-        except Exception as e:
-            print("Lỗi decode ảnh:", e)
-            raise HTTPException(status_code=400, detail=f"Invalid image base64: {e}")
-
-        MAP_DIR.mkdir(parents=True, exist_ok=True)
-        image_file = MAP_DIR / f"{map_id}.png"
-        image_path = f"maps/{map_id}.png"
-        with open(image_file, "wb") as f:
-            f.write(image_data)
-
-        print(f"Đã lưu ảnh thành công: {image_file} ({len(image_data)} bytes)")
+    image_path = _save_map_image(map_id, image_b64) if image_b64 else None
+    if image_b64 and not image_path:
+        raise HTTPException(status_code=400, detail="Invalid image base64")
 
     # ================== LƯU DB ==================
     if pool is None:

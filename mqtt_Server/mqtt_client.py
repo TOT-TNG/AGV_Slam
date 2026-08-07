@@ -3261,6 +3261,13 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/order", qos=QOS)
     print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/order")
 
+    # AGV SLAM gửi bản đồ quét laser về (không thuộc chuẩn VDA5050 gốc — tự thêm
+    # theo đúng quy ước topic đang dùng cho state/connection/order/instantActions).
+    client.subscribe("vda5050/agv/+/map", qos=QOS)
+    print("[MQTT] Subscribed: vda5050/agv/+/map")
+    client.subscribe(f"{UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/map", qos=QOS)
+    print(f"[MQTT] Subscribed: {UAGV_INTERFACE_NAME}/{UAGV_MAJOR_VERSION}/+/+/map")
+
     # Camera băng tải
     client.subscribe("convQR/+/+/+/pub", qos=QOS)
     print("[MQTT] Subscribed: convQR/+/+/+/pub")
@@ -4217,6 +4224,19 @@ def on_message(client, userdata, msg):
                         "actions": payload
                     })
                 run_async_in_thread(send_action_ws())
+
+        # === AGV SLAM GỬI BẢN ĐỒ QUÉT LASER VỀ ===
+        elif message_kind == "map" and agv_id:
+            print(f"[SLAM_MAP] Nhận bản đồ quét từ {agv_id}")
+
+            async def _save_slam_map():
+                from main import handle_slam_map_upload
+                try:
+                    result = await handle_slam_map_upload(agv_id, payload)
+                    print(f"[SLAM_MAP] {agv_id}: {result}")
+                except Exception as e:
+                    print(f"[SLAM_MAP] {agv_id}: lỗi lưu bản đồ: {e}")
+            run_async_in_thread(_save_slam_map())
 
         else:
             print(f"[MQTT] Topic chưa xử lý: {msg.topic}")
