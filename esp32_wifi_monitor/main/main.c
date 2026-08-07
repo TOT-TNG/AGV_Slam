@@ -18,12 +18,28 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
 #include "wifi_monitor.h"
 
 static const char *TAG = "wifi_mon_main";
+
+// Kết nối được WiFi (Layer 2) không đảm bảo DHCP sẽ cấp IP thành công — đã
+// gặp thực tế: L2 kết nối ổn định nhiều phút mà không bao giờ nhận được
+// IP_EVENT_STA_GOT_IP (yêu cầu DHCP đầu tiên có thể bị rớt đúng lúc mạng
+// còn bất ổn, hoặc AP/DHCP server xử lý sai lần đầu). Đặt hẹn giờ: nếu quá
+// IP_WAIT_TIMEOUT_S sau khi L2 kết nối mà vẫn chưa có IP, chủ động ngắt và
+// kết nối lại để "làm mới" phiên DHCP thay vì treo vô thời hạn.
+#define IP_WAIT_TIMEOUT_S 20
+static esp_timer_handle_t s_ip_wait_timer = NULL;
+
+static void _ip_wait_timeout_cb(void *arg) {
+    (void)arg;
+    ESP_LOGW(TAG, "Da ket noi WiFi nhung khong lay duoc IP sau %d giay - ket noi lai", IP_WAIT_TIMEOUT_S);
+    esp_wifi_disconnect();   // WIFI_EVENT_STA_DISCONNECTED handler sẽ tự esp_wifi_connect() lại
+}
 
 static void _wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg; (void)data;
@@ -32,8 +48,13 @@ static void _wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, vo
     // không có thể connect trước khi ép được băng tần 5GHz.
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         ESP_LOGW(TAG, "WiFi disconnected, dang thu ket noi lai...");
+        esp_timer_stop(s_ip_wait_timer);   // huỷ hẹn giờ cũ (nếu có), tránh bắn nhầm sau khi đã reconnect
         esp_wifi_connect();
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        ESP_LOGI(TAG, "Da ket noi WiFi (L2), cho DHCP cap IP...");
+        esp_timer_start_once(s_ip_wait_timer, (int64_t)IP_WAIT_TIMEOUT_S * 1000000LL);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
+        esp_timer_stop(s_ip_wait_timer);
         ESP_LOGI(TAG, "Da co IP, bat dau giam sat tin hieu");
     }
 }
@@ -80,6 +101,12 @@ static void _wifi_init_sta(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
+
+    const esp_timer_create_args_t ip_wait_timer_args = {
+        .callback = &_ip_wait_timeout_cb,
+        .name = "ip_wait_timeout",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&ip_wait_timer_args, &s_ip_wait_timer));
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
