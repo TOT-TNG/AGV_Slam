@@ -22,12 +22,15 @@ transport.heartbeatInterval = 10
 transport.heartbeatTimeout  = 30
 
 [[proxies]]
-name      = "agv-local"
+name      = "agv-CHANGE_ME"    # PHẢI duy nhất trên toàn frps — trùng tên với
+                                # nhà máy khác sẽ khiến frps đá tunnel cũ ra
+                                # (client "kết nối lại" ghi đè), dù nhà máy đó
+                                # vẫn đang chạy bình thường không hề tắt.
 type      = "http"
 localIP   = "127.0.0.1"
 localPort = 8000           # port FastAPI local (mqtt_Server)
 
 subdomain  = "CHANGE_ME"
-# *** THAY ĐỔI CHO MỖI NHÀ MÁY ***
-# Phải khớp với "frp_host" trong factories.json trên cloud
+# *** THAY ĐỔI CHO MỖI NHÀ MÁY *** (cả name= và subdomain= ở trên)
+# subdomain phải khớp với "frp_host" trong factories.json trên cloud
 

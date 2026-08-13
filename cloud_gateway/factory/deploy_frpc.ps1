@@ -128,7 +128,7 @@ transport.heartbeatInterval = 10
 transport.heartbeatTimeout  = 30
 
 [[proxies]]
-name      = "agv-local"
+name      = "agv-$Subdomain"
 type      = "http"
 localIP   = "127.0.0.1"
 localPort = $LocalPort
