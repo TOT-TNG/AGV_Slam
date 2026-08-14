@@ -3342,24 +3342,21 @@ class LineAGVHandler:
         else:
             _is_pickup_node = bool(_na_hook.get('supply_group'))
         state.hook_pending = "pickup" if _is_pickup_node else "dropoff"
-        if state.hook_state == "raised":
-            if _is_pickup_node:
-                print(f"[LINE_AGV] {agv_id}: tới điểm lấy hàng {state.current_tag} "
-                      f"— móc đã nâng sẵn, chờ xe hàng")
-            else:
-                print(f"[LINE_AGV] {agv_id}: tới điểm thả hàng {state.current_tag} "
-                      f"— móc đã nâng sẵn, coi như đã nhả — tự động đi tiếp")
-                state.hook_pending = None
-                self._complete_hook_leg(agv_id, "hook_already_raised")
+        # LUÔN gửi lệnh NÂNG móc khi tới node cần nâng — KHÔNG tin vào hook_state
+        # đã ghi nhận trước đó dù đang là "raised": đường xóc/cảm biến lệch trong
+        # lúc di chuyển có thể khiến móc thực tế không còn đúng vị trí dù state cũ
+        # báo đã nâng. Chỉ coi là xong khi nhận được event 'hook_raised' THẬT từ xe
+        # (xử lý ở nhánh event_name == "hook_raised" phía dưới) — không tự suy luận
+        # rồi bỏ qua hành động như trước (đã gây lỗi xe không nhả hàng thật ở node
+        # thả dù trạng thái nội bộ báo "đã nâng sẵn").
+        state.hook_raise_retries = 0   # đợt nâng móc MỚI — reset đếm gửi-lại
+        self._send_hook_raise_delayed(agv_id)
+        if _is_pickup_node:
+            print(f"[LINE_AGV] {agv_id}: tới điểm lấy hàng {state.current_tag} "
+                  f"— gửi NÂNG móc, chờ xe hàng")
         else:
-            state.hook_raise_retries = 0   # đợt nâng móc MỚI — reset đếm gửi-lại
-            self._send_hook_raise_delayed(agv_id)
-            if _is_pickup_node:
-                print(f"[LINE_AGV] {agv_id}: tới điểm lấy hàng {state.current_tag} "
-                      f"— gửi NÂNG móc, chờ xe hàng")
-            else:
-                print(f"[LINE_AGV] {agv_id}: tới điểm thả hàng {state.current_tag} "
-                      f"— gửi NÂNG móc để nhả xe hàng")
+            print(f"[LINE_AGV] {agv_id}: tới điểm thả hàng {state.current_tag} "
+                  f"— gửi NÂNG móc để nhả xe hàng, chờ xác nhận từ xe")
         if _is_pickup_node:
             # Đánh dấu pickup giống nhánh carry (tránh lấy hàng 2 lần khi re-dispatch)
             try:

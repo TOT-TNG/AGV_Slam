@@ -53,7 +53,7 @@ def _save_mqtt_mode(mode: str) -> None:
 def _resolve_broker_port(mode: str) -> tuple[str, int]:
     if mode == "cloud":
         return _CLOUD_BROKER, _CLOUD_PORT
-    return os.getenv("MQTT_BROKER", "192.168.0.200").strip(), int(os.getenv("MQTT_PORT", "1883"))
+    return os.getenv("MQTT_BROKER", "192.168.10.135").strip(), int(os.getenv("MQTT_PORT", "1883"))
 
 def _configure_client_for_mode(c, mode: str) -> None:
     """Cài TLS + auth cho client theo mode trước khi connect."""
@@ -2695,7 +2695,7 @@ def build_order_with_path(agv_id: str, route_nodes: list, route_edges: list, end
     order = {
         "headerId": header_id,
         "timestamp": now_iso,
-        "version": "2.0",
+        "version": "3.0.0",
         "manufacturer": "TNG:TOT",
         "serialNumber": agv_id,
         "orderId": order_id,
@@ -3335,7 +3335,20 @@ def _parse_agv_topic(topic_parts: list[str]) -> tuple[str | None, str | None]:
 
 
 def _publish_topic_candidates(agv_id: str, suffix: str, manufacturer: str | None = None) -> list[str]:
-    """VDA5050 topics only — dùng cho AGV VDA5050. Line AGV dùng _line_agv_topic()."""
+    """VDA5050 topics only — dùng cho AGV VDA5050. Line AGV dùng _line_agv_topic().
+
+    manufacturer: nếu không truyền, tự đọc field 'factory' của ĐÚNG agv_id này từ
+    agv_registry (giống hệt cách _line_agv_topic() làm cho Line AGV) — mỗi nhà
+    máy 1 giá trị factory riêng, xe SLAM cùng nhà máy tự nhiên chung 1 namespace
+    topic, KHÔNG lẫn với xe ở nhà máy khác dùng chung server. Chỉ rơi về
+    UAGV_MANUFACTURER (biến môi trường) khi AGV đó chưa cấu hình factory gì cả.
+    """
+    if manufacturer is None:
+        try:
+            from agv_registry import agv_registry as _reg_pub
+            manufacturer = _reg_pub.get_factory(agv_id, default=UAGV_MANUFACTURER)
+        except Exception:
+            manufacturer = UAGV_MANUFACTURER
     maker = (manufacturer or UAGV_MANUFACTURER).strip() or UAGV_MANUFACTURER
     return [
         f"vda5050/agv/{agv_id}/{suffix}",
@@ -3503,9 +3516,44 @@ def on_message(client, userdata, msg):
             state_data["last_seen_mono"] = time.monotonic()
             state_data["last_update"] = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
+            # ── Cửa tự động (gate) cho VDA5050 — phát hiện đổi node để biết lúc nào
+            # xin mở/báo đã qua, giống hệt Line AGV (_handle_door_arrival trong
+            # line_agv_handler.py). Phải lấy lastNodeId CŨ trước khi update_status
+            # ghi đè. An toàn gọi request_open ngay khi đổi node (không cần chờ
+            # thêm "đã dừng hẳn") vì _dispatch_go_to đã TÁCH route để node cửa
+            # luôn là đích cuối của CHẶNG này — tới đó nghĩa là hết node released,
+            # xe tự dừng đúng chuẩn VDA5050.
+            _prev_node_door = str((agv_manager.get_agv(agv_id) or {}).get("lastNodeId") or "")
+            _new_node_door  = str(state_data.get("lastNodeId") or "")
+
             # CẬP NHẬT AGV
             agv_manager.update_status(agv_id, state_data)
             detect_alerts(agv_id, state_data)
+
+            if _new_node_door and _new_node_door != _prev_node_door:
+                try:
+                    _door_id_arr = str(
+                        (getattr(map_manager, 'node_actions', {}) or {})
+                        .get(_new_node_door, {}).get('door_id') or ''
+                    ).strip()
+                    if _door_id_arr:
+                        from door_coordinator import door_coordinator as _door_co_arr
+                        if _door_co_arr.is_exit_arrival(_door_id_arr, agv_id, _new_node_door):
+                            _door_co_arr.notify_exit(_door_id_arr, agv_id)
+                        else:
+                            _door_co_arr.request_open(_door_id_arr, agv_id, _new_node_door)
+                except Exception as _e_door_vda:
+                    print(f"[DOOR] VDA5050 {agv_id}: lỗi xử lý cửa tại {_new_node_door}: {_e_door_vda}")
+
+            # check_retries() cần được "tick" định kỳ để phát hiện timeout chờ mở
+            # cửa — Line AGV đã gọi ở line_agv_handler.py mỗi state message; gọi
+            # thêm ở đây để hoạt động cả khi đội xe chỉ toàn VDA5050 (không có
+            # Line AGV nào gửi state để tick giúp).
+            try:
+                from door_coordinator import door_coordinator as _door_co_tick_vda
+                _door_co_tick_vda.check_retries()
+            except Exception as _e_door_tick_vda:
+                print(f"[DOOR] VDA5050 check_retries lỗi: {_e_door_tick_vda}")
 
             # Cập nhật last_seen trong DB (giống LINE AGV, để AGVManager + các endpoint
             # dùng cùng nguồn dữ liệu nhất quán)
@@ -3539,15 +3587,28 @@ def on_message(client, userdata, msg):
             print(f"   → Paused: {state_data['paused']}\n")
 
             # === VDA5050: thông báo task_queue khi AGV vừa dừng (paused=True) ===
+            # NGOẠI LỆ: nếu node đích cần dừng chờ xác nhận thủ công (PICKUP/DROP
+            # — xem agv_manager.pending_confirm_node, set lúc dispatch trong
+            # main.py._dispatch_go_to) và xe đang dừng ĐÚNG tại node đó → KHÔNG
+            # auto-complete, để queue không tự chạy lệnh kế trước khi người dùng
+            # xác nhận (tương đương task_lifecycle bên Line AGV). Xác nhận qua
+            # /api/execute/lifecycle-ack (đã tổng quát hoá cho VDA5050).
             _prev_paused = getattr(agv_manager, "_prev_paused_states", {})
             was_paused   = _prev_paused.get(agv_id, False)
             now_paused   = bool(state_data.get("paused"))
+            _pending_confirm_vda = agv_manager.get_pending_confirm(agv_id)
+            _at_confirm_node = bool(_pending_confirm_vda) and (
+                str(state_data.get("lastNodeId") or "") == str(_pending_confirm_vda))
             if not was_paused and now_paused:
-                try:
-                    from task_queue import agv_task_queue as _tq
-                    _tq.on_agv_completed(agv_id, notes="vda5050:paused")
-                except Exception as _qe:
-                    pass
+                if _at_confirm_node:
+                    print(f"[VDA5050] {agv_id}: tới {_pending_confirm_vda} — "
+                          f"chờ xác nhận thủ công, không auto-complete")
+                else:
+                    try:
+                        from task_queue import agv_task_queue as _tq
+                        _tq.on_agv_completed(agv_id, notes="vda5050:paused")
+                    except Exception as _qe:
+                        pass
             _prev_paused[agv_id] = now_paused
             if not hasattr(agv_manager, "_prev_paused_states"):
                 agv_manager._prev_paused_states = _prev_paused
@@ -4105,7 +4166,7 @@ def on_message(client, userdata, msg):
                 order = {
                     "headerId": int(time.time() * 1000),
                     "timestamp": datetime.datetime.now().isoformat() + "Z",
-                    "version": "2.0",
+                    "version": "3.0.0",
                     "manufacturer": "TNG:TOT",
                     "serialNumber": agv_id,
                     "orderId": f"order_move_to_{destination}_{int(time.time())}",
@@ -4587,7 +4648,7 @@ def _send_vda5050_instant(agv_id: str, action_type: str) -> bool:
     action_msg = {
         "headerId": int(time.time() * 1000),
         "timestamp": datetime.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-        "version": "2.0",
+        "version": "3.0.0",
         "manufacturer": manufacturer,
         "serialNumber": serial_number,
         "actions": [{

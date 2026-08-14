@@ -174,8 +174,22 @@ class DoorCoordinator:
 
     def _resume_agv(self, agv_id: str) -> None:
         try:
-            from line_agv_handler import line_agv_handler
-            line_agv_handler.resume_after_door(agv_id)
+            from agv_registry import agv_registry
+            if agv_registry.is_line(agv_id):
+                from line_agv_handler import line_agv_handler
+                line_agv_handler.resume_after_door(agv_id)
+            else:
+                # VDA5050: node cửa luôn là đích cuối của 1 chặng riêng (xem
+                # _dispatch_go_to trong main.py — đã TÁCH route tại node cửa VÀ
+                # đánh dấu pending_confirm_node = node cửa đó, để nhánh paused=True
+                # trong mqtt_client.py KHÔNG tự auto-complete ngay khi xe hết node
+                # released — phải đúng lúc cửa xác nhận mở, tức NGAY ĐÂY, mới coi
+                # chặng này xong và cho task_queue dispatch tiếp lệnh kế (đích gốc
+                # đã insert_next lúc tách route).
+                from mqtt_client import agv_manager
+                agv_manager.set_pending_confirm(agv_id, None)
+                from task_queue import agv_task_queue
+                agv_task_queue.on_agv_completed(agv_id, notes="door_opened")
         except Exception as e:
             print(f"[DOOR] resume {agv_id} lỗi: {e}")
 

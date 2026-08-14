@@ -98,6 +98,18 @@ class AGVManager:
         if old != conn_state:
             print(f"[AGVManager] {agv_id}: connection {old}→{conn_state}")
 
+    def set_pending_confirm(self, agv_id: str, node_id: str | None) -> None:
+        """Đánh dấu VDA5050 AGV đang chờ xác nhận thủ công (PICKUP/DROP) tại
+        node_id — tương đương LineAGVState.task_lifecycle bên Line AGV. Set
+        None để xoá (đã xác nhận, hoặc lượt dispatch mới không cần chờ)."""
+        with self.lock:
+            self.agvs.setdefault(agv_id, {})
+            self.agvs[agv_id]["pending_confirm_node"] = node_id
+
+    def get_pending_confirm(self, agv_id: str) -> str | None:
+        with self.lock:
+            return self.agvs.get(agv_id, {}).get("pending_confirm_node")
+
     def register_agv(self, agv_id: str, ip_address: str):
         with self.lock:
             self.agvs[agv_id] = self.agvs.get(agv_id, {})

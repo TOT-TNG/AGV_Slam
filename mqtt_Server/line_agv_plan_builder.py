@@ -364,6 +364,17 @@ def _build_steps(
             if is_final:
                 node_cfg     = node_actions.get(str(tag), {})
                 arrival_cfg  = str(node_cfg.get("arrival_action") or "").lower()
+                # Node đã đánh dấu vai trò lấy/thả hàng rơ-moóc (Tổ dọc chuyền hay
+                # điểm đích lấy/thả) — luôn cần người thao tác cơ khí NGAY TẠI XE,
+                # hiếm khi có ai trực Web để bấm xác nhận từ xa. Nhận diện theo
+                # đúng các field mà _handle_trailer_hook_arrival() dùng.
+                _trailer_role_pb = str(node_cfg.get("trailer_role") or "").strip().lower()
+                _is_trailer_hook_node = (
+                    _trailer_role_pb in ("drop", "pickup")
+                    or str(node_cfg.get("trailer_staging") or "").strip().lower() == "yes"
+                    or str(node_cfg.get("trailer_empty_staging") or "").strip().lower() == "yes"
+                    or bool(node_cfg.get("supply_group"))
+                )
                 if task_type == "transit":
                     # Đoạn lùi tạm — không áp dụng arrival_action, luôn WAIT_SYS
                     _arr = ACTION_WAIT_SYS
@@ -373,6 +384,12 @@ def _build_steps(
                     _arr = ACTION_WAIT_USER
                 elif arrival_cfg == "wait_charge":
                     _arr = ACTION_WAIT_CHARGE
+                elif task_type in ("delivery", "pickup") and _is_trailer_hook_node:
+                    # Chưa cấu hình arrival_action tường minh nhưng là điểm móc hàng
+                    # → mặc định WAIT_USER (xe tự chờ người bấm xác nhận tại chỗ)
+                    # thay vì WAIT_SYS (chờ lệnh hệ thống/Web — dễ treo vô thời hạn
+                    # vì các điểm này thường không có ai trực Web).
+                    _arr = ACTION_WAIT_USER
                 elif task_type in ("delivery", "pickup"):
                     _arr = ACTION_WAIT_SYS
                 elif task_type == "return_charge":

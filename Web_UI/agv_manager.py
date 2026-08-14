@@ -140,6 +140,27 @@ def load_maps():
         conn.close()
 
 
+def load_factories():
+    """Danh sách nhà máy (factory) DUY NHẤT đã có trong agv_devices — gợi ý khi
+    thêm AGV mới, để các xe cùng 1 nhà máy tự nhiên dùng chung 1 giá trị factory
+    (namespace topic MQTT), không phải gõ tay lặp lại dễ gõ lệch chính tả."""
+    conn = _db_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT factory FROM agv_devices "
+                "WHERE factory IS NOT NULL AND factory <> '' ORDER BY factory"
+            )
+            rows = cur.fetchall()
+        return [r[0] for r in rows]
+    except Exception:
+        return []
+    finally:
+        conn.close()
+
+
 def load_agvs():
     """Fetch AGV list from DB; fallback to empty list if DB unavailable."""
     _ensure_table()
@@ -384,7 +405,27 @@ def layout(lang: str = "vi"):
                     ),
                     html.Small(
                         t(lang, "agv.line_hint", "💡 Line AGV needs a map to show position via RFID tag."),
-                        style={"color": "#8c909f", "fontSize": "11px", "display": "block", "marginBottom": "24px"},
+                        style={"color": "#8c909f", "fontSize": "11px", "display": "block", "marginBottom": "16px"},
+                    ),
+
+                    # Nhà máy (factory) — dùng chung namespace topic MQTT cho mọi xe cùng
+                    # nhà máy (uagv/v{2,3}/{factory}/{agv_id}/...). Chọn từ nhà máy đã có
+                    # sẵn để tránh gõ lệch chính tả, hoặc gõ tên mới nếu là nhà máy đầu tiên.
+                    dbc.Label(t(lang, "agv.factory_label", "Nhà máy (Factory)"), className="mb-1",
+                              style={"fontSize": "13px", "color": "#c2c6d6", "fontWeight": "600"}),
+                    dcc.Dropdown(
+                        id="add-agv-factory-select",
+                        options=[],
+                        placeholder=t(lang, "agv.placeholder.factory_existing", "Chọn nhà máy đã có…"),
+                        className="mb-2",
+                        clearable=True,
+                        style={"color": "#000"},
+                    ),
+                    dbc.Input(
+                        id="add-agv-factory",
+                        placeholder=t(lang, "agv.placeholder.factory_new", "…hoặc nhập tên nhà máy mới"),
+                        value="",
+                        className="mb-3",
                     ),
 
                     # Default info display
@@ -392,7 +433,6 @@ def layout(lang: str = "vi"):
                         [
                             html.Div(t(lang, "agv.default_info_title", "Default values on creation:"), style={"fontSize": "11px", "color": "#8c909f", "marginBottom": "6px", "fontWeight": "600"}),
                             html.Div([html.Span(t(lang, "agv.default_name_lbl", "AGV Name: "), style={"color": "#8c909f"}), html.Span(t(lang, "agv.default_name_val", "Auto-generated (AGVxxx)"), style={"color": "#adc6ff", "fontFamily": "monospace"})], style={"fontSize": "11px", "marginBottom": "3px"}),
-                            html.Div([html.Span("Factory: ", style={"color": "#8c909f"}), html.Span("tot", style={"color": "#adc6ff", "fontFamily": "monospace"})], style={"fontSize": "11px", "marginBottom": "3px"}),
                             html.Div([html.Span("IP / Port: ", style={"color": "#8c909f"}), html.Span(t(lang, "agv.default_ip", "Not configured"), style={"color": "#555"})], style={"fontSize": "11px"}),
                         ],
                         style={"background": "rgba(255,255,255,.04)", "border": "1px solid rgba(255,255,255,.08)", "borderRadius": "8px", "padding": "10px 12px", "marginBottom": "20px"},
@@ -400,7 +440,6 @@ def layout(lang: str = "vi"):
 
                     # Hidden inputs
                     dbc.Input(id="add-agv-name",    value="", style={"display": "none"}),
-                    dbc.Input(id="add-agv-factory", value="", style={"display": "none"}),
                     dbc.Input(id="add-agv-ip",      value="", style={"display": "none"}),
                     dbc.Input(id="add-agv-port",    value="", style={"display": "none"}),
 
@@ -471,10 +510,33 @@ def populate_map_dropdown(_):
 
 
 @callback(
+    Output("add-agv-factory-select", "options"),
+    Input("btn-add-agv", "n_clicks"),
+    prevent_initial_call=True,
+)
+def populate_factory_dropdown(_):
+    return [{"label": f, "value": f} for f in load_factories()]
+
+
+@callback(
+    Output("add-agv-factory", "value", allow_duplicate=True),
+    Input("add-agv-factory-select", "value"),
+    prevent_initial_call=True,
+)
+def apply_factory_selection(selected):
+    # Chọn 1 nhà máy có sẵn trong dropdown → điền luôn vào ô nhập bên dưới (ô
+    # nhập vẫn dùng được để gõ tên nhà máy MỚI nếu bỏ trống dropdown).
+    if not selected:
+        raise dash.exceptions.PreventUpdate
+    return selected
+
+
+@callback(
     Output("agv-store", "data"),
     Output("add-agv-panel", "style", allow_duplicate=True),
     Output("add-agv-name", "value"),
     Output("add-agv-factory", "value"),
+    Output("add-agv-factory-select", "value"),
     Output("add-agv-ip", "value"),
     Output("add-agv-port", "value"),
     Output("add-agv-type", "value"),
@@ -502,11 +564,14 @@ def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, cannot_reverse
     existing = load_agvs()
     auto_idx = len(existing) + 1
     auto_name = f"AGV{auto_idx:02d}"
-    # Factory mặc định là "TOT" — sẽ được cấu hình lại qua Config Mode
-    auto_factory = "tot"
+    # Nhà máy: dùng đúng giá trị người dùng chọn/gõ ở panel (chọn từ dropdown
+    # nhà máy đã có, hoặc gõ tên mới nếu là nhà máy đầu tiên) — mọi xe cùng nhà
+    # máy nên dùng chung 1 giá trị này để cùng 1 namespace topic MQTT
+    # (uagv/v{2,3}/{factory}/{agv_id}/...). Rơi về "tot" nếu bỏ trống hoàn toàn.
+    final_factory = (factory or "").strip() or "tot"
 
     upsert_agv(auto_name, agv_type, ip=None, port=None,
-               map_id=map_id or None, factory=auto_factory,
+               map_id=map_id or None, factory=final_factory,
                can_reverse=not bool(cannot_reverse))
     # Reload registry trên server để AGV mới ngay lập tức được nhận diện
     try:
@@ -518,7 +583,7 @@ def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, cannot_reverse
     if style is None:
         style = {}
     style["right"] = "-420px"
-    return data, style, "", "", "", "", None, None, False
+    return data, style, "", "", None, "", "", None, None, False
 
 
 # ── Callback: mở modal khi click nút "Cấu hình" ─────────────────────────────

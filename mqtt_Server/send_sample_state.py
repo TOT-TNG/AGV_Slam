@@ -12,7 +12,7 @@ import paho.mqtt.client as mqtt
 
 
 SERVER_BASE_URL = "http://127.0.0.1:8000"
-MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.0.200").strip()
+MQTT_BROKER = os.getenv("MQTT_BROKER", "192.168.10.135").strip()
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 
 STAGING_NODE_POSES: dict[str, tuple[float, float, float]] = {
@@ -424,7 +424,7 @@ def publish_state_override(
     payload = {
         "headerId": int(time.time() * 1000),
         "timestamp": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-        "version": "2.0",
+        "version": "3.0.0",
         "manufacturer": manufacturer,
         "serialNumber": serial_number,
         "mapCurrent": map_current,

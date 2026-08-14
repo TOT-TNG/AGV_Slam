@@ -12,16 +12,20 @@ def build_order(
     coords: dict = None,
     manufacture: str = "TNG:TOT",
     SerialNumber: str = None,
-    version: str = "2.0",
+    version: str = "3.0.0",
     order_id: str = None,
     order_update_id: int = 0,
     horizon: int = None,
+    actions: dict = None,
 ):
     """
     Build VDA5050 order v?i full path.
     - path: danh s?ch nodeId theo th? t?.
     - coords: dict {nodeId: (x,y[,theta]) ho?c {x,y,theta}} ?? nh?ng nodePosition.
     - horizon: s? node release tr??c; None ho?c >=len(path) -> release to?n b?.
+    - actions: dict {nodeId: [action_dict, ...]} — gắn action VDA5050 (vd
+      PICKUP/DROP, blockingType HARD) vào đúng node đó. Node không có trong dict
+      thì actions rỗng như cũ.
     """
     if order_id is None:
         order_id = str(uuid.uuid4())
@@ -61,6 +65,8 @@ def build_order(
             }
         return {}
 
+    actions = actions or {}
+
     nodes = []
     seq = 0
     for node_id in path:
@@ -71,7 +77,7 @@ def build_order(
                 "sequenceId": seq,
                 "released": released,
                 "nodePosition": node_position(node_id),
-                "actions": [],
+                "actions": list(actions.get(str(node_id)) or []),
             }
         )
         seq += 2

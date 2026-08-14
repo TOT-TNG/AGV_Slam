@@ -357,7 +357,7 @@
       <!-- Tên AGV + Nhà máy (dùng để cấu hình MQTT topic) -->
       <div class="section">
         <div class="section-title"><span class="material-symbols-outlined">badge</span>Danh tính MQTT</div>
-        <div style="font-size:10px;color:#8c909f;margin-bottom:10px;line-height:1.6">
+        <div id="identity-desc" style="font-size:10px;color:#8c909f;margin-bottom:10px;line-height:1.6">
           Dùng để tạo MQTT topic khi gửi lệnh cấu hình.<br/>
           Nếu AGV bị config nhầm factory, sửa tại đây rồi nhấn <b style="color:#fbbf24">Cấu hình WiFi/MQTT</b>.
         </div>
@@ -684,6 +684,13 @@ function populateConfigTab() {
   // WiFi config section (Line AGV only)
   document.getElementById('wifi-section').style.display = isLine ? 'block' : 'none';
 
+  // AGV SLAM (VDA5050) không có bước "Cấu hình WiFi/MQTT" (nút đó chỉ Line AGV
+  // có) — factory lưu ở đây có hiệu lực NGAY cho lần gửi lệnh kế tiếp, không
+  // cần thêm thao tác nào khác.
+  document.getElementById('identity-desc').innerHTML = isLine
+    ? 'Dùng để tạo MQTT topic khi gửi lệnh cấu hình.<br/>Nếu AGV bị config nhầm factory, sửa tại đây rồi nhấn <b style="color:#fbbf24">Cấu hình WiFi/MQTT</b>.'
+    : 'Dùng để tạo MQTT topic (uagv/v3/…) khi gửi lệnh cho AGV SLAM.<br/>Đổi factory ở đây có hiệu lực ngay cho lệnh kế tiếp — không cần bước cấu hình nào thêm.';
+
   // Info rows
   const a = curAgv;
   document.getElementById('agv-info-rows').innerHTML = [
@@ -1004,8 +1011,12 @@ async function saveAgvCapability() {
 function updateTopicPreview() {
   const agvId   = document.getElementById('identity-agv-id').value.trim()   || '?';
   const factory = document.getElementById('identity-factory').value.trim()  || '?';
+  // Line AGV dùng uagv/v2/..., AGV SLAM (VDA5050) dùng uagv/v3/... — xem
+  // mqtt_Server/mqtt_client.py (_line_agv_topic vs _publish_topic_candidates).
+  const isLineAgv = !curAgv || curAgv.agv_type === 'LINE';
+  const ver = isLineAgv ? 'v2' : 'v3';
   document.getElementById('identity-topic-preview').innerHTML =
-    `uagv/v2/<b style="color:#fde047">${esc(factory)}</b>/<b style="color:#4ade80">${esc(agvId)}</b>/instantActions`;
+    `uagv/${ver}/<b style="color:#fde047">${esc(factory)}</b>/<b style="color:#4ade80">${esc(agvId)}</b>/instantActions`;
 }
 
 async function saveIdentity() {

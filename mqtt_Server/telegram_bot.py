@@ -788,12 +788,16 @@ def _detect_intent(text: str):
         return ("single_metric", {"metric": _metric, "period": "today"})
 
     if any(k in t for k in ["tháng", "month", "30 ngày"]):
-        specific_month = _parse_month(text)
-        if specific_month:
-            return ("stats_month", specific_month)
+        # Kiểm tra NGÀY CỤ THỂ trước — câu kiểu "ngày 6 tháng 8 năm 2026" cũng chứa
+        # từ "tháng" nhưng là 1 NGÀY, không phải hỏi cả tháng. Nếu check _parse_month
+        # trước (như code cũ), nó khớp nhầm "tháng 8 năm 2026" và ÂM THẦM BỎ MẤT
+        # phần "ngày 6", trả về thống kê nguyên cả tháng thay vì đúng 1 ngày.
         specific = _parse_date(text)
         if specific:
             return ("stats_date", specific)
+        specific_month = _parse_month(text)
+        if specific_month:
+            return ("stats_month", specific_month)
         return ("stats", "month")
 
     if any(k in t for k in ["tuần", "week", "7 ngày", "tuần này", "tuần qua"]):

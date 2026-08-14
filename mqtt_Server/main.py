@@ -351,6 +351,25 @@ def _line_agv_dispatch_to_charge(agv_id: str) -> None:
         print(f"[LINE_CHARGE] {agv_id}: dispatch error: {e}")
 
 
+def _vda5050_dest_action(node_actions: dict, dest_node) -> tuple[str | None, dict]:
+    """Suy ra action VDA5050 (PICKUP/DROP) cần gắn ở node đích, dựa trên field
+    'defaultAction' (PICKUP/DROP/CHARGE/NONE) — đây là field DUY NHẤT
+    MapConfigure hiển thị cho MỌI loại node (khác 'arrival_action' chỉ hiện cho
+    node RFID/Line AGV). Trả về (action_type, action_dict); action_type=None
+    nghĩa là node thường/CHARGE/NONE — không cần dừng chờ xác nhận."""
+    cfg = (node_actions or {}).get(str(dest_node)) or {}
+    default_action = str(cfg.get("defaultAction") or "").strip().upper()
+    if default_action not in ("PICKUP", "DROP"):
+        return None, {}
+    action = {
+        "actionType": default_action,
+        "actionId": f"{default_action.lower()}_{dest_node}_{int(time.time())}",
+        "blockingType": "HARD",
+        "actionParameters": [],
+    }
+    return default_action, action
+
+
 def build_order_for_traffic_route(
     agv_id: str,
     route,
@@ -405,16 +424,27 @@ def build_order_for_traffic_route(
         for node_id, pos in map_manager.points.items():
             coords_lookup[str(node_id)] = (pos[0], pos[1], 0.0)
             coords_lookup[f"N{str(node_id)}"] = (pos[0], pos[1], 0.0)
+
+    # Gắn action PICKUP/DROP ở node đích nếu MapConfigure có đặt defaultAction —
+    # node đích là node CUỐI CÙNG của order nên tự nhiên xe dừng lại đó (VDA5050
+    # hết node released là dừng); việc CÓ dừng chờ xác nhận người dùng hay không
+    # do task_queue quyết định (xem agv_manager.pending_confirm_node), action ở
+    # đây chỉ để order thể hiện đúng ý định, không phải cơ chế chặn chính.
+    node_actions_vda = getattr(map_manager, "node_actions", {}) or {}
+    dest_action_type, dest_action = _vda5050_dest_action(node_actions_vda, node_path[-1])
+    actions_map = {external_path[-1]: [dest_action]} if dest_action_type else None
+
     order = build_order(
         agv_id=agv_id,
         path=external_path,
         coords=coords_lookup,
         manufacture=agv_state.get("manufacturer", "TNG:TOT"),
         SerialNumber=agv_state.get("serialNumber", agv_id),
-        version="2.0",
+        version="3.0.0",
         order_id=order_id,
         order_update_id=order_update_id,
         horizon=None,
+        actions=actions_map,
     )
     return order, external_path
 
@@ -826,7 +856,13 @@ async def lifespan(app: FastAPI):
                 await _conn.execute(
                     "ALTER TABLE agv_map_benziers ADD COLUMN IF NOT EXISTS lidar_off_dir TEXT DEFAULT 'none'"
                 )
-                print("[DB] Columns agv_map_roads/benziers.lidar_off / lidar_off_dir ensured")
+                await _conn.execute(
+                    "ALTER TABLE agv_map_roads ADD COLUMN IF NOT EXISTS speed_bwd FLOAT"
+                )
+                await _conn.execute(
+                    "ALTER TABLE agv_map_benziers ADD COLUMN IF NOT EXISTS speed_bwd FLOAT"
+                )
+                print("[DB] Columns agv_map_roads/benziers.lidar_off / lidar_off_dir / speed_bwd ensured")
                 # Cột thông tin người gửi lệnh trên bảng agv_tasks
                 await _conn.execute(
                     "ALTER TABLE agv_tasks ADD COLUMN IF NOT EXISTS operator_name TEXT"
@@ -1345,7 +1381,7 @@ async def move_agv(cmd: MoveCommand):
             coords=coords_lookup,
             manufacture=agv.get("manufacturer", "TNG:TOT"),
             SerialNumber=agv.get("serialNumber", cmd.agv_id),
-            version="2.0",
+            version="3.0.0",
             order_id=order_id,
             order_update_id=0,
             horizon=None  # release toàn bộ, có thể giảm nếu muốn incremental
@@ -3326,26 +3362,49 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
             # prev_tag hay không.
             _needs_reverse_cr = bool(_prev_cr and str(path[1]) == _prev_cr)
             if _prev_cr and not _needs_reverse_cr:
+                # CHỈ suy luận bằng hình học tâm-node tại NÚT GIAO THẬT (bậc cạnh
+                # >= 3, vd ngã ba/ngã tư) — nơi path có thể chọn 1 hướng đối nghịch
+                # hẳn với hướng xe đang tới. Tại node HÀNH LANG ĐƠN TUYẾN (bậc 2 —
+                # chỉ nối đúng 2 hàng xóm, không có nhánh rẽ nào khác, vd chuỗi
+                # 81-82-50 chỉ có 1 edge 2 chiều giữa mỗi cặp), đi sang hàng xóm
+                # CÒN LẠI (khác prev_tag) LUÔN LÀ TIẾN TIẾP tự nhiên dọc đường ray
+                # đơn — không có lựa chọn nào khác nên không thể là lùi thật, bất
+                # kể đường vẽ cong bao nhiêu. Toạ độ tâm node chỉ là điểm neo hiển
+                # thị, KHÔNG phải tiếp tuyến thật của đường cong (bezier) nên vector
+                # thẳng nối tâm 2 node dễ suy ra góc "giả" — từng gây báo nhầm
+                # "cần lùi" cho 1 đoạn hành lang cong hoàn toàn đi được (map thực tế
+                # dùng đường cong theo đúng bố trí nhà máy).
+                _deg_graph_cr = getattr(map_manager, "line_graph", None) or getattr(map_manager, "graph", None)
+                _degree_cr = None
                 try:
-                    import math as _math_cr
-                    _pts_cr = getattr(map_manager, "points", {}) or {}
-                    _p_prev_cr = _pts_cr.get(_prev_cr)
-                    _p_cur_cr  = _pts_cr.get(str(path[0]))
-                    _p_next_cr = _pts_cr.get(str(path[1]))
-                    if _p_prev_cr and _p_cur_cr and _p_next_cr:
-                        _in_vec_cr  = (_p_cur_cr[0] - _p_prev_cr[0], _p_cur_cr[1] - _p_prev_cr[1])
-                        _out_vec_cr = (_p_next_cr[0] - _p_cur_cr[0], _p_next_cr[1] - _p_cur_cr[1])
-                        _mag_in_cr  = _math_cr.hypot(*_in_vec_cr)
-                        _mag_out_cr = _math_cr.hypot(*_out_vec_cr)
-                        if _mag_in_cr > 1e-6 and _mag_out_cr > 1e-6:
-                            _cos_cr = ((_in_vec_cr[0] * _out_vec_cr[0] + _in_vec_cr[1] * _out_vec_cr[1])
-                                       / (_mag_in_cr * _mag_out_cr))
-                            if _cos_cr < -0.5:
-                                _needs_reverse_cr = True
-                                print(f"[DISPATCH] {agv_id}: phát hiện lùi qua hình học "
-                                      f"(prev={_prev_cr}→{path[0]}→{path[1]}, cos={_cos_cr:.2f})")
+                    if _deg_graph_cr is not None and path[0] in _deg_graph_cr:
+                        _degree_cr = _deg_graph_cr.degree(path[0])
                 except Exception:
-                    pass
+                    _degree_cr = None
+                if _degree_cr is not None and _degree_cr <= 2:
+                    pass   # hành lang đơn tuyến — không cần (và không nên) suy luận hình học
+                else:
+                    try:
+                        import math as _math_cr
+                        _pts_cr = getattr(map_manager, "points", {}) or {}
+                        _p_prev_cr = _pts_cr.get(_prev_cr)
+                        _p_cur_cr  = _pts_cr.get(str(path[0]))
+                        _p_next_cr = _pts_cr.get(str(path[1]))
+                        if _p_prev_cr and _p_cur_cr and _p_next_cr:
+                            _in_vec_cr  = (_p_cur_cr[0] - _p_prev_cr[0], _p_cur_cr[1] - _p_prev_cr[1])
+                            _out_vec_cr = (_p_next_cr[0] - _p_cur_cr[0], _p_next_cr[1] - _p_cur_cr[1])
+                            _mag_in_cr  = _math_cr.hypot(*_in_vec_cr)
+                            _mag_out_cr = _math_cr.hypot(*_out_vec_cr)
+                            if _mag_in_cr > 1e-6 and _mag_out_cr > 1e-6:
+                                _cos_cr = ((_in_vec_cr[0] * _out_vec_cr[0] + _in_vec_cr[1] * _out_vec_cr[1])
+                                           / (_mag_in_cr * _mag_out_cr))
+                                if _cos_cr < -0.5:
+                                    _needs_reverse_cr = True
+                                    print(f"[DISPATCH] {agv_id}: phát hiện lùi qua hình học tại "
+                                          f"ngã rẽ (prev={_prev_cr}→{path[0]}→{path[1]}, "
+                                          f"bậc={_degree_cr}, cos={_cos_cr:.2f})")
+                    except Exception:
+                        pass
             if _needs_reverse_cr:
                 _cur_cfg_cr   = (getattr(map_manager, "node_actions", {}) or {}).get(str(path[0])) or {}
                 _approach_cr  = str(_cur_cfg_cr.get("approach_dir")   or "").lower()
@@ -4058,9 +4117,50 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
                   f"(len={len(path)})")
         print(f"[DISPATCH] {agv_id}: node_actions keys={list(node_actions.keys())[:10]}")
     else:
+        # ── VDA5050: cửa tự động trên đường đi — TÁCH route giống hệt cách Line
+        # AGV đang làm (xem khối "CỬA TỰ ĐỘNG" phía trên, quanh biến split_idx):
+        # nếu gặp node có door_id CHƯA mở (is_exit_arrival=False → lượt VÀO) TRƯỚC
+        # khi tới đích thật, dispatch CHẶNG NÀY chỉ tới node cửa đó thôi, đích
+        # gốc được chèn vào đầu hàng đợi để tự động chạy tiếp khi cửa xác nhận mở
+        # (xem door_coordinator._resume_agv đã tổng quát hoá cho VDA5050).
+        node_actions_vda = getattr(map_manager, "node_actions", {}) or {}
+        _orig_dest_node_vda = dest_node
+        _path_ids_vda = [str(n.get("nodeId")) for n in route_nodes]
+        _door_split_idx_vda = None
+        for _i_vda in range(1, len(_path_ids_vda) - 1):
+            _door_id_vda = str((node_actions_vda.get(_path_ids_vda[_i_vda]) or {}).get('door_id') or '').strip()
+            if not _door_id_vda:
+                continue
+            from door_coordinator import door_coordinator as _door_co_vda
+            if _door_co_vda.is_exit_arrival(_door_id_vda, agv_id, _path_ids_vda[_i_vda]):
+                continue   # đang RA khỏi cửa (đã băng qua) — không cần dừng
+            _door_split_idx_vda = _i_vda
+            break
+        if _door_split_idx_vda is not None:
+            dest_node   = _path_ids_vda[_door_split_idx_vda]
+            route_nodes = route_nodes[: _door_split_idx_vda + 1]
+            route_edges = route_edges[: _door_split_idx_vda]
+            from task_queue import agv_task_queue as _atq_vda_door, CMD_GO_TO as _CGT_vda_door
+            _atq_vda_door.insert_next(agv_id, _CGT_vda_door, dest_node=str(_orig_dest_node_vda))
+            print(f"[DISPATCH] {agv_id}: VDA5050 route tách tại cửa tự động node "
+                  f"{dest_node}, đích gốc {_orig_dest_node_vda} chèn tiếp vào hàng đợi")
+
         # ── VDA5050: ưu tiên traffic-engine-aware planning ─────────────────────
         # Dùng blocked_edges để tránh đường đã bị xe khác đặt trước (proactive).
         # Nếu thất bại → fallback về basic Dijkstra (đã tính ở trên).
+        #
+        # Đánh dấu pending_confirm_node TRƯỚC khi gửi order, để nhánh paused=True
+        # trong mqtt_client.py biết KHÔNG auto-complete queue ngay khi xe hết node
+        # released — 2 lý do cần giữ xe lại tại node đích của CHẶNG NÀY:
+        #   (a) vừa tách route tại node cửa (_door_split_idx_vda ở trên) — chỉ
+        #       được đi tiếp khi cửa THẬT SỰ xác nhận mở (door_coordinator._resume_agv
+        #       tự xoá cờ này + dispatch tiếp khi có xác nhận, KHÔNG cần người bấm);
+        #   (b) node đích cần xác nhận thủ công PICKUP/DROP (theo defaultAction
+        #       trên MapConfigure) — xác nhận qua /api/execute/lifecycle-ack.
+        _dest_action_type, _ = _vda5050_dest_action(node_actions_vda, dest_node)
+        _needs_hold_vda = (_door_split_idx_vda is not None) or bool(_dest_action_type)
+        agv_manager.set_pending_confirm(agv_id, str(dest_node) if _needs_hold_vda else None)
+
         _te_success = False
         try:
             info_map = get_agv_runtime_info(agv_id)
@@ -4088,14 +4188,15 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
                         )
                         from mqtt_client import send_generated_order
                         send_generated_order(agv_id, te_order)
-                        print(f"[DISPATCH] {agv_id}: traffic-aware route → {te_path}")
+                        print(f"[DISPATCH] {agv_id}: traffic-aware route → {te_path}"
+                              f"{f' (chờ xác nhận {_dest_action_type} tại {dest_node})' if _dest_action_type else ''}")
                         _te_success = True
         except Exception as _te_err:
             print(f"[DISPATCH] {agv_id}: traffic-aware planning failed ({_te_err}) — fallback Dijkstra")
 
         if not _te_success:
             from mqtt_client import build_order_with_path, send_generated_order
-            order = build_order_with_path(agv_id, route_nodes, route_edges, end_action_type=None)
+            order = build_order_with_path(agv_id, route_nodes, route_edges, end_action_type=_dest_action_type)
             send_generated_order(agv_id, order)
     return True
 
@@ -5590,13 +5691,25 @@ async def enter_config_mode(agv_id: str, factory: str | None = None):
 @app.post("/api/execute/lifecycle-ack/{agv_id}")
 async def lifecycle_ack(agv_id: str):
     """
-    Xác nhận lifecycle event (lấy hàng / giao hàng) cho Line AGV.
-    Gọi khi người dùng nhấn "Đã lấy hàng" hoặc "Đã giao hàng xong" trên frontend.
-    → Xóa task_lifecycle + gọi on_agv_completed để dispatch lệnh tiếp theo trong queue.
+    Xác nhận lifecycle event (lấy hàng / giao hàng) — dùng chung cho cả Line AGV
+    và VDA5050. Gọi khi người dùng nhấn "Đã lấy hàng" / "Đã giao hàng xong".
+    → Xoá trạng thái chờ + gọi on_agv_completed để dispatch lệnh tiếp theo trong queue.
     """
-    from line_agv_handler import line_agv_handler
+    from agv_registry import agv_registry
     from task_queue import agv_task_queue
     agv_id = agv_id.strip()
+
+    if not agv_registry.is_line(agv_id):
+        # ── VDA5050: pending_confirm_node (xem agv_manager.py + _dispatch_go_to) ──
+        pending = agv_manager.get_pending_confirm(agv_id)
+        if not pending:
+            raise HTTPException(400, "AGV không ở trạng thái chờ xác nhận (PICKUP/DROP)")
+        agv_manager.set_pending_confirm(agv_id, None)
+        agv_task_queue.on_agv_completed(agv_id, notes=f"lifecycle:vda5050:{pending}:confirmed")
+        print(f"[LIFECYCLE] {agv_id}: confirmed tại node {pending} (VDA5050) via UI")
+        return {"success": True, "agv_id": agv_id, "confirmed": pending}
+
+    from line_agv_handler import line_agv_handler
     state = line_agv_handler.state_store.get(agv_id)
     if not state:
         raise HTTPException(404, f"AGV '{agv_id}' không có trạng thái")
