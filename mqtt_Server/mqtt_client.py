@@ -96,6 +96,7 @@ _pending_reroute_apply: dict[str, dict[str, object]] = {}
 _pending_head_on_assignments: dict[str, dict[str, object]] = {}
 _peer_stop_states: dict[str, dict] = {}         # agv_id -> {"peer_id": str, "since": float}
 _peer_stop_resolved_pairs: set = set()          # frozenset({agv_a, agv_b}) pairs already resolved this cycle
+_last_state_print: dict[str, tuple] = {}        # agv_id -> (node, order, battery%, paused) đã log lần trước
 # Yield-on-edge: AGV dừng giữa edge chờ node tranh chấp được clear bởi winner
 # {agv_id: {"contested_node": str, "winner_agv_id": str, "since": float}}
 _yield_states: dict[str, dict] = {}
@@ -3579,12 +3580,17 @@ def on_message(client, userdata, msg):
                 if prev_entry:
                     _peer_stop_resolved_pairs.discard(frozenset([agv_id, prev_entry.get("peer_id", "")]))
 
-            print(f"\n[STATE] AGV {agv_id} ĐÃ CẬP NHẬT TỪ MQTT THẬT!")
-            print(f"   → Node: {state_data['lastNodeId']}")
-            print(f"   → Order: {state_data['orderId']}")
-            print(f"   → Pin: {state_data['batteryState'].get('batteryCharge', 'N/A')}%")
-            print(f"   → Vị trí: x={float(x):.3f}, y={float(y):.3f}, θ={float(theta):.3f}")
-            print(f"   → Paused: {state_data['paused']}\n")
+            _battery_pct = state_data['batteryState'].get('batteryCharge', 'N/A')
+            _battery_key = round(_battery_pct) if isinstance(_battery_pct, (int, float)) else _battery_pct
+            _state_key = (state_data['lastNodeId'], state_data['orderId'], _battery_key, state_data['paused'])
+            if _last_state_print.get(agv_id) != _state_key:
+                _last_state_print[agv_id] = _state_key
+                print(f"\n[STATE] AGV {agv_id} ĐÃ CẬP NHẬT TỪ MQTT THẬT!")
+                print(f"   → Node: {state_data['lastNodeId']}")
+                print(f"   → Order: {state_data['orderId']}")
+                print(f"   → Pin: {_battery_pct}%")
+                print(f"   → Vị trí: x={float(x):.3f}, y={float(y):.3f}, θ={float(theta):.3f}")
+                print(f"   → Paused: {state_data['paused']}\n")
 
             # === VDA5050: thông báo task_queue khi AGV vừa dừng (paused=True) ===
             # NGOẠI LỆ: nếu node đích cần dừng chờ xác nhận thủ công (PICKUP/DROP

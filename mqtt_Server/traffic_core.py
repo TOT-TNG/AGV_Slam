@@ -6635,13 +6635,8 @@ class TrafficEngine:
                         out_edges = [e.edge_id for e in context.topology.get_outgoing_edges(from_node)]
                     except Exception:
                         out_edges = []
-                    msg = f"[ACTIVATE_ROUTE] Missing edge between {from_node} -> {to_node}; outgoing from {from_node} = {out_edges}\n"
-                    print(msg.strip())
-                    try:
-                        with open("mqtt_Server/route_debug.log", "a", encoding="utf-8") as f:
-                            f.write(msg)
-                    except Exception:
-                        pass
+                    msg = f"[ACTIVATE_ROUTE] Missing edge between {from_node} -> {to_node}; outgoing from {from_node} = {out_edges}"
+                    print(msg)
                     return None
                 segments.append(
                     RouteSegment(
