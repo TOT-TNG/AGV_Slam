@@ -92,6 +92,12 @@ Write-Host "[SERVICE] Tao service '$ServiceName' ..."
 & $NssmExe set $ServiceName AppRestartDelay 3000 | Out-Null
 & $NssmExe set $ServiceName AppStdout (Join-Path $ScriptDir "service_webui_stdout.log") | Out-Null
 & $NssmExe set $ServiceName AppStderr (Join-Path $ScriptDir "service_webui_stderr.log") | Out-Null
+# File tho du phong cua NSSM (khong co timestamp tung dong) - bat rotate de
+# khong phinh vo han, xem giai thich day du o install_service_windows.ps1.
+& $NssmExe set $ServiceName AppRotateFiles 1 | Out-Null
+& $NssmExe set $ServiceName AppRotateOnline 1 | Out-Null
+& $NssmExe set $ServiceName AppRotateSeconds 86400 | Out-Null
+& $NssmExe set $ServiceName AppRotateBytes 52428800 | Out-Null
 
 Write-Host "[SERVICE] Khoi dong service ..."
 Start-Service -Name $ServiceName

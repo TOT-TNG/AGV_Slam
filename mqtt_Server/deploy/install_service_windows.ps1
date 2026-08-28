@@ -87,6 +87,15 @@ Write-Host "[SERVICE] Tao service '$ServiceName' ..."
 & $NssmExe set $ServiceName AppRestartDelay 3000 | Out-Null
 & $NssmExe set $ServiceName AppStdout (Join-Path $RootDir "deploy\service_stdout.log") | Out-Null
 & $NssmExe set $ServiceName AppStderr (Join-Path $RootDir "deploy\service_stderr.log") | Out-Null
+# Log log_buffer.py da co timestamp + chia ngay + giu 7 ngay rieng
+# (mqtt_Server/logs/) - 2 file nay chi la ban ghi tho du phong (crash truoc khi
+# Python kip chay), khong co timestamp tung dong vi NSSM chi redirect thang
+# stdout/stderr, khong xu ly noi dung. Bat rotate cua NSSM de khong phinh vo han:
+# xoay file moi ngay (86400s) hoac khi vuot 50MB, giu ban cu voi hau to .YYYYMMDDHHMMSS.
+& $NssmExe set $ServiceName AppRotateFiles 1 | Out-Null
+& $NssmExe set $ServiceName AppRotateOnline 1 | Out-Null
+& $NssmExe set $ServiceName AppRotateSeconds 86400 | Out-Null
+& $NssmExe set $ServiceName AppRotateBytes 52428800 | Out-Null
 
 Write-Host "[SERVICE] Khoi dong service ..."
 Start-Service -Name $ServiceName

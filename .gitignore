@@ -7,3 +7,4 @@ dist/
 build/
 mqtt_Server/logs/
 *.log
+mqtt_Server/deploy/service_*.log.*
