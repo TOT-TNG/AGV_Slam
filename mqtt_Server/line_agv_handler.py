@@ -180,6 +180,10 @@ class LineAGVState:
     hook_pending: Optional[str] = None   # "pickup" | "dropoff" | None — đang chờ kết quả nâng/hạ ở đâu
     hook_raise_sent_at:  float = 0.0   # time.monotonic() lúc gửi lệnh NÂNG móc gần nhất (0 = chưa gửi/đã xong)
     hook_raise_retries:  int   = 0     # số lần đã gửi lại do không thấy phản hồi
+    hook_report_seq_seen: int  = 0     # hook_report_seq mới nhất đã xử lý (dedupe — firmware lặp lại report mỗi
+                                        # gói state cho tới khi ACK, tránh xử lý trùng)
+    hook_fallback_notified: bool = False  # đã báo lỗi móc qua kênh "hook" (up_fail/dn_fail) cho đợt hiện tại
+                                           # chưa — tránh gọi lại _notify_hook_error mỗi 1.5s khi còn kẹt
 
     # ── Chạy thử thủ công đến 1 tag (không cần map) — MỚI ────────────────────
     test_drive_target: Optional[str] = None   # tag cần dừng khi tới, None = không có chạy thử đang chờ
@@ -1631,9 +1635,74 @@ class LineAGVHandler:
         elif old_tag is None and new_tag is None:
             print(f"[LINE_AGV] {agv_id}: state received (no tag in payload)")
 
+        # ── Móc hàng — theo đúng giao thức firmware gửi (tài liệu "AGV KÉO ↔
+        # FMS" v1.1, 28/08/2026) — 4 kênh trong MỌI gói state, ưu tiên kênh
+        # nào xác định được trước thì dùng luôn, không cần xét kênh còn lại:
+        #   Kênh C — hook_report + hook_report_seq: kết quả thao tác gần
+        #     nhất, LẶP LẠI mỗi gói (burst 300ms rồi theo heartbeat) cho tới
+        #     khi FMS ACK đúng — đáng tin nhất, dedupe theo seq. QUAN TRỌNG
+        #     (đúng yêu cầu tài liệu §4.4): xử lý logic CHỈ 1 LẦN/seq, nhưng
+        #     phải ACK LẠI cho MỌI lần nhận kể cả seq trùng — phòng khi ACK
+        #     lần trước bị rớt gói thì bản lặp sau vẫn dừng được firmware.
+        #   Kênh A — "hook" (moving/up/dn/up_fail/dn_fail): trạng thái tức
+        #     thời, LUÔN có, không cần ACK, không bao giờ biến mất khỏi gói
+        #     — dùng khi kênh C không cho tin gì mới lượt này (report đã xử
+        #     lý rồi/không có report — vd sau 20s GIVE UP firmware ngừng gửi
+        #     report nhưng "hook" vẫn còn) — lưới an toàn cuối cùng.
+        #   Kênh B — hook_uplim/hook_dnlim (cữ giới hạn thô, digitalRead()
+        #     trực tiếp): chỉ dùng khi cả C lẫn A đều không có gì (hiếm).
+        # Kênh D (event="hook_raised"...) đã xử lý ở nhánh event chung bên
+        # dưới — chỉ là bản sao 1-lần của kênh C từ bản vá 28/08, guard
+        # _hook_handled_as tránh xử lý trùng khi cả 2 kênh cùng có trong 1 gói.
+        _hook_report     = str(data.get("hook_report") or "").strip()
+        _hook_report_seq = int(data.get("hook_report_seq") or 0)
+        _hook_handled_as: Optional[str] = None
+        if _hook_report and _hook_report_seq:
+            _hook_handled_as = _hook_report
+            # ACK ngay, kể cả seq đã xử lý trước đó (§4.3/§4.4 tài liệu) —
+            # gửi kèm cả "d" lẫn "seq" theo đúng dạng khuyến nghị.
+            try:
+                from mqtt_client import send_line_command as _slc_hkrep
+                _slc_hkrep(agv_id, "ack_event", d=_hook_report, seq=_hook_report_seq)
+            except Exception as _e_hkrep_ack:
+                print(f"[LINE_AGV] {agv_id}: ack hook_report lỗi: {_e_hkrep_ack}")
+            if _hook_report_seq != state.hook_report_seq_seen:
+                state.hook_report_seq_seen = _hook_report_seq
+                self._handle_event(agv_id, _hook_report, data, state)
+        else:
+            _hook_field = str(data.get("hook") or "").strip()
+            if not _hook_field:
+                if data.get("hook_uplim") is not None or data.get("hook_dnlim") is not None:
+                    _hook_field = "up" if bool(data.get("hook_uplim")) else (
+                        "dn" if bool(data.get("hook_dnlim")) else "")
+            if _hook_field == "up" and state.hook_state != "raised":
+                self._handle_event(agv_id, "hook_raised", data, state)
+                _hook_handled_as = "hook_raised"
+            elif _hook_field == "dn" and state.hook_state != "lowered":
+                self._handle_event(agv_id, "hook_lowered", data, state)
+                _hook_handled_as = "hook_lowered"
+            elif _hook_field == "up_fail" and state.hook_raise_sent_at > 0 and not state.hook_fallback_notified:
+                state.hook_fallback_notified = True
+                self._handle_event(agv_id, "hook_raise_failed", data, state)
+                _hook_handled_as = "hook_raise_failed"
+            elif _hook_field == "dn_fail" and state.hook_pending == "pickup" and not state.hook_fallback_notified:
+                state.hook_fallback_notified = True
+                self._handle_event(agv_id, "hook_lower_failed", data, state)
+                _hook_handled_as = "hook_lower_failed"
+
+        # Đối chiếu độc lập (tài liệu §8, dòng cuối): cữ trên/dưới cùng false
+        # trong khi "hook" báo đã xong (không phải "moving") → bất thường
+        # (tuột cữ/lỗi cơ khí) — chỉ cảnh báo, không tự suy luận trạng thái.
+        _hook_now = str(data.get("hook") or "").strip()
+        if (_hook_now and _hook_now != "moving"
+                and data.get("hook_uplim") is not None and data.get("hook_dnlim") is not None
+                and not bool(data.get("hook_uplim")) and not bool(data.get("hook_dnlim"))):
+            print(f"[LINE_AGV] {agv_id}: ⚠️ móc BẤT THƯỜNG — hook='{_hook_now}' nhưng "
+                  f"cả 2 cữ giới hạn đều false (có thể tuột cữ/lỗi cơ khí)")
+
         # ── Xử lý event từ xe ────────────────────────────────────────────────
         event_name = str(data.get("event", "") or "").strip()
-        if event_name:
+        if event_name and event_name != _hook_handled_as:
             self._handle_event(agv_id, event_name, data, state)
 
         # ── Rolling plan: kiểm tra có cần gửi cửa sổ tiếp không ─────────────
@@ -3350,6 +3419,7 @@ class LineAGVHandler:
         # rồi bỏ qua hành động như trước (đã gây lỗi xe không nhả hàng thật ở node
         # thả dù trạng thái nội bộ báo "đã nâng sẵn").
         state.hook_raise_retries = 0   # đợt nâng móc MỚI — reset đếm gửi-lại
+        state.hook_fallback_notified = False   # đợt MỚI — cho phép kênh "hook" báo lỗi lại nếu cần
         self._send_hook_raise_delayed(agv_id)
         if _is_pickup_node:
             print(f"[LINE_AGV] {agv_id}: tới điểm lấy hàng {state.current_tag} "
