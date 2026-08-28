@@ -4084,7 +4084,8 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
                 is_final=_rt.is_complete, task_type=_first_seg_task,
                 node_actions=node_actions, direction=_line_dir,
                 edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
-                initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd)
+                initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd,
+                skip_initial_dir=bool(_trailer_exit_steps))
             if _trailer_exit_steps:
                 plan["d"] = _trailer_exit_steps + plan.get("d", [])
             send_order(agv_id, plan)
@@ -4109,7 +4110,8 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
                 is_final=_rt.is_complete, task_type=_no_split_task,
                 node_actions=node_actions, direction=_line_dir,
                 edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
-                initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd)
+                initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd,
+                skip_initial_dir=bool(_trailer_exit_steps))
             if _trailer_exit_steps:
                 plan["d"] = _trailer_exit_steps + plan.get("d", [])
             send_order(agv_id, plan)

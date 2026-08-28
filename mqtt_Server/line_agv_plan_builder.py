@@ -275,6 +275,8 @@ def _build_steps(
     _agv:                str  = "?",
     initial_prev_tag:    str | None = None,  # hướng xe trước node đầu tiên (dùng khi w_start==0)
     initial_arrived_bwd: bool = False,       # True khi xe đến start node theo chiều lùi (charger exit)
+    skip_initial_dir:    bool = False,       # True khi caller đã tự chèn DIR_FWD/BWD + SPEED cho node
+                                              # đầu (vd _trailer_exit_steps ở main.py) — tránh chèn trùng
 ) -> list[dict]:
     """
     Tạo action steps cho cửa sổ full_path[w_start..w_end].
@@ -330,8 +332,9 @@ def _build_steps(
         print(f"[PLAN] {_agv} | BỎ backward-approach vào {full_path[w_end]} "
               f"vì node trước ({_pre_final_node}) là trạm sạc (sau trạm không có đường lùi) → đi tiến")
 
-    # Đặt chiều đi ở bước đầu tiên của cửa sổ đầu tiên
-    if w_start == 0:
+    # Đặt chiều đi ở bước đầu tiên của cửa sổ đầu tiên — BỎ QUA nếu caller đã tự
+    # chèn DIR_FWD/BWD cho node này rồi (skip_initial_dir=True, vd _trailer_exit_steps)
+    if w_start == 0 and not skip_initial_dir:
         dir_action = ACTION_DIR_BWD if direction == "bwd" else ACTION_DIR_FWD
         first_tag  = int(full_path[0]) if full_path else 0
         steps.append({"t": first_tag, "a": dir_action, "v": 0})
@@ -471,6 +474,10 @@ def _build_steps(
         spd          = _edge_speed(full_path, global_i, edge_speeds)
         spd_approach = min(spd, SPEED_SLOW)   # tốc độ tiếp cận nút rẽ
 
+        # Node đầu tiên khi skip_initial_dir=True: caller (vd _trailer_exit_steps)
+        # đã tự SPEED cho edge này rồi — bỏ qua SPEED ở đây để khỏi gửi trùng.
+        _skip_first_speed = skip_initial_dir and global_i == 0
+
         # Tại node N-1 (ngay trước đích cuối): chèn DIR_BWD NẾU plan đang đi fwd nhưng
         # charger cần approach bwd (lùi vào). Nếu plan đã là bwd từ đầu → KHÔNG chèn thêm
         # vì DIR_BWD thứ 2 sau TURN sẽ override/cancel lệnh rẽ, làm AGV đi nhầm hướng.
@@ -489,7 +496,8 @@ def _build_steps(
 
             if turn_at_next is not None:
                 # Nút tiếp theo cũng rẽ → giảm tốc + tắt LIDAR ngay (cho rẽ tiếp)
-                steps.append({"t": tag, "a": ACTION_SPEED,     "v": spd_approach})
+                if not _skip_first_speed:
+                    steps.append({"t": tag, "a": ACTION_SPEED, "v": spd_approach})
                 steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                 if is_pre_final:
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
@@ -497,7 +505,8 @@ def _build_steps(
                 incoming_lidar_off = True   # LIDAR đã OFF cho rẽ tiếp
             else:
                 spd_val = spd_approach if is_pre_final else spd
-                steps.append({"t": tag, "a": ACTION_SPEED, "v": spd_val})
+                if not _skip_first_speed:
+                    steps.append({"t": tag, "a": ACTION_SPEED, "v": spd_val})
                 if force_lidar_off:
                     steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                     incoming_lidar_off = True
@@ -508,7 +517,8 @@ def _build_steps(
         else:
             if turn_at_next is not None:
                 # Pattern N-1 trước rẽ: giảm tốc + tắt LIDAR
-                steps.append({"t": tag, "a": ACTION_SPEED,     "v": spd_approach})
+                if not _skip_first_speed:
+                    steps.append({"t": tag, "a": ACTION_SPEED, "v": spd_approach})
                 steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                 if is_pre_final:
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
@@ -517,11 +527,13 @@ def _build_steps(
             else:
                 # Đi thẳng
                 if is_pre_final:
-                    steps.append({"t": tag, "a": ACTION_SPEED,   "v": SPEED_SLOW})
+                    if not _skip_first_speed:
+                        steps.append({"t": tag, "a": ACTION_SPEED, "v": SPEED_SLOW})
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
                     steps.append({"t": tag, "a": ACTION_RUN,     "v": 0})
                 else:
-                    steps.append({"t": tag, "a": ACTION_SPEED, "v": spd})
+                    if not _skip_first_speed:
+                        steps.append({"t": tag, "a": ACTION_SPEED, "v": spd})
                     if force_lidar_off:
                         steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                         incoming_lidar_off = True
@@ -547,6 +559,7 @@ def build_plan_window(
     agv_id:              str  = "?",
     initial_prev_tag:    str | None = None,  # hướng xe trước node đầu tiên
     initial_arrived_bwd: bool = False,       # True khi xe đến start node theo chiều lùi
+    skip_initial_dir:    bool = False,       # True khi caller đã tự chèn DIR_FWD/BWD + SPEED cho node đầu
 ) -> dict:
     """
     Build plan cho cửa sổ [w_start, w_end] trong full_path.
@@ -564,7 +577,7 @@ def build_plan_window(
     str_path = [str(p) for p in full_path]
     steps    = _build_steps(str_path, w_start, w_end, points, is_final,
                             task_type, node_actions, direction, edge_speeds, edge_lidar,
-                            agv_id, initial_prev_tag, initial_arrived_bwd)
+                            agv_id, initial_prev_tag, initial_arrived_bwd, skip_initial_dir)
 
     return {"c": "plan", "id": cmd_id, "d": steps}
 
