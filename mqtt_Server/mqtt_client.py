@@ -53,7 +53,7 @@ def _save_mqtt_mode(mode: str) -> None:
 def _resolve_broker_port(mode: str) -> tuple[str, int]:
     if mode == "cloud":
         return _CLOUD_BROKER, _CLOUD_PORT
-    return os.getenv("MQTT_BROKER", "192.168.10.135").strip(), int(os.getenv("MQTT_PORT", "1883"))
+    return os.getenv("MQTT_BROKER", "localhost").strip(), int(os.getenv("MQTT_PORT", "1883"))
 
 def _configure_client_for_mode(c, mode: str) -> None:
     """Cài TLS + auth cho client theo mode trước khi connect."""
