@@ -297,27 +297,6 @@
       <div id="hook-status" style="font-size:11px;color:#555;text-align:center;margin-top:6px;min-height:16px"></div>
     </div>
 
-    <!-- ── Cửa tự động ── -->
-    <div class="section" id="gate-section">
-      <div class="section-title"><span class="material-symbols-outlined">sensor_door</span>Cửa tự động</div>
-      <div style="font-size:10px;color:#8c909f;margin-bottom:8px">
-        Mở/đóng thủ công 1 cửa tự động — không cần xe đang chờ. Dùng khi bảo trì hoặc kiểm tra cửa.
-      </div>
-      <input type="number" id="gate-door-num" min="1" step="1" placeholder="Số thứ tự cửa, vd: 1"
-        style="width:100%;box-sizing:border-box;padding:7px 10px;margin-bottom:8px;border-radius:8px;background:rgba(15,20,32,.8);border:1px solid rgba(66,71,84,.5);color:#e1e2e7;font-size:12px;font-family:'JetBrains Mono',monospace"/>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-        <button class="action-btn btn-green" onclick="sendGateCommand('open')" style="margin:0;padding:10px;font-size:12px;font-weight:700">
-          <span class="material-symbols-outlined" style="font-size:18px">lock_open</span>
-          <div>MỞ cửa</div>
-        </button>
-        <button class="action-btn btn-warning" onclick="sendGateCommand('close')" style="margin:0;padding:10px;font-size:12px;font-weight:700">
-          <span class="material-symbols-outlined" style="font-size:18px">lock</span>
-          <div>ĐÓNG cửa</div>
-        </button>
-      </div>
-      <div id="gate-status" style="font-size:11px;color:#555;text-align:center;margin-top:6px;min-height:16px"></div>
-    </div>
-
     </div><!-- /tab-manual -->
 
     <!-- ══ TAB: CẤU HÌNH ══ -->
@@ -352,6 +331,33 @@
           <span class="material-symbols-outlined" style="font-size:15px">save</span>Lưu
         </button>
         <div id="capability-status" style="font-size:11px;color:#555;text-align:center;min-height:16px"></div>
+      </div>
+
+      <!-- Chế độ vận hành xe kéo (chỉ áp dụng cho xe loại tow/trailer) -->
+      <div class="section" id="opmode-section">
+        <div class="section-title"><span class="material-symbols-outlined">route</span>Chế độ vận hành (xe kéo)</div>
+        <div style="font-size:10px;color:#8c909f;margin-bottom:8px;line-height:1.6">
+          Chỉ áp dụng cho xe loại <b>tow / trailer</b>. Xe chở (carry) không bị ảnh hưởng.
+        </div>
+        <select id="cfg-op-mode" onchange="updateOpModeUi()"
+                style="width:100%;margin-bottom:8px;padding:6px 8px;background:#1a1d27;color:#fff;border:1px solid #333;border-radius:6px;font-size:12px">
+          <option value="roundtrip">Tự động lấy &amp; cấp hàng (thả rỗng → lấy đầy → thả đầy)</option>
+          <option value="carry_hook">Chở hàng — có móc xe hàng (lấy xe hàng → đích → chờ xác nhận)</option>
+          <option value="carry_fixed">Chở hàng — thùng gắn cố định, không móc (→ đích → chờ xác nhận)</option>
+        </select>
+        <div id="opmode-return-wrap" style="display:none;margin-bottom:8px">
+          <div style="font-size:11px;color:#8c909f;margin-bottom:4px">Sau khi người dùng xác nhận, xe:</div>
+          <select id="cfg-return-mode"
+                  style="width:100%;padding:6px 8px;background:#1a1d27;color:#fff;border:1px solid #333;border-radius:6px;font-size:12px">
+            <option value="charge">Về thẳng trạm sạc (mang theo xe hàng)</option>
+            <option value="drop_cart">Kéo xe hàng tới điểm thả cố định (Staging), thả rồi về trạm sạc</option>
+          </select>
+        </div>
+        <div id="opmode-hint" style="font-size:10px;color:#8c909f;margin-bottom:8px;line-height:1.6"></div>
+        <button onclick="saveAgvOpMode()" class="action-btn btn-green" style="margin-bottom:4px">
+          <span class="material-symbols-outlined" style="font-size:15px">save</span>Lưu
+        </button>
+        <div id="opmode-status" style="font-size:11px;color:#555;text-align:center;min-height:16px"></div>
       </div>
 
       <!-- Tên AGV + Nhà máy (dùng để cấu hình MQTT topic) -->
@@ -669,6 +675,17 @@ function populateConfigTab() {
     document.getElementById('capability-status').textContent = '';
   }
 
+  // Điền chế độ vận hành xe kéo (ẩn nếu không phải tow/trailer)
+  const opSec = document.getElementById('opmode-section');
+  if (opSec) {
+    const rawT = String(curAgv.agv_type_raw || '').toLowerCase();
+    opSec.style.display = (rawT === 'tow' || rawT === 'trailer') ? '' : 'none';
+    document.getElementById('cfg-op-mode').value     = curAgv.op_mode || 'roundtrip';
+    document.getElementById('cfg-return-mode').value = curAgv.return_mode || 'charge';
+    document.getElementById('opmode-status').textContent = '';
+    updateOpModeUi();
+  }
+
   // Điền danh tính hiện tại
   const agvIdEl  = document.getElementById('identity-agv-id');
   const factoryEl = document.getElementById('identity-factory');
@@ -873,44 +890,6 @@ async function sendLineAction(actionCode, value = 0) {
   setTimeout(() => { stEl.textContent = ''; }, 3000);
 }
 
-// ════════════════════════════════════════════════════════════════
-// CỬA TỰ ĐỘNG (mở/đóng thủ công — không gắn với AGV cụ thể)
-// ════════════════════════════════════════════════════════════════
-async function sendGateCommand(cmd) {
-  const doorNum = document.getElementById('gate-door-num').value.trim();
-  const stEl    = document.getElementById('gate-status');
-  const label   = cmd === 'open' ? 'Mở cửa' : 'Đóng cửa';
-
-  if (!doorNum) {
-    stEl.textContent = '✗ Nhập số thứ tự cửa trước';
-    stEl.style.color = '#f87171';
-    return;
-  }
-
-  stEl.textContent = `⟳ ${label} gate${doorNum}…`;
-  stEl.style.color = '#adc6ff';
-
-  try {
-    const r = await fetch(`${API}/api/execute/gate-command`, {
-      method:  'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ door_num: doorNum, cmd }),
-    });
-    const d = await r.json();
-    if (r.ok && d.success) {
-      stEl.textContent = `✓ ${label} ${d.door_id}`;
-      stEl.style.color = '#4ade80';
-    } else {
-      stEl.textContent = `✗ ${d.detail || 'Lỗi'}`;
-      stEl.style.color = '#f87171';
-    }
-  } catch(e) {
-    stEl.textContent = '✗ Mất kết nối';
-    stEl.style.color = '#f87171';
-  }
-  setTimeout(() => { stEl.textContent = ''; }, 3000);
-}
-
 // Arrow key support
 window.addEventListener('keydown', e => {
   if (!manualOn || !curAgv || curAgv.agv_type !== 'LINE') return;
@@ -994,6 +973,45 @@ async function saveAgvCapability() {
       st.textContent = cannotRev ? '✓ Đã đặt: chỉ đi 1 chiều tiến' : '✓ Đã đặt: xe lùi được bình thường';
       st.style.color = '#4ade80';
       curAgv = {...curAgv, can_reverse: !cannotRev};
+      setTimeout(() => loadAgvs(), 500);
+    } else {
+      st.textContent = '✗ ' + (d.detail || 'Lỗi');
+      st.style.color = '#f87171';
+    }
+  } catch(e) {
+    st.textContent = '✗ Mất kết nối';
+    st.style.color = '#f87171';
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// CHẾ ĐỘ VẬN HÀNH XE KÉO (op_mode / return_mode)
+// ════════════════════════════════════════════════════════════════
+const OPMODE_HINT = {
+  roundtrip:   'Giữ nguyên chu trình hiện tại: chọn Tổ → thả rỗng → lấy đầy → thả đầy tại Staging → về sạc.',
+  carry_hook:  'Dùng luồng như xe chở: node LẤY hàng (có nhóm cấp hàng / vai trò pickup) tự móc xe hàng; node ĐÍCH chỉ dừng chờ người lấy hàng rồi bấm xác nhận (không thả xe hàng).',
+  carry_fixed: 'Thùng gắn cố định trên xe, không có thao tác móc. Mọi node dừng đều chờ người thao tác rồi bấm xác nhận, như xe chở.',
+};
+function updateOpModeUi() {
+  const m = document.getElementById('cfg-op-mode').value;
+  document.getElementById('opmode-return-wrap').style.display = (m === 'carry_hook') ? '' : 'none';
+  document.getElementById('opmode-hint').textContent = OPMODE_HINT[m] || '';
+}
+async function saveAgvOpMode() {
+  if (!curAgv) return;
+  const st = document.getElementById('opmode-status');
+  const op = document.getElementById('cfg-op-mode').value;
+  const rm = document.getElementById('cfg-return-mode').value;
+  try {
+    const r = await fetch(`${API}/api/agv/update-op-mode`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ agv_id: curAgv.agv_id, op_mode: op, return_mode: rm }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      st.textContent = '✓ Đã lưu chế độ vận hành';
+      st.style.color = '#4ade80';
+      curAgv = {...curAgv, op_mode: d.op_mode, return_mode: d.return_mode};
       setTimeout(() => loadAgvs(), 500);
     } else {
       st.textContent = '✗ ' + (d.detail || 'Lỗi');

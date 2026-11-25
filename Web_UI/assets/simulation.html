@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title id="page-title">Mô phỏng Fleet</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  :root{--bg:#0b1326;--border:rgba(255,255,255,.09)}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--bg);color:#ffffff;font-family:Inter,system-ui,sans-serif}
+  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;font-size:18px;line-height:1;vertical-align:middle;user-select:none}
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}
+
+  .page{height:100%;overflow-y:auto;padding:16px 20px 32px}
+  .card{background:rgba(18,28,50,.7);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+  .card h2{margin:0 0 12px;font-size:13px;font-family:'JetBrains Mono',monospace;letter-spacing:.05em;text-transform:uppercase;color:#adc6ff;display:flex;align-items:center;gap:6px}
+
+  .warn-box{background:rgba(234,179,8,.1);border:1px solid rgba(234,179,8,.3);border-radius:12px;padding:12px 16px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start;font-size:12.5px;line-height:1.6;color:#fde68a}
+  .warn-box .material-symbols-outlined{color:#fbbf24;font-size:20px;flex-shrink:0;margin-top:1px}
+  .warn-box code{background:rgba(0,0,0,.3);padding:1px 5px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11.5px}
+
+  .form-row{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end}
+  .field{display:flex;flex-direction:column;gap:5px;min-width:140px}
+  .field label{font-size:10.5px;font-family:'JetBrains Mono',monospace;color:#8c909f;text-transform:uppercase;letter-spacing:.04em}
+  .field input,.field select{background:rgba(30,42,68,.9);border:1px solid rgba(255,255,255,.15);border-radius:8px;color:#fff;padding:7px 10px;font-size:13px;outline:none;width:160px}
+  .field input:focus,.field select:focus{border-color:#adc6ff;box-shadow:0 0 0 2px rgba(173,198,255,.15)}
+  .field select option{background:#131b2e;color:#fff}
+  .field .hint{font-size:9.5px;color:#64748a}
+
+  .btn{display:inline-flex;align-items:center;gap:6px;border-radius:9px;padding:8px 16px;font-size:12.5px;font-weight:700;cursor:pointer;border:1px solid transparent;transition:opacity .15s}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn-start{background:#2563eb;color:#fff}
+  .btn-start:hover:not(:disabled){background:#1d4ed8}
+  .btn-stop{background:rgba(239,68,68,.15);color:#f87171;border-color:rgba(239,68,68,.35)}
+  .btn-stop:hover:not(:disabled){background:rgba(239,68,68,.28)}
+
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:.04em;white-space:nowrap}
+  .badge-idle    {background:rgba(148,163,184,.12);color:#cbd5e1;border:1px solid rgba(148,163,184,.25)}
+  .badge-running {background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3)}
+  .badge-finished{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.3)}
+  .badge-error   {background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)}
+
+  .chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;font-size:11px;font-family:'JetBrains Mono',monospace;font-weight:700}
+  .chip-COLLISION,.chip-HEADON_EDGE{background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)}
+  .chip-STALL,.chip-JUNCTION_STUCK{background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3)}
+  .chip-ERROR_CODE{background:rgba(249,115,22,.15);color:#fb923c;border:1px solid rgba(249,115,22,.3)}
+  .chip-SERVER_EXCEPTION{background:rgba(168,85,247,.15);color:#d8b4fe;border:1px solid rgba(168,85,247,.3)}
+  .chip-UNKNOWN{background:rgba(148,163,184,.12);color:#cbd5e1;border:1px solid rgba(148,163,184,.25)}
+  .chip-FIRMWARE_ERROR,.chip-ESTOP,.chip-FIELD_VIOLATION,.chip-OFF_ROUTE_ERROR,.chip-HOOK_RETRY_EXHAUSTED,.chip-RESEND_LOOP,.chip-OFFLINE,.chip-PHYSICAL_COLLISION_RISK{background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3)}
+  .chip-STUCK_UNEXPLAINED{background:rgba(234,179,8,.15);color:#fde047;border:1px solid rgba(234,179,8,.3)}
+  .chip-PHYSICAL_COLLISION_ACTIVE{background:rgba(239,68,68,.35);color:#fff;border:1px solid rgba(239,68,68,.7);font-weight:800}
+
+  .stat-tile{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:10px 14px;min-width:110px}
+  .stat-tile .v{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace}
+  .stat-tile .l{font-size:9.5px;color:#8c909f;text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+
+  .v-table{width:100%;border-collapse:collapse}
+  .v-table thead th{position:sticky;top:0;background:rgba(18,28,50,.98);padding:8px 12px;font-size:11px;font-family:'JetBrains Mono',monospace;color:#8c909f;text-transform:uppercase;letter-spacing:.04em;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+  .v-table tbody tr{border-bottom:1px solid rgba(255,255,255,.04)}
+  .v-table tbody td{padding:7px 12px;font-size:12px;vertical-align:middle;color:#e2e8f0;font-family:'JetBrains Mono',monospace}
+  .v-empty{padding:24px;text-align:center;color:#64748a;font-size:12px}
+
+  #error-log{background:#050d1a;border-radius:8px;padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#f87171;white-space:pre-wrap;max-height:160px;overflow-y:auto}
+  #map-frame{width:100%;height:520px;border:none;border-radius:10px;background:#050d1a}
+  .field input.cmd-active,.field select.cmd-active{border-color:#4ade80;box-shadow:0 0 0 2px rgba(74,222,128,.2)}
+  .field input.cmd-ro{width:160px}
+  .team-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:8px;font-size:11.5px;font-family:'JetBrains Mono',monospace;cursor:default;border:1px solid}
+  .team-chip button{background:none;border:none;color:inherit;cursor:pointer;font:inherit;padding:0 2px;text-decoration:underline dotted}
+  .team-chip button:hover{text-decoration:underline}
+  .cmd-msg{font-size:12px;margin-top:10px;min-height:16px}
+  .cmd-msg.ok{color:#4ade80}.cmd-msg.err{color:#f87171}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="warn-box">
+    <span class="material-symbols-outlined">info</span>
+    <div>
+      Mô phỏng chạy trên <b>port API riêng</b> (khác port 8000 sản xuất) và
+      <b>DB riêng</b> (không ghi vào dữ liệu thật) — chạy SONG SONG với hệ
+      thống thật, không cần dừng gì cả. Chỉ cần: khởi 1 Mosquitto RIÊNG ở
+      port mô phỏng bên dưới (KHÁC 1883), ví dụ <code>mosquitto -p 1884</code>
+      — hệ thống KHÔNG tự khởi Mosquitto.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><span class="material-symbols-outlined">tune</span>Cấu hình</h2>
+    <div class="form-row">
+      <div class="field">
+        <label>Bản đồ</label>
+        <select id="in-map-id" onchange="updateMapPreview()"></select>
+        <span class="hint">lấy dữ liệu node/road từ bản đồ thật đã chọn</span>
+      </div>
+      <div class="field" style="flex-basis:100%">
+        <label>Chế độ mô phỏng</label>
+        <select id="in-mode">
+          <option value="natural">1 · Chạy tự nhiên — hệ thống tự sinh tác vụ liên tục cho xe</option>
+          <option value="manual">2 · Giao lệnh — xe đứng yên, chỉ chạy khi bạn gửi lệnh (bấm icon xe trên bản đồ)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Loại xe mô phỏng</label>
+        <select id="in-agv-type">
+          <option value="tow">Kéo (tow)</option>
+          <option value="trailer">Rơ-moóc (trailer)</option>
+          <option value="carry">Chở (carry)</option>
+          <option value="mixed">Hỗn hợp (tow+trailer)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Số xe ảo</label>
+        <input type="number" id="in-agv-count" value="15" min="1" max="50"/>
+        <span class="hint" id="count-hint">khuyến nghị 10-20</span>
+      </div>
+      <div class="field" style="flex-basis:100%">
+        <label>Trộn nhiều loại xe (tuỳ chọn) — nhập số lượng từng loại, bỏ trống/0 = dùng "Loại xe" + "Số xe" ở trên</label>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          <label style="font-size:12px">Kéo tự động <input type="number" class="mix-in" data-kind="tow" min="0" max="50" value="0" style="width:64px" oninput="onMixChange()"/></label>
+          <label style="font-size:12px">Kéo chở có móc <input type="number" class="mix-in" data-kind="tow_hook" min="0" max="50" value="0" style="width:64px" oninput="onMixChange()"/></label>
+          <label style="font-size:12px">Kéo chở có móc + thả xe hàng <input type="number" class="mix-in" data-kind="tow_hook_drop" min="0" max="50" value="0" style="width:64px" oninput="onMixChange()"/></label>
+          <label style="font-size:12px">Kéo thùng cố định <input type="number" class="mix-in" data-kind="tow_fixed" min="0" max="50" value="0" style="width:64px" oninput="onMixChange()"/></label>
+          <label style="font-size:12px">Rơ-moóc <input type="number" class="mix-in" data-kind="trailer" min="0" max="50" value="0" style="width:64px" oninput="onMixChange()"/></label>
+          <label style="font-size:12px">Chở (carry) <input type="number" class="mix-in" data-kind="carry" min="0" max="50" value="0" style="width:64px" oninput="onMixChange()"/></label>
+        </div>
+      </div>
+      <div class="field" style="flex-basis:100%">
+        <label>Vị trí xuất phát theo loại xe (tuỳ chọn) — nhập các node cách nhau dấu phẩy; trống = tự chọn trạm sạc phù hợp loại xe</label>
+        <div style="display:flex;flex-wrap:wrap;gap:10px">
+          <label style="font-size:12px">Kéo (tow) <input type="text" class="start-in" data-type="tow" placeholder="vd 221,222" style="width:150px"/></label>
+          <label style="font-size:12px">Rơ-moóc <input type="text" class="start-in" data-type="trailer" placeholder="vd 224" style="width:150px"/></label>
+          <label style="font-size:12px">Chở (carry) <input type="text" class="start-in" data-type="carry" placeholder="vd 225,226" style="width:150px"/></label>
+        </div>
+        <span class="hint" id="start-candidates">đang tải gợi ý trạm sạc / node chờ của bản đồ...</span>
+      </div>
+      <div class="field">
+        <label>Thời gian chạy (giờ)</label>
+        <input type="number" id="in-duration" value="0" min="0" step="0.5"/>
+        <span class="hint">0 = chạy vô hạn tới khi Dừng</span>
+      </div>
+      <div class="field">
+        <label>Port API mô phỏng</label>
+        <input type="number" id="in-api-port" value="8001" min="1" max="65535"/>
+        <span class="hint">khác 8000 (server sản xuất)</span>
+      </div>
+      <div class="field">
+        <label>Port MQTT mô phỏng</label>
+        <input type="number" id="in-mqtt-port" value="1884" min="1" max="65535"/>
+        <span class="hint">khác 1883 (broker sản xuất)</span>
+      </div>
+      <button class="btn btn-start" id="btn-start" onclick="startSim()">
+        <span class="material-symbols-outlined" style="font-size:16px">play_arrow</span>Bắt đầu
+      </button>
+      <button class="btn btn-stop" id="btn-stop" onclick="stopSim()" disabled>
+        <span class="material-symbols-outlined" style="font-size:16px">stop</span>Dừng
+      </button>
+    </div>
+    <div id="start-error" style="margin-top:10px;font-size:12px;color:#f87171;display:none"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="material-symbols-outlined">monitoring</span>Trạng thái</h2>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px">
+      <span class="badge badge-idle" id="state-badge">Chưa chạy</span>
+      <div class="stat-tile"><div class="v" id="stat-elapsed">—</div><div class="l">Thời gian chạy</div></div>
+      <div class="stat-tile"><div class="v" id="stat-collision">0</div><div class="l">Số lần va chạm</div></div>
+      <div class="stat-tile"><div class="v" id="stat-stall">0</div><div class="l">Số lần kẹt &gt; 5 phút</div></div>
+      <div class="stat-tile"><div class="v" id="stat-jx-meet">0</div><div class="l">Lần gặp nhau ở ngã tư</div></div>
+      <div class="stat-tile"><div class="v" id="stat-jx-stuck">0</div><div class="l">Kẹt ngã tư &gt; 5 phút</div></div>
+    </div>
+    <div id="fleet-summary" style="display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:12px"></div>
+    <div id="affected-row" style="font-size:12px;color:#8c909f"></div>
+    <div id="error-log" style="display:none;margin-top:10px"></div>
+  </div>
+
+  <div class="card" id="summary-card" style="display:none">
+    <h2><span class="material-symbols-outlined">summarize</span>Tổng kết</h2>
+    <div id="summary-body" style="font-size:12.5px;line-height:1.7;color:#e2e8f0"></div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <h2 style="padding:16px 18px 0"><span class="material-symbols-outlined">smart_toy</span>Danh sách xe mô phỏng</h2>
+    <div style="max-height:300px;overflow-y:auto">
+      <table class="v-table">
+        <thead><tr><th>Xe</th><th>Loại</th><th>Chế độ</th><th>Xuất phát</th></tr></thead>
+        <tbody id="fleet-body"></tbody>
+      </table>
+      <div class="v-empty" id="fleet-empty">Chưa có xe mô phỏng nào — bấm Bắt đầu để tạo.</div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <h2 style="padding:16px 18px 0"><span class="material-symbols-outlined">report</span>Sự cố gần đây</h2>
+    <div style="max-height:360px;overflow-y:auto">
+      <table class="v-table">
+        <thead><tr><th>Giờ</th><th>Loại</th><th>Xe liên quan</th><th>Chi tiết</th></tr></thead>
+        <tbody id="violations-body"></tbody>
+      </table>
+      <div class="v-empty" id="violations-empty">Chưa có va chạm hay kẹt nào.</div>
+    </div>
+  </div>
+
+  <div class="card" id="cmd-card">
+    <h2><span class="material-symbols-outlined">smart_toy</span>Trạng thái xe đang chạy</h2>
+    <div class="hint" style="font-size:12px;color:#8c909f;margin-bottom:8px">
+      Bấm vào <b>icon xe</b> trên bản đồ bên dưới để xem đường đi đầy đủ, trạng thái chi tiết (pin, vị trí, lệnh đang chạy…) và gửi lệnh tới điểm / tổ cho xe đó.
+    </div>
+    <div style="overflow-x:auto">
+      <table class="v-table">
+        <thead><tr><th>Xe</th><th>Đang ở</th><th>Trạng thái</th><th>Đang chạy</th><th>Hàng đợi</th></tr></thead>
+        <tbody id="cmd-live-body"></tbody>
+      </table>
+      <div class="v-empty" id="cmd-live-empty">Bấm Bắt đầu để tạo xe mô phỏng.</div>
+    </div>
+  </div>
+
+  <div class="card" id="team-card">
+    <h2><span class="material-symbols-outlined">groups</span>Các tổ trên bản đồ</h2>
+    <div id="team-body" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+    <div class="hint" id="team-hint" style="font-size:11px;color:#64748a;margin-top:8px">
+      Màu viền và nhãn "Tổ N" trên bản đồ khớp với màu ở đây. <b>Giao</b> = node giao hàng của tổ, <b>📦 lấy</b> = node lấy hàng (cấp hàng).
+    </div>
+  </div>
+
+  <div class="card" id="map-card" style="display:none">
+    <h2><span class="material-symbols-outlined">map</span>Xem trên bản đồ</h2>
+    <div id="map-preview-note" style="font-size:11px;color:#8c909f;margin-bottom:8px;display:none">
+      Xem trước bản đồ đã chọn (dữ liệu THẬT) — sẽ tự chuyển sang hiện xe mô phỏng khi bấm Bắt đầu.
+    </div>
+    <iframe id="map-frame" src="" allowfullscreen></iframe>
+  </div>
+
+</div>
+
+<script>
+const KIND_LABEL = {
+  COLLISION: 'Va chạm', HEADON_EDGE: 'Đối đầu', STALL: 'Đứng kẹt', JUNCTION_STUCK: 'Kẹt ngã tư', REVERSE_FORBIDDEN: 'Xe không lùi bị lệnh lùi',
+  ERROR_CODE: 'Lỗi mã', SERVER_EXCEPTION: 'Lỗi server',
+};
+const STATE_LABEL = {idle:'Chưa chạy', running:'Đang chạy', finished:'Đã xong', error:'Lỗi'};
+function fmtElapsed(sec){
+  if(sec==null) return '—';
+  sec = Math.round(sec);
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return h>0 ? `${h}h ${m}m ${s}s` : (m>0 ? `${m}m ${s}s` : `${s}s`);
+}
+
+const PROD_API = 'http://' + (window.location.hostname || 'localhost') + ':8000';
+
+async function loadMapOptions(){
+  const sel = document.getElementById('in-map-id');
+  try{
+    const r = await fetch(PROD_API + '/api/maps/list');
+    const maps = await r.json();
+    sel.innerHTML = maps.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+  }catch(e){
+    sel.innerHTML = '<option value="">(không tải được danh sách bản đồ)</option>';
+  }
+  updateMapPreview();
+}
+loadMapOptions();
+
+// Xem trước bản đồ THẬT (chưa chạy mô phỏng) ngay khi chọn trong dropdown —
+// loadStatus() sẽ tự chuyển iframe này sang hiện fleet ảo khi mô phỏng đang
+// chạy/đã xong (xem nhánh "running"/"finished" dưới), KHÔNG đè lên lúc đó.
+function updateMapPreview(){
+  if(_simActiveApiPort) return;   // đang/đã chạy mô phỏng → để loadStatus() điều khiển
+  const mapId = document.getElementById('in-map-id').value;
+  const mapCard = document.getElementById('map-card');
+  const mapFrame = document.getElementById('map-frame');
+  const note = document.getElementById('map-preview-note');
+  if(!mapId){ mapCard.style.display = 'none'; return; }
+  mapCard.style.display = 'block';
+  note.style.display = 'block';
+  const src = `/assets/task_execute.html?view=monitor&map_id=${encodeURIComponent(mapId)}`;
+  if(!mapFrame.src.endsWith(src)) mapFrame.src = src;
+}
+let _simActiveApiPort = null;   // khác null khi mô phỏng đang/đã chạy — xem loadStatus()
+
+function fmtViolation(rec){
+  const parts = [];
+  if(rec.tag!=null) parts.push(`node ${rec.tag}`);
+  if(rec.edge) parts.push(`cạnh ${rec.edge}`);
+  if(rec.error_code!=null) parts.push(`error_code=${rec.error_code}`);
+  if(rec.idle_sec!=null) parts.push(`đứng ${rec.idle_sec}s`);
+  if(rec.line) parts.push(rec.line);
+  return parts.join(', ');
+}
+
+async function loadStatus(){
+  let d;
+  try{
+    const r = await fetch('/sim-control/status');
+    d = await r.json();
+  }catch(e){ return; }
+
+  const badge = document.getElementById('state-badge');
+  badge.className = 'badge badge-' + d.state;
+  badge.textContent = (STATE_LABEL[d.state] || d.state) +
+    (d.state === 'running' && d.params && d.params.mode === 'manual' ? ' · giao lệnh' : '');
+
+  document.getElementById('btn-start').disabled = (d.state === 'running');
+  document.getElementById('btn-stop').disabled  = (d.state !== 'running');
+
+  document.getElementById('stat-elapsed').textContent = fmtElapsed(d.elapsed_sec);
+  document.getElementById('stat-collision').textContent = d.collision_count ?? 0;
+  document.getElementById('stat-stall').textContent = d.stall_count ?? 0;
+  document.getElementById('stat-jx-meet').textContent = d.junction_meet_count ?? 0;
+  document.getElementById('stat-jx-stuck').textContent = d.junction_stuck_count ?? 0;
+
+  const affected = d.most_affected_agvs || [];
+  document.getElementById('affected-row').textContent = affected.length
+    ? 'Xe bị ảnh hưởng nhiều nhất: ' + affected.map(([id,c]) => `${id} (${c})`).join(', ')
+    : '';
+
+  const errBox = document.getElementById('error-log');
+  if(d.state === 'error' && d.error_log){
+    errBox.style.display = 'block';
+    errBox.textContent = d.error_log;
+  } else {
+    errBox.style.display = 'none';
+  }
+
+  const summaryCard = document.getElementById('summary-card');
+  if(d.summary){
+    summaryCard.style.display = 'block';
+    const s = d.summary;
+    const worst = (s.most_affected_agvs||[]).map(([id,c]) => `${id} (${c})`).join(', ') || '—';
+    document.getElementById('summary-body').innerHTML = `
+      Thời gian chạy: <b>${fmtElapsed(s.duration_sec)}</b><br/>
+      Số xe mô phỏng: <b>${s.agv_count}</b><br/>
+      Số lần va chạm: <b>${d.collision_count ?? 0}</b> · Số lần kẹt &gt; 5 phút: <b>${d.stall_count ?? 0}</b><br/>
+      Xe bị ảnh hưởng nhiều nhất: <b>${worst}</b>`;
+  } else {
+    summaryCard.style.display = 'none';
+  }
+
+  const tbody = document.getElementById('violations-body');
+  const recent = d.recent_violations || [];
+  document.getElementById('violations-empty').style.display = recent.length ? 'none' : 'block';
+  tbody.innerHTML = recent.map(rec => {
+    const t = rec.ts ? new Date(rec.ts*1000).toLocaleTimeString('vi-VN') : '';
+    const agvs = (rec.agv_ids || (rec.agv_id ? [rec.agv_id] : [])).join(', ');
+    return `<tr>
+      <td>${t}</td>
+      <td><span class="chip chip-${rec.kind}">${KIND_LABEL[rec.kind]||rec.kind}</span></td>
+      <td>${agvs}</td>
+      <td>${fmtViolation(rec)}</td>
+    </tr>`;
+  }).join('');
+
+  const mapCard = document.getElementById('map-card');
+  const mapFrame = document.getElementById('map-frame');
+  const note = document.getElementById('map-preview-note');
+  const apiPort = d.params && d.params.api_port;
+  const mapId = d.params && d.params.map_id;
+  _simApi = (d.state === 'running' && apiPort && d.sim_ready)
+    ? 'http://' + (window.location.hostname || 'localhost') + ':' + apiPort : null;
+  loadTeams((_simApi && mapId) || document.getElementById('in-map-id').value, _simApi || PROD_API);
+  loadLiveAgvs();
+  if(d.state === 'running' && apiPort && d.sim_ready){
+    // CHỈ chuyển sang xem fleet ảo khi server mô phỏng ĐÃ THỰC SỰ lên (có thể
+    // mất 5-10s sau khi bấm Bắt đầu) — chuyển ngay lúc state vừa thành
+    // "running" (trước khi server đó kịp lắng nghe port) khiến khung bản đồ
+    // trỏ vào 1 địa chỉ CHƯA chạy → trống trơn, giống như "bản đồ biến mất".
+    _simActiveApiPort = apiPort;
+    mapCard.style.display = 'block';
+    note.style.display = 'none';
+    const src = `/assets/task_execute.html?view=monitor&api_port=${apiPort}` +
+                (mapId ? `&map_id=${encodeURIComponent(mapId)}` : '');
+    if(!mapFrame.src.endsWith(src)) mapFrame.src = src;   // tránh reload iframe mỗi 2s
+  } else if(d.state === 'running' && apiPort && !d.sim_ready){
+    // Đã bắt đầu nhưng server mô phỏng chưa kịp lên — giữ hiện bản đồ xem
+    // trước (thật) đang có, KHÔNG chuyển sang địa chỉ chết, chỉ báo đang chờ.
+    mapCard.style.display = 'block';
+    note.style.display = 'block';
+    note.textContent = 'Đang khởi động server mô phỏng, vài giây nữa sẽ tự hiện xe ảo...';
+  } else {
+    // idle/finished/error: không còn fleet ảo nào đang sống để xem — quay
+    // lại xem trước bản đồ thật đang chọn (nếu có).
+    _simActiveApiPort = null;
+    note.textContent = 'Xem trước bản đồ đã chọn (dữ liệu THẬT) — sẽ tự chuyển sang hiện xe mô phỏng khi bấm Bắt đầu.';
+    updateMapPreview();
+  }
+}
+
+const TYPE_LABEL = {tow: 'Kéo (tow)', trailer: 'Rơ-moóc', carry: 'Chở (carry)'};
+function opLabel(a){
+  if(a.agv_type === 'tow'){
+    if(a.op_mode === 'carry_hook') return a.return_mode === 'drop_cart' ? 'Chở có móc + thả xe hàng rồi sạc' : 'Chở có móc';
+    if(a.op_mode === 'carry_fixed') return 'Chở thùng cố định';
+    return 'Tự động lấy/cấp hàng';
+  }
+  return a.agv_type === 'trailer' ? 'Tự động lấy/cấp hàng' : 'Chở thường';
+}
+async function loadFleet(){
+  try{
+    const r = await fetch('/sim-control/fleet');
+    const d = await r.json();
+    const list = d.agvs || [];
+    document.getElementById('fleet-empty').style.display = list.length ? 'none' : 'block';
+    // Tóm tắt đội xe ở khung Trạng thái: tổng số, từng loại, và từng loại theo chế độ vận hành
+    const sumEl = document.getElementById('fleet-summary');
+    if(list.length){
+      const byType = {}, byMode = {};
+      list.forEach(a => {
+        byType[a.agv_type] = (byType[a.agv_type] || 0) + 1;
+        const k = (TYPE_LABEL[a.agv_type] || a.agv_type) + ' · ' + opLabel(a);
+        byMode[k] = (byMode[k] || 0) + 1;
+      });
+      const chip = (t, strong) => `<span style="padding:3px 9px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:${strong ? 'rgba(96,165,250,.18)' : 'rgba(255,255,255,.04)'};color:#e2e8f0">${t}</span>`;
+      sumEl.innerHTML = chip(`<b>Tổng: ${list.length} xe</b>`, true)
+        + Object.entries(byType).map(([t, n]) => chip(`${TYPE_LABEL[t] || t}: <b>${n}</b>`, false)).join('')
+        + `<span style="color:#64748a;font-size:11px">${Object.entries(byMode).map(([k, n]) => `${k} ×${n}`).join(' · ')}</span>`;
+      sumEl.style.display = 'flex';
+    } else { sumEl.style.display = 'none'; sumEl.innerHTML = ''; }
+    document.getElementById('fleet-body').innerHTML = list.map(a => `<tr>
+      <td><b>${a.name}</b></td>
+      <td>${TYPE_LABEL[a.agv_type] || a.agv_type}</td>
+      <td>${opLabel(a)}</td>
+      <td>${a.start_node ? 'node ' + a.start_node : '(tự rải)'}</td></tr>`).join('');
+  }catch(e){}
+}
+async function loadStartCandidates(){
+  const el = document.getElementById('start-candidates');
+  const mapId = document.getElementById('in-map-id').value;
+  if(!mapId){ el.textContent = ''; return; }
+  try{
+    const r = await fetch('/sim-control/start-candidates?map_id=' + encodeURIComponent(mapId));
+    const d = await r.json();
+    if(!d.ok){ el.textContent = 'Không tải được gợi ý: ' + (d.error || ''); return; }
+    const fmt = n => n.node + (n.station_agv_type ? `(${n.station_agv_type})` : '')
+                      + (n.allowed && n.allowed.length ? `[chỉ ${n.allowed.join('/')}]` : '');
+    const ch = d.nodes.filter(n => n.kind === 'charger').map(fmt).join(', ') || '—';
+    const wt = d.nodes.filter(n => n.kind === 'waiting').map(fmt).join(', ') || '—';
+    el.textContent = `Trạm sạc: ${ch}  ·  Node chờ: ${wt}`;
+  }catch(e){ el.textContent = ''; }
+}
+function getStartNodes(){
+  const out = {};
+  document.querySelectorAll('.start-in').forEach(el => {
+    const v = el.value.trim();
+    if(v) out[el.dataset.type] = v;
+  });
+  return out;
+}
+
+function getMix(){
+  const mix = {};
+  document.querySelectorAll('.mix-in').forEach(el => {
+    const n = parseInt(el.value, 10);
+    if(n > 0) mix[el.dataset.kind] = n;
+  });
+  return mix;
+}
+function onMixChange(){
+  const total = Object.values(getMix()).reduce((a,b)=>a+b, 0);
+  const cnt = document.getElementById('in-agv-count');
+  const typ = document.getElementById('in-agv-type');
+  cnt.disabled = typ.disabled = total > 0;
+  if(total > 0) cnt.value = total;
+  document.getElementById('count-hint').textContent =
+    total > 0 ? 'tự tính = tổng các loại đã trộn' : 'khuyến nghị 10-20';
+}
+
+async function startSim(){
+  const errBox = document.getElementById('start-error');
+  errBox.style.display = 'none';
+  const body = {
+    agv_mix: getMix(),
+    start_nodes: getStartNodes(),
+    agv_count: parseInt(document.getElementById('in-agv-count').value, 10),
+    duration_hours: parseFloat(document.getElementById('in-duration').value),
+    mqtt_port: parseInt(document.getElementById('in-mqtt-port').value, 10),
+    api_port: parseInt(document.getElementById('in-api-port').value, 10),
+    map_id: document.getElementById('in-map-id').value,
+    agv_type: document.getElementById('in-agv-type').value,
+    mode: document.getElementById('in-mode').value,
+  };
+  try{
+    const r = await fetch('/sim-control/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    const d = await r.json();
+    if(!d.ok){
+      errBox.textContent = d.error || 'Không khởi động được mô phỏng.';
+      errBox.style.display = 'block';
+    }
+  }catch(e){
+    errBox.textContent = 'Lỗi gọi API: ' + e.message;
+    errBox.style.display = 'block';
+  }
+  loadStatus();
+  setTimeout(loadFleet, 4000);
+}
+
+async function stopSim(){
+  try{ await fetch('/sim-control/stop', {method:'POST'}); }catch(e){}
+  loadStatus();
+}
+
+// ═══════════ Gửi lệnh + hiển thị tổ ═══════════
+const TEAM_COLORS = ['#f472b6','#34d399','#fbbf24','#60a5fa','#c084fc','#fb923c','#2dd4bf','#a3e635','#f87171','#38bdf8'];
+function teamColor(t){ const k = parseInt(t, 10); return TEAM_COLORS[(isNaN(k) ? 0 : Math.abs(k)) % TEAM_COLORS.length]; }
+
+let _simApi = null;          // 'http://host:port' của server mô phỏng khi đã sẵn sàng, ngược lại null
+let _liveAgvs = [];
+let _teamMapKey = null;      // map_id + nguồn đã tải tổ, tránh tải lại mỗi 2s
+
+// ----- Tổ: suy ra từ cấu hình node của map (cùng quy ước server: team-nodes / supply-groups) -----
+function buildTeams(points){
+  const byTeam = {};
+  const add = (nid, team, kind) => {
+    team = String(team).trim(); if(!team) return;
+    const t = (byTeam[team] = byTeam[team] || {drop: [], supply: []});
+    if(!t[kind].includes(nid)) t[kind].push(nid);
+  };
+  (points || []).forEach(n => {
+    const a = n.action; if(!a || typeof a !== 'object') return;
+    const nid = String(n.name_id);
+    // Rơ-moóc: trailer_role 'drop' (thả/giao) | 'pickup' (lấy) + số tổ ở team hoặc trailer_drop_teams/trailer_pickup_teams.
+    // Xe carry (chưa khai trailer_role): DROPOFF/wait_user + team = giao; supply_group = lấy hàng.
+    const role = String(a.trailer_role || '');
+    if(role === 'drop' || role === 'pickup'){
+      const kind = role === 'pickup' ? 'supply' : 'drop';
+      if(a.team != null && a.team !== '') add(nid, a.team, kind);
+      const arr = a[role === 'pickup' ? 'trailer_pickup_teams' : 'trailer_drop_teams'];
+      if(Array.isArray(arr)) arr.forEach(t => add(nid, t, kind));
+    } else if(a.team != null && a.team !== '' && (String(a.locationType || '').toUpperCase() === 'DROPOFF' || String(a.arrival_action || '') === 'wait_user')){
+      add(nid, a.team, 'drop');
+    }
+    let sg = a.supply_group; if(typeof sg === 'string') sg = sg.split(',');
+    if(Array.isArray(sg)) sg.forEach(x => add(nid, x, 'supply'));
+  });
+  return byTeam;
+}
+async function loadTeams(mapId, base){
+  if(!mapId) return;
+  const key = mapId + '@' + base;
+  if(key === _teamMapKey) return;
+  try{
+    const r = await fetch(`${base}/api/maps/${encodeURIComponent(mapId)}`);
+    const d = await r.json();
+    renderTeams(buildTeams(d.robot_points || []));
+    _teamMapKey = key;
+  }catch(e){
+    document.getElementById('team-body').innerHTML = '<span style="color:#f87171;font-size:12px">Không tải được cấu hình tổ của bản đồ.</span>';
+  }
+}
+function renderTeams(byTeam){
+  const keys = Object.keys(byTeam).sort((a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || a.localeCompare(b));
+  const body = document.getElementById('team-body');
+  if(!keys.length){
+    body.innerHTML = '<span style="color:#8c909f;font-size:12px">Bản đồ này chưa cấu hình tổ nào.</span>';
+    return;
+  }
+  const nodeBtn = n => `<b>${n}</b>`;
+  body.innerHTML = keys.map(k => {
+    const t = byTeam[k], c = teamColor(k);
+    return `<span class="team-chip" style="color:${c};border-color:${c};background:${c}1a">
+      <b>Tổ ${k}</b>
+      <span style="color:#e2e8f0">giao: ${t.drop.length ? t.drop.map(nodeBtn).join(', ') : '—'}</span>
+      <span style="color:#67e8f9">📦 lấy: ${t.supply.length ? t.supply.map(nodeBtn).join(', ') : '—'}</span></span>`;
+  }).join('');
+}
+
+// ----- Trạng thái xe + hàng đợi (server mô phỏng) -----
+const CMD_LABEL = {go_to: 'đi tới', go_charge: 'về trạm sạc', go_wait: 'về node chờ'};
+function fmtCmd(c){
+  if(!c) return '—';
+  return (CMD_LABEL[c.command] || c.command) + (c.dest_node ? ' ' + c.dest_node : '');
+}
+async function loadLiveAgvs(){
+  const tbody = document.getElementById('cmd-live-body');
+  if(!_simApi){
+    _liveAgvs = [];
+    tbody.innerHTML = '';
+    document.getElementById('cmd-live-empty').style.display = 'block';
+      return;
+  }
+  try{
+    const r = await fetch(_simApi + '/api/execute/agv-list');
+    const d = await r.json();
+    _liveAgvs = (d.agvs || []).filter(a => /^SIM/.test(a.agv_id));
+  }catch(e){ return; }
+  document.getElementById('cmd-live-empty').style.display = _liveAgvs.length ? 'none' : 'block';
+  // Nội dung hàng đợi (đích từng lệnh chờ) của các xe đang có lệnh chờ
+  const queues = {};
+  await Promise.all(_liveAgvs.filter(a => (a.queue_size || 0) > 0).map(async a => {
+    try{
+      const r = await fetch(_simApi + '/api/execute/queue-status/' + encodeURIComponent(a.agv_id));
+      const q = await r.json();
+      queues[a.agv_id] = (q.queue || []).map(c => (CMD_LABEL[c.command] || c.command) + (c.dest_node ? ' ' + c.dest_node : '')).join(' → ');
+    }catch(e){}
+  }));
+  tbody.innerHTML = _liveAgvs.map(a => {
+    const q = (a.queue_size || 0) > 0 ? (queues[a.agv_id] || (a.queue_size + ' lệnh chờ')) : '—';
+    const st = a.driving ? '<span style="color:#4ade80">đang chạy</span>' : (a.is_busy ? '<span style="color:#fde047">đang chờ</span>' : 'rảnh');
+    return `<tr><td><b>${a.agv_id}</b></td><td>${a.current_node ? 'node ' + a.current_node : '?'}</td><td>${st}</td>
+      <td>${fmtCmd(a.running_cmd)}</td><td>${q}</td></tr>`;
+  }).join('');
+}
+
+loadStatus();
+setInterval(loadStatus, 2000);
+loadFleet();
+setInterval(loadFleet, 10000);
+document.getElementById('in-map-id').addEventListener('change', loadStartCandidates);
+setTimeout(loadStartCandidates, 1500);
+</script>
+</body>
+</html>

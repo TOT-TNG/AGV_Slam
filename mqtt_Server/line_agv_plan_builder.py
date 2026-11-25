@@ -30,7 +30,7 @@ ACTION_HOOK_LOWER  = 31   # Hạ móc (xe rơ-moóc/đầu kéo) — bình thư�
 ACTION_REVERSE_BLIND = 36 # Lùi mù theo thời gian (v = ms) — chỉ dùng khi xe rơ-moóc rời trạm sạc để quay đầu
 
 SPEED_FAST     = 120   # byte mặc định khi edge không cấu hình speed
-SPEED_SLOW     = 60    # byte tốc độ tiếp cận nút rẽ (N-1 pattern)
+SPEED_SLOW     = 70    # byte tốc độ tiếp cận nút rẽ (N-1 pattern)
 LOOKAHEAD      = 4    # số node/cửa sổ rolling (≤5 node) — tránh tràn UART buffer Arduino (128B)
 RETRY_TIMEOUT  = 4.0   # giây, thời gian chờ ACK trước khi retry
 
@@ -291,27 +291,28 @@ def _build_steps(
     n_full  = len(full_path)
     w_len   = w_end - w_start + 1
 
-    # Lùi vào đích (DIR_BWD ở node trước đích) CHỈ áp dụng khi:
-    #   (a) đích là TRẠM SẠC (locationType=CHARGER / wait_charge) — nơi THỰC SỰ cần lùi vào.
-    #       → KHÔNG honor approach_dir=bwd sót lại trên node thường (NORMAL/junction). Nhiều
-    #         node thường trong map để approach_dir=bwd mặc định → nếu lùi vào sẽ chèn DIR_BWD
-    #         bậy, kết hợp với TURN làm xe đi NHẦM node (vd 1→96 thay vì 1→2) → off_route loạn.
+    # Lùi vào đích (DIR_BWD ở node trước đích) áp dụng cho BẤT KỲ node nào được
+    # cấu hình approach_dir=bwd (không còn giới hạn riêng trạm sạc — layout thực
+    # tế có thể có điểm cụt/điểm chờ cần lùi vào ở bất cứ đâu, vd điểm cấp hàng
+    # của xe carry), miễn là:
+    #   (a) xe THỰC SỰ lùi được (can_reverse=True) — trailer/tow luôn đi tiến.
     #   (b) node TRƯỚC đích KHÔNG phải trạm sạc — vì sau trạm sạc không có đường để lùi.
     dest_node_act      = node_actions.get(str(full_path[w_end]), {}) if full_path else {}
-    _dest_is_charger = (
-        str(dest_node_act.get("locationType", "")).upper() == "CHARGER"
-        or str(dest_node_act.get("arrival_action", "")).lower() == "wait_charge"
-    )
     _pre_final_node = full_path[w_end - 1] if (full_path and w_end >= 1) else None
     _pre_final_cfg  = node_actions.get(str(_pre_final_node), {}) if _pre_final_node is not None else {}
     _pre_final_is_charger = (
         str(_pre_final_cfg.get("locationType", "")).upper() == "CHARGER"
         or str(_pre_final_cfg.get("arrival_action", "")).lower() == "wait_charge"
     )
-    _dest_wants_bwd = str(dest_node_act.get("approach_dir") or "").lower() == "bwd"
-    # MỚI: xe không lùi được (đầu kéo/rơ-moóc) — KHÔNG BAO GIỜ chèn lùi vào trạm
-    # sạc dù node đích cấu hình approach_dir=bwd (cấu hình đó dành cho carry).
-    # Map cần trạm sạc riêng (approach_dir để trống/tiến) cho xe loại này.
+    # Trạm sạc: mặc định LÙI VÀO (mũi xe hướng ra — khớp resolve_departure_direction/_charger_exit_direction: rời trạm luôn
+    # tiến). Chỉ khi node đặt tường minh approach_dir=fwd ("Tiến vào") thì mới tiến vào trạm.
+    _dest_appr = str(dest_node_act.get("approach_dir") or "").lower()
+    _dest_is_charger = (str(dest_node_act.get("locationType", "")).upper() == "CHARGER"
+                        or str(dest_node_act.get("arrival_action", "")).lower() == "wait_charge")
+    _dest_wants_bwd = _dest_appr == "bwd" or (_dest_is_charger and _dest_appr != "fwd")
+    # Xe không lùi được (đầu kéo/rơ-moóc) — KHÔNG BAO GIỜ chèn lùi vào đích dù
+    # đích cấu hình approach_dir=bwd (cấu hình đó dành cho xe lùi được, vd carry).
+    # Map cần điểm/trạm riêng (approach_dir để trống/tiến) cho xe loại này.
     _can_reverse_agv = True
     try:
         from agv_registry import agv_registry as _areg_bwd
@@ -319,15 +320,12 @@ def _build_steps(
     except Exception:
         pass
     final_approach_bwd = (
-        is_final and _dest_wants_bwd and _dest_is_charger and not _pre_final_is_charger
+        is_final and _dest_wants_bwd and not _pre_final_is_charger
         and _can_reverse_agv
     )
-    if is_final and _dest_wants_bwd and _dest_is_charger and not _can_reverse_agv:
-        print(f"[PLAN] {_agv} | xe không lùi được — BỎ backward-approach vào trạm sạc "
-              f"{full_path[w_end]}, đi TIẾN vào (cần trạm sạc riêng nếu vật lý không tiếp cận được bằng tiến)")
-    if is_final and _dest_wants_bwd and not _dest_is_charger:
-        print(f"[PLAN] {_agv} | BỎ qua approach_dir=bwd tại {full_path[w_end]} "
-              f"(không phải trạm sạc) → đi TIẾN vào, tránh DIR_BWD bậy gây đi nhầm node")
+    if is_final and _dest_wants_bwd and not _can_reverse_agv:
+        print(f"[PLAN] {_agv} | xe không lùi được — BỎ backward-approach vào "
+              f"{full_path[w_end]}, đi TIẾN vào (cần điểm/trạm riêng nếu vật lý không tiếp cận được bằng tiến)")
     elif is_final and _dest_wants_bwd and _pre_final_is_charger:
         print(f"[PLAN] {_agv} | BỎ backward-approach vào {full_path[w_end]} "
               f"vì node trước ({_pre_final_node}) là trạm sạc (sau trạm không có đường lùi) → đi tiến")
@@ -337,6 +335,24 @@ def _build_steps(
     if w_start == 0 and not skip_initial_dir:
         dir_action = ACTION_DIR_BWD if direction == "bwd" else ACTION_DIR_FWD
         first_tag  = int(full_path[0]) if full_path else 0
+        # KHÔNG chèn WAIT_SYS ở đây (đã bỏ theo xác nhận từ team firmware,
+        # 2026-09-28): first_tag LUÔN LÀ thẻ hiện tại của xe tại thời điểm
+        # dispatch cửa sổ mới — hàm này chỉ được gọi SAU KHI đã nhận event
+        # dừng/tới nơi (arrived_wait_sys/arrived_wait_user/hook_lowered/...),
+        # nên xe CHẮC CHẮN đã đứng yên tại first_tag, không cần WAIT_SYS để
+        # ép dừng thêm lần nữa trước khi đổi chiều.
+        # Theo firmware: bất kỳ WAIT_SYS (a=1) nào đặt ở đúng thẻ xe đang
+        # đứng sẽ làm xe "dừng hẳn, đóng phanh" và CHỈ thoát được bằng nút
+        # "Tiếp tục" trên HMI (event continue) — KHÔNG bao giờ tự thoát bằng
+        # {"c":"run"} hay bằng plan mới có cùng dạng lặp lại. Trước đây chèn
+        # WAIT_SYS ở bước đầu (trừ khi node đầu có rẽ ngay) để "ép" firmware
+        # dừng hẳn trước khi đổi DIR_BWD — điều này khiến MỌI dispatch tiếp
+        # theo tại 1 node xe đang đứng (off_route re-dispatch, tiếp tục đoạn
+        # transit lùi sau khi 1 WAIT_SYS giữa route đã dừng xe, wait_sys tại
+        # node trung gian...) tự chèn lại 1 WAIT_SYS thừa vào ĐÚNG thẻ xe vừa
+        # dừng ở đó → xe kẹt cứng, server cứ gửi run+plan lặp lại vô tận mà
+        # không bao giờ thoát được (đúng hiện tượng "gửi lại plan N lần liên
+        # tiếp tại node X mà KHÔNG tiến được" thấy trong log thực tế).
         steps.append({"t": first_tag, "a": dir_action, "v": 0})
         print(f"[PLAN] {_agv} | node {first_tag}: {_act_name(dir_action)} (direction={direction}, dest={full_path[-1]}, task={task_type})")
 
@@ -405,6 +421,12 @@ def _build_steps(
                 steps.append({"t": tag, "a": ACTION_WAIT_SYS, "v": 0})
             break
 
+        # Tại node N-1 (ngay trước đích cuối): chèn DIR_BWD NẾU plan đang đi fwd nhưng
+        # charger cần approach bwd (lùi vào). Tính SỚM ở đây (trước khi resolve turn)
+        # vì turn tại CHÍNH node này (dẫn ra khỏi node, hướng về đích) cần bị ĐẢO —
+        # xem giải thích chi tiết ngay dưới.
+        is_pre_final = final_approach_bwd and (global_i == w_end - 1) and direction == 'fwd'
+
         # ── Rẽ TẠI NÚT HIỆN TẠI ─────────────────────────────────────────────
         # Nếu global_i==0 và biết hướng xe trước đó (initial_prev_tag), tính turn ngay tại node đầu
         _using_initial_prev = (global_i == 0 and w_start == 0 and initial_prev_tag is not None)
@@ -412,6 +434,7 @@ def _build_steps(
                           else (initial_prev_tag if w_start == 0 else None))
         turn_at_current = None
         _turn_src_cur   = ""
+        _pre_final_needs_180spin = False
         if _from_for_turn and global_i + 1 < n_full:
             if _using_initial_prev and direction == "fwd" and initial_arrived_bwd:
                 # Xe đến start node theo chiều lùi (ví dụ: lùi vào trạm sạc), kế hoạch mới đi tiến.
@@ -433,6 +456,30 @@ def _build_steps(
                     points, node_actions, direction,
                     skip_geometry=not _can_reverse_agv,
                 )
+            if is_pre_final and turn_at_current is not None:
+                # QUAN TRỌNG: turn_map/geometry được cấu hình/tính theo quy ước "đi
+                # TIẾP TỤC TIẾN" (mũi xe quay về hướng cạnh ra, xem PROTOCOL_GUIDE.md
+                # "Đổi chiều lùi"). Nhưng node này lại đổi chiều LÙI ngay sau khi rẽ
+                # (is_pre_final) — nếu quay mũi xe hướng về phía đích rồi mới lùi thì
+                # xe sẽ lùi RA XA đích (đúng lỗi thực tế: rẽ đúng nhưng không lùi được
+                # vào trạm). Cần quay NGƯỢC hướng (L↔R) để ĐUÔI xe hướng về đích,
+                # sau đó lùi mới thực sự tiến gần đích — cùng nguyên lý đảo chiều đã
+                # dùng ở _resolve_turn_bwd_arrival() cho trường hợp ngược lại (đến
+                # BẰNG lùi rồi đi tiếp bằng tiến).
+                _turn_before_inv = turn_at_current
+                turn_at_current = _invert_turn(turn_at_current)
+                _turn_src_cur = f"{_turn_src_cur} [pre_final_bwd,inverted {_act_name(_turn_before_inv)}→{_act_name(turn_at_current)}]"
+            elif is_pre_final and turn_at_current is None:
+                # QUAN TRỌNG: nếu đoạn từ node trước tới đích là ĐI THẲNG
+                # (turn_at_current=None, không có cú rẽ nào để đảo hướng), mũi xe
+                # vẫn đang chỉ THẲNG VỀ PHÍA ĐÍCH — lùi ngay ở đây (không quay đầu)
+                # sẽ lùi NGƯỢC lại đúng hướng vừa đi tới (về node trước), không phải
+                # về đích. Xử lý bằng cách QUAY ĐẦU TẠI CHỖ 180° (2 lệnh rẽ 90° cùng
+                # chiều liên tiếp, không di chuyển sang thẻ khác) trước khi lùi — xem
+                # `_pre_final_needs_180spin` ở bước sinh steps bên dưới.
+                _pre_final_needs_180spin = True
+                print(f"[PLAN] {_agv} | node {tag}: đường thẳng (không có rẽ để đảo hướng) "
+                      f"trước đích cần lùi vào — QUAY ĐẦU TẠI CHỖ 180° rồi mới lùi")
             _from_l = _from_for_turn
             _to_l   = full_path[global_i + 1]
             print(f"[PLAN] {_agv} | node {tag} ({direction}, from={_from_l}→{tag}→{_to_l}): "
@@ -478,11 +525,9 @@ def _build_steps(
         # đã tự SPEED cho edge này rồi — bỏ qua SPEED ở đây để khỏi gửi trùng.
         _skip_first_speed = skip_initial_dir and global_i == 0
 
-        # Tại node N-1 (ngay trước đích cuối): chèn DIR_BWD NẾU plan đang đi fwd nhưng
-        # charger cần approach bwd (lùi vào). Nếu plan đã là bwd từ đầu → KHÔNG chèn thêm
-        # vì DIR_BWD thứ 2 sau TURN sẽ override/cancel lệnh rẽ, làm AGV đi nhầm hướng.
-        is_pre_final     = final_approach_bwd and (global_i == w_end - 1) and direction == 'fwd'
-
+        # is_pre_final đã tính SỚM ở trên (trước khi resolve turn) — xem giải thích
+        # ở đó. Nếu plan đã là bwd từ đầu → is_pre_final=False, KHÔNG chèn thêm
+        # DIR_BWD (DIR_BWD thứ 2 sau TURN sẽ override/cancel lệnh rẽ, đi nhầm hướng).
         if is_pre_final:
             print(f"[PLAN] {_agv} | node {tag}: DIR_BWD inserted (final_approach_bwd → dest={full_path[w_end]})")
 
@@ -492,7 +537,13 @@ def _build_steps(
             if global_i == 0:
                 steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
             steps.append({"t": tag, "a": turn_at_current, "v": 0})
-            steps.append({"t": tag, "a": ACTION_LIDAR_ON, "v": 0})  # luôn ON sau rẽ
+            # Sau rẽ thường bật LIDAR lại. NHƯNG nếu node này / cạnh đi ra được cấu hình TẮT
+            # LIDAR (force_lidar_off) hoặc nút kế lại rẽ tiếp (turn_at_next → tắt ngay) thì
+            # KHÔNG bật rồi tắt liền: xe đang đứng yên sau rẽ, cửa sổ ON ngắn đó đủ để cảm
+            # biến thấy xe hàng/vật ở đích (vd lùi vào 105) và chốt OBSTACLE ~1s sau turn_free
+            # dù đã tắt LIDAR ở node + cạnh (log 13:22 & 15:09 2026-10-15, node 30→105).
+            if not (force_lidar_off or turn_at_next is not None):
+                steps.append({"t": tag, "a": ACTION_LIDAR_ON, "v": 0})
 
             if turn_at_next is not None:
                 # Nút tiếp theo cũng rẽ → giảm tốc + tắt LIDAR ngay (cho rẽ tiếp)
@@ -500,6 +551,12 @@ def _build_steps(
                     steps.append({"t": tag, "a": ACTION_SPEED, "v": spd_approach})
                 steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                 if is_pre_final:
+                    # Theo PROTOCOL_GUIDE.md mục "Đổi chiều lùi": PHẢI dừng hẳn
+                    # (WAIT_SYS) TRƯỚC khi đổi DIR_BWD — thiếu bước này firmware
+                    # vẫn đang ở trạng thái "đang chạy" sau TURN nên không chuyển
+                    # chiều lùi được, xe tiếp tục chạy tiến (đầu xe dẫn) luôn vào
+                    # đích thay vì lùi (đúng lỗi thực tế: rẽ đúng nhưng không lùi).
+                    steps.append({"t": tag, "a": ACTION_WAIT_SYS, "v": 0})
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
                 steps.append({"t": tag, "a": ACTION_RUN, "v": 0})
                 incoming_lidar_off = True   # LIDAR đã OFF cho rẽ tiếp
@@ -511,6 +568,8 @@ def _build_steps(
                     steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                     incoming_lidar_off = True
                 if is_pre_final:
+                    # Xem giải thích ở nhánh trên (PROTOCOL_GUIDE.md "Đổi chiều lùi").
+                    steps.append({"t": tag, "a": ACTION_WAIT_SYS, "v": 0})
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
                 steps.append({"t": tag, "a": ACTION_RUN, "v": 0})
 
@@ -521,6 +580,23 @@ def _build_steps(
                     steps.append({"t": tag, "a": ACTION_SPEED, "v": spd_approach})
                 steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
                 if is_pre_final:
+                    if _pre_final_needs_180spin:
+                        # Đường thẳng, không có rẽ để đảo hướng — quay đầu TẠI CHỖ
+                        # 180° (2 lệnh rẽ 90° cùng chiều liên tiếp) trước khi lùi.
+                        # QUAN TRỌNG (phát hiện thực tế 2026-09-17): gửi 2 lệnh
+                        # TURN_L liên tiếp KHÔNG có gì xen giữa khiến firmware chỉ
+                        # thực hiện ĐÚNG 1 lần rẽ (mất lệnh thứ 2, không có cả sự
+                        # kiện turn_busy/turn_free cho lần 2) — cùng họ lỗi "lẫn
+                        # bước" đã gặp với WAIT_SYS-ngay-trước-TURN. MỌI lệnh rẽ
+                        # khác trong toàn bộ codebase đều được bọc LIDAR_OFF→TURN→
+                        # LIDAR_ON; xen thêm cặp LIDAR_ON/LIDAR_OFF giữa 2 TURN_L để
+                        # firmware nhận diện đây là 2 lệnh rẽ tách biệt.
+                        steps.append({"t": tag, "a": ACTION_TURN_L, "v": 0})
+                        steps.append({"t": tag, "a": ACTION_LIDAR_ON, "v": 0})
+                        steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
+                        steps.append({"t": tag, "a": ACTION_TURN_L, "v": 0})
+                    # Xem giải thích ở trên (PROTOCOL_GUIDE.md "Đổi chiều lùi").
+                    steps.append({"t": tag, "a": ACTION_WAIT_SYS, "v": 0})
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
                 steps.append({"t": tag, "a": ACTION_RUN, "v": 0})
                 incoming_lidar_off = True   # LIDAR đã OFF cho rẽ
@@ -529,6 +605,21 @@ def _build_steps(
                 if is_pre_final:
                     if not _skip_first_speed:
                         steps.append({"t": tag, "a": ACTION_SPEED, "v": SPEED_SLOW})
+                    if _pre_final_needs_180spin:
+                        # Như trên: đường thẳng cả 2 phía, không rẽ nào để đảo hướng
+                        # → quay đầu TẠI CHỖ 180° trước khi lùi. Xen LIDAR_ON/OFF
+                        # giữa 2 TURN_L — xem giải thích chi tiết ở nhánh trên
+                        # (phát hiện thực tế 2026-09-17: 2 TURN_L liền nhau không có
+                        # gì xen giữa bị firmware mất lệnh thứ 2).
+                        steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
+                        steps.append({"t": tag, "a": ACTION_TURN_L, "v": 0})
+                        steps.append({"t": tag, "a": ACTION_LIDAR_ON, "v": 0})
+                        steps.append({"t": tag, "a": ACTION_LIDAR_OFF, "v": 0})
+                        steps.append({"t": tag, "a": ACTION_TURN_L, "v": 0})
+                        incoming_lidar_off = True   # giữ tắt xuyên suốt lùi+chạy
+                    # PROTOCOL_GUIDE.md "Đổi chiều lùi": dừng hẳn (WAIT_SYS)
+                    # TRƯỚC khi đổi DIR_BWD — bắt buộc, không phải tuỳ chọn.
+                    steps.append({"t": tag, "a": ACTION_WAIT_SYS, "v": 0})
                     steps.append({"t": tag, "a": ACTION_DIR_BWD, "v": 0})
                     steps.append({"t": tag, "a": ACTION_RUN,     "v": 0})
                 else:
@@ -659,7 +750,7 @@ def build_edge_speeds(roads: list) -> dict:
 
     Công thức: speed_byte = int(speed_m_s * 240)
       → 0.5 m/s = 120 = SPEED_FAST  (tốc độ mặc định map editor)
-      → 0.25 m/s = 60 = SPEED_SLOW
+      → ~0.29 m/s = 70 = SPEED_SLOW
 
     speed_bwd (chiều về, dst→src) là TUỲ CHỌN — nếu không cấu hình (None/0),
     dùng chung giá trị speed (chiều đi) cho cả 2 chiều như trước đây. _edge_speed()

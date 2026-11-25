@@ -24,13 +24,15 @@
   --node-buffer:   #a855f7;
   --node-parking:  #14b8a6;
   --node-conveyor: #06b6d4;
-  --node-wait:     #f97316;
+  --node-wait:     #ec4899;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:13px}
 /* ── LAYOUT ── */
 #app{display:grid;grid-template-rows:48px 1fr 28px;grid-template-columns:52px 1fr 300px;width:100vw;height:100vh}
 #topbar{grid-column:1/-1;grid-row:1;display:flex;align-items:center;gap:8px;padding:0 12px;background:var(--surface);border-bottom:1px solid var(--border);z-index:100;overflow:hidden}
+#topbar-tools{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;padding:4px 0}
+#junction-menu{display:none;position:fixed;z-index:10001;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:5px;box-shadow:0 8px 30px rgba(0,0,0,.5);min-width:190px}
 #toolbar{grid-column:1;grid-row:2;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px;background:var(--surface);border-right:1px solid var(--border)}
 #canvas-wrap{grid-column:2;grid-row:2;position:relative;overflow:hidden;background:#ffffff;cursor:crosshair}
 #props-panel{grid-column:3;grid-row:2;display:flex;flex-direction:column;background:var(--surface);border-left:1px solid var(--border);overflow:hidden}
@@ -118,6 +120,57 @@ select:focus{border-color:var(--accent) !important}
 #save-modal-confirm{background:var(--accent);border:none;color:#fff;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer}
 #save-modal-confirm:disabled{opacity:.4;cursor:not-allowed}
 #save-modal-cancel{background:transparent;border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer}
+/* ── NHIỀU TẦNG (tab) ── */
+#floor-bar{position:absolute;top:8px;left:8px;z-index:30}
+#floor-btn{display:flex;align-items:center;gap:8px;background:rgba(17,24,39,.94);border:1px solid var(--border);border-radius:10px;padding:6px 12px;color:var(--text);cursor:pointer;font-size:12px;box-shadow:0 4px 16px rgba(0,0,0,.25);max-width:340px}
+#floor-btn:hover,#floor-bar.open #floor-btn{border-color:var(--accent)}
+#floor-btn b{font-size:13px;font-weight:600;white-space:nowrap}
+#floor-btn small{color:var(--muted);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px}
+#floor-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;min-width:290px;max-height:60vh;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:5px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+#floor-bar.open #floor-menu{display:block}
+.fm-row{display:flex;align-items:center;gap:4px;border-radius:7px}
+.fm-row.active{background:rgba(59,130,246,.22)}
+.fm-item{flex:1;display:flex;flex-direction:column;padding:6px 10px;cursor:pointer;color:var(--text);border-radius:7px;min-width:0}
+.fm-row:not(.active) .fm-item:hover{background:var(--surface3)}
+.fm-item b{font-size:12px;font-weight:600;line-height:1.3}
+.fm-item small{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fm-edit{background:transparent;border:1px solid transparent;color:var(--muted);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:13px}
+.fm-edit:hover{background:var(--surface3);border-color:var(--border);color:var(--text)}
+.fm-sep{height:1px;background:var(--border);margin:4px 2px}
+.fm-add{padding:7px 10px;cursor:pointer;color:var(--accent);font-size:12px;font-weight:600;border-radius:7px}
+.fm-add:hover{background:var(--surface3)}
+/* ── THANG MÁY ── */
+#elev-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9996;display:none;align-items:center;justify-content:center}
+#elev-modal-overlay.open{display:flex}
+#elev-modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 24px;width:480px;max-width:94vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+#elev-modal-box h3{font-size:15px;font-weight:700;margin:0 0 6px}
+#elev-modal-box p{color:var(--muted);font-size:12px;margin:0 0 12px}
+#elev-modal-box .props-btn{flex:none;white-space:nowrap;padding:8px 18px}
+.ev-row{border:1px solid var(--border);border-left:3px solid #6366f1;border-radius:9px;padding:9px 10px;margin-bottom:8px;background:var(--surface2)}
+.ev-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.ev-id{font-size:11px;font-weight:700;color:#a5b4fc;background:rgba(99,102,241,.18);border-radius:6px;padding:3px 8px}
+.ev-name,.ev-note{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:6px 9px;font-size:12px;outline:none;box-sizing:border-box}
+.ev-name{flex:1;font-weight:600}
+.ev-name:focus,.ev-note:focus{border-color:var(--accent)}
+.ev-del{padding:5px 10px !important}
+.ev-info{font-size:10px;color:var(--muted);margin-top:6px}
+/* ── HỘP THOẠI TẦNG ── */
+#floor-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9996;display:none;align-items:center;justify-content:center}
+#floor-modal-overlay.open{display:flex}
+#floor-modal-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 24px;width:430px;max-width:94vw;max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+#floor-modal-box h3{font-size:15px;font-weight:700;margin:0 0 14px}
+#floor-modal-box .frow{display:flex;gap:10px}
+#floor-modal-box .frow > .field{flex:1}
+#floor-modal-box .props-btn,#floor-modal-box .tb-btn{flex:none;white-space:nowrap}
+#floor-modal-box .props-btn{padding:8px 18px}
+#fd-import-map{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 8px;outline:none}
+#fd-import-map option{background:var(--surface);color:var(--text)}
+#floor-modal-box textarea{width:100%;min-height:54px;resize:vertical;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:7px 10px;font-size:12px;outline:none;box-sizing:border-box;font-family:inherit}
+#floor-modal-box textarea:focus{border-color:var(--accent)}
+#floor-modal-box .fsec{border-top:1px solid var(--border);margin-top:12px;padding-top:12px}
+#floor-modal-box .fsec-title{font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+#floor-modal-box .fimg{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#fd-img-name{font-size:11px;color:var(--muted);flex:1;min-width:120px}
 </style>
 </head>
 <body>
@@ -125,10 +178,12 @@ select:focus{border-color:var(--accent) !important}
 
 <!-- ── TOPBAR ── -->
 <div id="topbar">
-  <span class="tb-brand">🗺 Map Editor</span>
+  <span class="tb-brand" style="flex-shrink:0">🗺 Map Editor</span>
   <div class="tb-sep"></div>
+  <div id="topbar-tools">
   <button class="tb-btn" id="btn-new" data-i18n="btn_new" data-i18n-attr="title" title="Bản đồ mới">＋ Mới</button>
   <select id="map-select"><option value="" data-i18n-opt="load_map">── Tải bản đồ ──</option></select>
+  <button class="tb-btn" id="btn-copy-map" title="Sao chép bản đồ đang mở thành 1 bản đồ MỚI y hệt (điểm/đường/cấu hình/ảnh nền)">📋 Sao chép</button>
   <input id="map-name-input" type="text" style="display:none" value="Bản đồ mới"/>
   <div class="tb-sep"></div>
   <button class="tb-btn" id="btn-undo" title="Hoàn tác (Ctrl+Z)">↩</button>
@@ -139,6 +194,10 @@ select:focus{border-color:var(--accent) !important}
   <div class="tb-sep"></div>
   <button class="tb-btn" id="btn-import-drawio" title="Nhập layout từ file draw.io (.drawio/.xml) — chỉ lấy vị trí node + cạnh, cấu hình hành động tự cài sau">📐 Import draw.io</button>
   <input type="file" id="drawio-file-input" accept=".drawio,.xml" style="display:none"/>
+  <div class="tb-sep"></div>
+  <div style="flex-shrink:0">
+    <button class="tb-btn" id="btn-junction-menu" title="Công cụ junction (bảng rẽ): tự tạo bảng rẽ / kiểm tra junction">⤵ Junction ▾</button>
+  </div>
   <div class="tb-sep"></div>
   <label style="display:flex;align-items:center;gap:5px;cursor:pointer;color:var(--muted);font-size:12px">
     <input type="checkbox" id="snap-grid" style="accent-color:var(--accent)"/> Snap grid
@@ -154,7 +213,7 @@ select:focus{border-color:var(--accent) !important}
   <div class="tb-sep"></div>
   <button class="tb-btn" onclick="_rotateWorld(-90)" title="Xoay ngược chiều kim đồng hồ 90°">↺ 90°</button>
   <button class="tb-btn" onclick="_rotateWorld(90)" title="Xoay theo chiều kim đồng hồ 90°">↻ 90°</button>
-  <div style="flex:1"></div>
+  </div>
   <button class="tb-btn danger" id="btn-clear" title="Xóa toàn bộ" style="flex-shrink:0" data-i18n="btn_clear">🗑 Xóa hết</button>
   <button class="tb-btn success" id="btn-save" title="Lưu bản đồ (Ctrl+S)" style="flex-shrink:0" data-i18n="btn_save">💾 Lưu</button>
 </div>
@@ -176,6 +235,10 @@ select:focus{border-color:var(--accent) !important}
 
 <!-- ── CANVAS ── -->
 <div id="canvas-wrap">
+  <div id="floor-bar">
+    <button id="floor-btn" type="button" title="Chọn tầng đang xem / sửa / thêm tầng"></button>
+    <div id="floor-menu"></div>
+  </div>
   <div id="empty-hint">
     <div class="icon">🗺</div>
     <p data-i18n="canvas_hint">Chọn <b>Node</b> để thêm điểm<br/>Chọn <b>Cạnh</b> để vẽ đường đi</p>
@@ -218,7 +281,27 @@ select:focus{border-color:var(--accent) !important}
       <div style="font-size:32px;margin-bottom:8px;opacity:.3">☐</div>
       <span data-i18n="props_empty">Chưa chọn phần tử nào</span>
     </div>
+    <!-- Cài chức năng HÀNG LOẠT khi chọn nhiều node / nhiều cạnh -->
+    <div id="props-bulk" style="display:none">
+      <div id="bulk-info" style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:8px"></div>
+      <div id="bulk-node-wrap" style="display:none">
+        <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Node đã chọn</div>
+        <div id="bulk-node-fields"></div>
+      </div>
+      <div id="bulk-edge-wrap" style="display:none">
+        <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin:8px 0 6px">Cạnh đã chọn</div>
+        <div id="bulk-edge-fields"></div>
+      </div>
+      <button class="props-btn primary" style="width:100%;margin-top:8px" onclick="applyBulk()">Áp dụng cho tất cả đã chọn</button>
+      <button class="props-btn" style="width:100%;margin-top:6px" onclick="copySelection()" id="bulk-copy-btn">📋 Sao chép các node đã chọn (Ctrl+C)</button>
+      <button class="props-btn" style="width:100%;margin-top:6px" onclick="pasteSelection()" id="bulk-paste-btn">📥 Dán (Ctrl+V)</button>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">Ô để "— giữ nguyên —" sẽ không bị thay đổi. Dùng Shift+click hoặc kéo chọn vùng để chọn nhiều phần tử.</div>
+    </div>
     <div id="props-node" style="display:none">
+      <div class="copy-row" style="display:flex;gap:6px;margin-bottom:8px">
+        <button class="props-btn" style="flex:1" onclick="copySelection()" title="Sao chép node đang chọn (kèm toàn bộ cấu hình). Phím tắt: Ctrl+C. Áp dụng/lưu trước nếu vừa sửa.">📋 Sao chép node</button>
+        <button class="props-btn" style="flex:1" onclick="pasteSelection()" title="Dán thành node mới (Ctrl+V)">📥 Dán</button>
+      </div>
       <!-- ① Tương thích AGV — đặt TRƯỚC để quyết định editability của ID -->
       <div class="field">
         <label data-i18n="agv_compat">Tương thích AGV</label>
@@ -287,8 +370,9 @@ select:focus{border-color:var(--accent) !important}
           <div class="field" style="margin-bottom:0">
             <label style="font-size:11px">Hướng tiếp cận (approach)</label>
             <select id="pn-approach-dir" style="font-size:11px">
-              <option value="none">— Tiến thẳng (mặc định)</option>
-              <option value="bwd">↩ Lùi vào (dùng cho trạm sạc)</option>
+              <option value="none">— Tiến thẳng (mặc định; trạm sạc tự LÙI vào)</option>
+              <option value="fwd">→ Tiến vào (ép tiến, kể cả trạm sạc)</option>
+              <option value="bwd">↩ Lùi vào (điểm cụt/điểm chờ cần lùi vào — trạm sạc hoặc bất kỳ node nào)</option>
             </select>
           </div>
           <!-- Trạm sạc dành riêng cho loại AGV — chỉ hiện khi arrival_action = wait_charge -->
@@ -382,6 +466,7 @@ select:focus{border-color:var(--accent) !important}
           <option value="parking">Parking — Đỗ xe</option>
           <option value="wait">Wait — Điểm chờ</option>
           <option value="door">Door — Cửa tự động</option>
+          <option value="elevator">Elevator — Thang máy</option>
         </select>
       </div>
 
@@ -398,26 +483,104 @@ select:focus{border-color:var(--accent) !important}
         </div>
       </div>
 
-      <!-- Điểm thả hàng đầy cố định (staging) cho xe Trailer — dùng chung mọi Tổ trên map này -->
+      <!-- Thang máy — CHỈ hiện khi Loại vị trí = "Elevator". Chọn thang trong danh sách; các node
+           cùng thang ở các tầng khác nhau được nối với nhau (xe đi giữa các tầng bằng thang này). -->
+      <div id="pn-elev-field" class="field" style="display:none;border-left:3px solid #6366f1;padding-left:8px">
+        <label style="font-size:11px;color:#818cf8">🛗 Thang máy</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="pn-elev-id" style="flex:1"></select>
+          <button class="tb-btn" id="pn-elev-manage" type="button" title="Thêm / đổi tên / xóa thang máy">⚙ Quản lý</button>
+        </div>
+        <div id="pn-elev-links" style="font-size:11px;margin-top:6px;color:var(--text)"></div>
+        <label style="font-size:11px;color:#818cf8;margin-top:8px;display:block">Cabin dùng chung — số thẻ RFID</label>
+        <input id="pn-cabin-tag" type="text" inputmode="numeric" placeholder="để trống nếu mỗi tầng 1 node cabin riêng" autocomplete="off" style="width:100%"/>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+          Thang thật chỉ có <b>1 thẻ RFID</b> trong cabin, cùng số ở mọi tầng. Vẽ 1 node Elevator ở mỗi tầng (nối với node chờ của tầng đó),
+          rồi nhập CÙNG số thẻ này vào ô trên cho các node ở tầng khác (node có ID đúng số thẻ này là node chính, để trống ô). Khi lưu, các node được gộp thành 1 node duy nhất.
+        </div>
+        <label style="font-size:11px;color:#818cf8;margin-top:8px;display:block">Cạnh có cửa của cabin ở tầng này</label>
+        <select id="pn-cabin-door" style="width:100%">
+          <option value="">— chưa khai báo (cửa cùng cạnh: xe lùi ra) —</option>
+          <option value="N">Bắc ↑</option>
+          <option value="E">Đông →</option>
+          <option value="S">Nam ↓</option>
+          <option value="W">Tây ←</option>
+        </select>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+          Chọn 1 khung CỐ ĐỊNH cho cabin (nhìn từ trên xuống, ví dụ Bắc = phía trên hình cabin) rồi khai báo mỗi tầng có cửa ở cạnh nào.
+          Cửa ra <b>cùng cạnh</b> cửa vào → xe lùi ra; <b>đối diện</b> → xe đi thẳng xuyên cabin; <b>vuông góc</b> → xe quay 90° trong cabin rồi ra.
+          Rơ-moóc không lùi/quay được nên chỉ đi được cặp cửa đối diện.
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+          Đặt 1 node <b>Elevator</b> ở mỗi tầng thang dừng, rồi chọn CÙNG 1 thang cho các node đó. Mỗi tầng chỉ nên có 1 node cho 1 thang.
+        </div>
+      </div>
+
+      <!-- Vai trò quanh thang (mọi loại node): điểm xếp hàng chờ thang / mốc thoát khu vực thang -->
+      <div id="pn-elevrole-field" class="field" style="border-left:3px solid #6366f1;padding-left:8px">
+        <label style="font-size:11px;color:#818cf8">🛗 Vai trò quanh thang</label>
+        <select id="pn-elev-role" style="width:100%">
+          <option value="">— không —</option>
+          <option value="zone">Điểm chờ / thoát thang</option>
+        </select>
+        <select id="pn-elev-ref" style="width:100%;margin-top:4px;display:none"></select>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+          Xe đi <b>vào</b> thang: node là <b>điểm chờ</b> (nhiều điểm trên 1 tuyến thì xe tới sau đứng điểm xa hơn, nối đuôi nhau).
+          Xe đi <b>ra</b> khỏi thang: node là <b>mốc thoát</b> — xe qua mốc thì xe kế tiếp mới được gọi thang.
+          Đặt NGOÀI hành lang dẫn vào thang (trước ngã ba). Node này cùng node cabin không tính vào xử lý giao thông/ngã tư. Chưa đặt thì server tự suy theo ngã ba.
+        </div>
+      </div>
+
+      <!-- Điểm thả hàng đầy cố định (staging) cho xe Trailer/AGV kéo (tow) — dùng
+           chung mọi Tổ trên map này. Field DÙNG CHUNG cho cả 2 loại xe móc hàng,
+           chỉ khác hướng lệnh nâng/hạ (xử lý riêng ở server theo agv_type). -->
       <div class="field" style="border-left:3px solid #a855f7;padding-left:8px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#a855f7">
           <input id="pn-trailer-staging" type="checkbox" style="width:15px;height:15px;cursor:pointer"/>
-          📍 Điểm thả hàng đầy cố định (Staging — Trailer)
+          📍 Điểm thả hàng đầy cố định (Staging — Trailer/Tow)
         </label>
         <div style="font-size:10px;color:var(--muted);margin-top:3px">
-          Đánh dấu ĐÚNG 1 node trên map làm nơi xe Trailer mang xe hàng đầy về trước khi về trạm. Server tự tìm node này khi bắt đầu chu trình cho bất kỳ Tổ nào — không cần nhập tay.
+          Đánh dấu ĐÚNG 1 node trên map làm nơi xe Trailer/AGV kéo mang xe hàng đầy về trước khi về trạm. Server tự tìm node này khi bắt đầu chu trình cho bất kỳ Tổ nào — không cần nhập tay. Dùng chung được cho cả AGV Trailer lẫn AGV Tow.
         </div>
       </div>
 
       <!-- Điểm lấy hàng rỗng cố định gần trạm — đầu quy trình, TRƯỚC khi ra Tổ.
-           Có thể tích CHUNG với ô Staging phía trên nếu 1 node dùng cho cả 2. -->
+           Có thể tích CHUNG với ô Staging phía trên nếu 1 node dùng cho cả 2.
+           DÙNG CHUNG cho cả Trailer lẫn AGV kéo (tow) — không phải riêng Trailer. -->
       <div class="field" style="border-left:3px solid #0ea5e9;padding-left:8px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#0ea5e9">
           <input id="pn-trailer-empty-staging" type="checkbox" style="width:15px;height:15px;cursor:pointer"/>
-          📍 Điểm lấy hàng rỗng cố định gần trạm (Trailer)
+          📍 Điểm lấy hàng rỗng cố định gần trạm (Trailer/Tow)
         </label>
         <div style="font-size:10px;color:var(--muted);margin-top:3px">
-          Đánh dấu ĐÚNG 1 node làm nơi xe Trailer ghé lấy xe hàng rỗng NGAY khi rời trạm, TRƯỚC khi ra Tổ. Bỏ trống nếu xe không cần bước này (coi như đã có sẵn hàng rỗng khi xuất phát). Hạ móc xong CẦN XÁC NHẬN TRÊN WEB mới đi tiếp (giống hệt điểm lấy hàng đầy tại Tổ). Có thể tích chung với ô Staging ở trên nếu 1 node dùng cho cả 2 việc.
+          Đánh dấu ĐÚNG 1 node làm nơi xe Trailer/AGV kéo ghé lấy xe hàng rỗng NGAY khi rời trạm, TRƯỚC khi ra Tổ. Bỏ trống nếu xe không cần bước này (coi như đã có sẵn hàng rỗng khi xuất phát). Dùng chung được cho cả AGV Trailer lẫn AGV Tow — server tự chọn đúng lệnh nâng/hạ theo loại xe (Trailer: hạ móc xong mới xong lấy hàng; AGV kéo: nâng móc xong mới xong lấy hàng), CẦN XÁC NHẬN TRÊN WEB mới đi tiếp (giống hệt điểm lấy hàng đầy tại Tổ). Có thể tích chung với ô Staging ở trên nếu 1 node dùng cho cả 2 việc.
+        </div>
+      </div>
+
+      <!-- VÙNG HOẠT ĐỘNG theo loại xe: không tick loại nào = mọi loại xe đều được vào.
+           Tick một vài loại = CHỈ các loại đó được vào; loại xe còn lại TUYỆT ĐỐI không đi vào. -->
+      <div class="field" style="border-left:3px solid #ef4444;padding-left:8px">
+        <label style="color:#ef4444">🚧 Loại xe được phép vào node này</label>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;font-size:12px">
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input id="pn-allow-carry" type="checkbox"/> Chở (carry)</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input id="pn-allow-tow" type="checkbox"/> Kéo (tow)</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input id="pn-allow-trailer" type="checkbox"/> Rơ-moóc (trailer)</label>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">
+          Để trống tất cả = mọi loại xe được vào. Nếu tick, chỉ loại xe được tick mới được vào/đi qua/đỗ ở node này; loại khác bị cấm tuyệt đối (không lên đường, không đỗ né, không dừng chờ ở đây).
+        </div>
+      </div>
+
+      <!-- Node chờ (waiting node) — dùng để giải bí hoàn toàn khi NHIỀU xe cùng
+           khoá chéo nhau qua reservation (không ai nhường trước dù đường còn
+           trống ở nơi khác). Có thể đánh dấu nhiều node (1 node/xe dư ra). -->
+      <div class="field" style="border-left:3px solid #f59e0b;padding-left:8px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#f59e0b">
+          <input id="pn-waiting-node" type="checkbox" style="width:15px;height:15px;cursor:pointer"/>
+          🅿️ Node chờ (giải bí hoàn toàn khi nhiều xe khoá chéo nhau)
+        </label>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">
+          Đánh dấu 1 nhánh phụ ít dùng (vd nhánh cụt) làm nơi xe tạm lùi/tiến vào để nhường đường khi CẢ HỆ THỐNG đứng im (không ai nhường trước dù còn đường trống ở nơi khác). Xe được chọn (ưu tiên thấp nhất, hoà thì gần node chờ nhất) sẽ tự quay lại việc cũ ngay khi đường thông — không cần thao tác tay. Nên đánh dấu ít nhất 1 node cho mỗi xe dư ra ngoài số lượng cần hoạt động đồng thời.
         </div>
       </div>
 
@@ -436,12 +599,13 @@ select:focus{border-color:var(--accent) !important}
           </div>
         </div>
 
-        <!-- Vai trò của node này trong chu trình Trailer — chọn TƯỜNG MINH, không suy luận
-             từ arrival_action/supply_group nữa. 2 node CÙNG 1 số Tổ, khác vai trò. -->
+        <!-- Vai trò của node này trong chu trình Trailer/AGV kéo (tow) — chọn TƯỜNG
+             MINH, không suy luận từ arrival_action/supply_group nữa. 2 node CÙNG 1
+             số Tổ, khác vai trò. Field dùng CHUNG cho cả 2 loại xe móc hàng. -->
         <div class="field" style="margin-bottom:6px">
-          <label style="font-size:11px">🎯 Vai trò cho AGV Trailer (nếu có)</label>
+          <label style="font-size:11px">🎯 Vai trò cho AGV Trailer/Tow (nếu có)</label>
           <select id="pn-trailer-role" style="font-size:11px" onchange="onArrivalActionChange_pn()">
-            <option value="none">— Không phải node của Trailer</option>
+            <option value="none">— Không phải node của Trailer/Tow</option>
             <option value="drop">📤 Thả hàng rỗng (đường đi)</option>
             <option value="pickup">📥 Lấy hàng đầy (đường về)</option>
           </select>
@@ -486,7 +650,7 @@ select:focus{border-color:var(--accent) !important}
         <!-- Ghi chú hành vi — cập nhật động theo vai trò node (JS: onArrivalActionChange_pn) -->
         <div id="pn-team-behavior-note" style="font-size:10px;color:var(--muted);border-top:1px solid rgba(168,85,247,.2);margin-top:8px;padding-top:6px;line-height:1.6"></div>
       </div>
-      <div class="field">
+      <div class="field" id="pn-default-action-field">
         <label data-i18n="default_action">Hành động mặc định</label>
         <select id="pn-action">
           <option value="">Không có</option>
@@ -522,6 +686,17 @@ select:focus{border-color:var(--accent) !important}
         <small data-i18n="edge_speed_bwd_hint">Chỉ áp dụng khi Hướng di chuyển là Hai chiều. Để trống nếu muốn 2 chiều chạy cùng tốc độ.</small>
       </div>
       <div class="field"><label data-i18n="edge_width">Chiều rộng đường (m)</label><input id="pe-width" type="number" min="0.3" max="3" step="0.05" value="0.95"/></div>
+      <!-- Khoảng cách THẬT đo ngoài thực tế — GHI ĐÈ khoảng cách tự tính theo toạ
+           độ vẽ trên canvas (vốn KHÔNG có nghĩa mét thật với map schematic vẽ tay,
+           chỉ đúng mét khi map có ảnh nền SLAM đã hiệu chỉnh resolution). Dùng cho
+           điều hướng chọn đường ngắn nhất VÀ so sánh né/chờ giao thông chính xác. -->
+      <div class="field" style="border-left:3px solid #22c55e;padding-left:8px">
+        <label style="color:#22c55e">📏 Khoảng cách thật (m) — ghi đè tự động</label>
+        <input id="pe-distance" type="number" min="0" step="0.1" placeholder="Để trống = tự tính theo toạ độ vẽ"/>
+        <div style="font-size:10px;color:var(--muted);margin-top:3px">
+          Đo thật ngoài nhà máy rồi nhập vào đây (đơn vị mét). Bỏ trống = hệ thống tự tính theo khoảng cách bạn vẽ trên canvas — CHỈ đúng mét thật nếu map có ảnh nền SLAM đã hiệu chỉnh; map vẽ tay (schematic) không có ý nghĩa mét thật nếu bỏ trống. Giá trị này quyết định đường đi ngắn nhất và việc so sánh né/chờ giao thông.
+        </div>
+      </div>
       <div class="field" style="margin-bottom:0">
         <label data-i18n="lidar">LIDAR vật cản</label>
         <select id="pe-lidar-off" style="font-size:11px">
@@ -530,6 +705,23 @@ select:focus{border-color:var(--accent) !important}
           <option value="bwd">🔴 Tắt chiều lùi (←)</option>
           <option value="both">🔴 Tắt cả 2 chiều</option>
         </select>
+      </div>
+      <!-- Hướng đi RIÊNG theo loại xe — chỉ HẠN CHẾ thêm so với "Hướng di chuyển" chung phía trên
+           (vd cạnh 2 chiều nhưng rơ-moóc chỉ được đi 1 chiều). Chiều tiến = từ node nguồn → node đích
+           (đúng thứ tự A → B ở dòng "Cạnh"). -->
+      <div class="field" style="border-left:3px solid #a855f7;padding-left:8px;margin-top:10px;margin-bottom:0">
+        <label style="color:#a855f7">🧭 Hướng đi riêng theo loại xe</label>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center;margin-top:4px">
+          <span style="font-size:11px">Chở (carry)</span>
+          <select id="pe-td-carry" style="font-size:11px"></select>
+          <span style="font-size:11px">Kéo (tow)</span>
+          <select id="pe-td-tow" style="font-size:11px"></select>
+          <span style="font-size:11px">Rơ-moóc</span>
+          <select id="pe-td-trailer" style="font-size:11px"></select>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+          Mặc định "theo hướng chung". Các lựa chọn ghi sẵn ID node của cạnh này (vd "Chỉ đi 19 → 20"), nên không cần đoán nguồn/đích. Chỉ HẠN CHẾ thêm so với hướng chung, không mở rộng được. Trên bản đồ, hạn chế hiện bằng mũi tên màu + chữ cái: <b style="color:#16a34a">C</b>=Chở, <b style="color:#ea580c">K</b>=Kéo, <b style="color:#9333ea">R</b>=Rơ-moóc (✕ = cấm cạnh này với loại đó). Khi chọn cạnh, hai đầu hiện chữ "nguồn" và "đích".
+        </div>
       </div>
     </div>
     <!-- Map legend -->
@@ -561,6 +753,11 @@ select:focus{border-color:var(--accent) !important}
 </div><!-- #app -->
 
 <!-- ── CONTEXT MENU ── -->
+<div id="junction-menu">
+  <div class="ctx-item" id="btn-auto-turn" title="Tự tạo bảng rẽ (Junction Turn Map) từ hình học bản đồ cho các node đang chọn (không chọn = cả bản đồ). Có xem trước, không ghi đè phần đã nhập tay.">⤵ Tự tạo bảng rẽ</div>
+  <div class="ctx-item" id="btn-check-turn" title="Tô viền đỏ các nút giao / góc cua còn thiếu bảng rẽ, viền vàng các ca góc mơ hồ cần xem lại.">🔍 Kiểm tra junction</div>
+</div>
+
 <div id="ctx-menu">
   <div class="ctx-item" id="ctx-props" data-i18n="ctx_props">✏ Thuộc tính</div>
   <div class="ctx-item" id="ctx-align-h" data-i18n="ctx_align_h">↔ Căn ngang</div>
@@ -587,12 +784,67 @@ select:focus{border-color:var(--accent) !important}
 <!-- ── SAVE NAME MODAL ── -->
 <div id="save-modal-overlay">
   <div id="save-modal-box">
-    <h3 data-i18n="save_modal_title">💾 Lưu bản đồ</h3>
+    <h3 id="save-modal-title" data-i18n="save_modal_title">💾 Lưu bản đồ</h3>
     <p data-i18n="save_modal_desc">Nhập tên bản đồ rồi nhấn Lưu</p>
     <input id="save-modal-name" type="text" placeholder="VD: Map nhà máy A, Line AGV Floor 1…" autocomplete="off"/>
     <div class="modal-btns" style="margin-top:14px">
       <button id="save-modal-cancel" data-i18n="modal_cancel">Hủy</button>
       <button id="save-modal-confirm" disabled data-i18n="save_btn">💾 Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── ELEVATOR MODAL ── -->
+<div id="elev-modal-overlay">
+  <div id="elev-modal-box">
+    <h3>🛗 Quản lý thang máy</h3>
+    <p>Chọn các thang của bản đồ từ <b>danh mục thang đã khai báo</b> (Quản lý AGV → Khai báo thang máy). Node loại <b>Elevator</b> chọn cùng 1 thang ở nhiều tầng = thang nối các tầng đó.</p>
+    <div id="ev-list"></div>
+    <div id="ev-picker" style="display:none;margin-top:10px"></div>
+    <div class="modal-btns" style="margin-top:12px;justify-content:space-between">
+      <button class="props-btn" id="ev-add" type="button">＋ Chọn thang từ danh mục</button>
+      <button class="props-btn primary" id="ev-close" type="button">Xong</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── FLOOR MODAL ── -->
+<div id="floor-modal-overlay">
+  <div id="floor-modal-box">
+    <h3 id="fd-title">Tầng</h3>
+    <div class="frow">
+      <div class="field" style="flex:2"><label>Tên tầng</label><input id="fd-name" type="text" placeholder="VD: Tầng 1, Tầng hầm B1" autocomplete="off"/></div>
+      <div class="field" style="flex:1"><label>Số tầng</label><input id="fd-level" type="number" step="1"/></div>
+    </div>
+    <div class="field"><label>Chú thích</label><textarea id="fd-note" placeholder="VD: Khu sản xuất, kho thành phẩm…"></textarea></div>
+    <div class="fsec">
+      <div class="fsec-title">Ảnh nền của tầng (tuỳ chọn)</div>
+      <div class="fimg">
+        <button class="tb-btn" id="fd-img-btn" type="button">🖼 Chọn ảnh…</button>
+        <button class="tb-btn" id="fd-img-rm" type="button">✕ Bỏ ảnh</button>
+        <span id="fd-img-name"></span>
+        <input type="file" id="fd-img-file" accept="image/*" style="display:none"/>
+      </div>
+      <div class="frow" style="margin-top:10px">
+        <div class="field"><label>Tỉ lệ (m/pixel)</label><input id="fd-res" type="number" step="0.001" min="0.001"/></div>
+        <div class="field"><label>Gốc X (m)</label><input id="fd-ox" type="number" step="0.1"/></div>
+        <div class="field"><label>Gốc Y (m)</label><input id="fd-oy" type="number" step="0.1"/></div>
+      </div>
+    </div>
+    <div class="fsec" id="fd-import-wrap">
+      <div class="fsec-title">Import layout vào tầng này (thay nội dung hiện có)</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="tb-btn" id="fd-import-drawio" type="button">📐 Từ file draw.io…</button>
+        <select id="fd-import-map" style="flex:1;min-width:150px;font-size:12px"><option value="">— chọn bản đồ đã lưu —</option></select>
+        <button class="tb-btn" id="fd-import-btn" type="button">🗂 Import</button>
+      </div>
+    </div>
+    <div class="modal-btns" style="margin-top:16px;justify-content:space-between">
+      <button class="props-btn danger" id="fd-delete" type="button" style="display:none">🗑 Xóa tầng</button>
+      <div style="display:flex;gap:8px;margin-left:auto">
+        <button class="props-btn" id="fd-cancel" type="button">Hủy</button>
+        <button class="props-btn primary" id="fd-ok" type="button">💾 Áp dụng</button>
+      </div>
     </div>
   </div>
 </div>
@@ -687,19 +939,19 @@ const NODE_R = 11;
 const TYPE_COLOR = {
   normal:'#3b82f6', conveyor:'#06b6d4', charger:'#f59e0b',
   dropoff:'#ef4444', home:'#10b981', buffer:'#a855f7',
-  parking:'#14b8a6', wait:'#f97316', door:'#84cc16'
+  parking:'#14b8a6', wait:'#ec4899', door:'#84cc16', elevator:'#6366f1'
 };
 const TYPE_LABEL = {
   normal:'Normal', conveyor:'Conveyor', charger:'Charger',
   dropoff:'Dropoff', home:'Home', buffer:'Buffer',
-  parking:'Parking', wait:'Wait', door:'Door'
+  parking:'Parking', wait:'Wait', door:'Door', elevator:'Elevator (Thang máy)'
 };
 const DIR_COLOR = { both:'#64748b', forward:'#2563eb', backward:'#d97706', blocked:'#dc2626' };
 // Đánh dấu riêng cho node có chức năng đặc biệt (không phải "Loại vị trí" —
 // vd 1 node Dropoff bình thường vẫn có thể là điểm Thả/Lấy hàng Trailer) —
 // tô màu NỀN node trên bản đồ để dễ nhận biết, KHÔNG đụng màu viền theo agvCompat.
 const TRAILER_ROLE_COLOR = { drop:'#eab308', pickup:'#0ea5e9' };
-const TRAILER_ROLE_LABEL = { drop:'Thả hàng (Trailer)', pickup:'Lấy hàng (Trailer)' };
+const TRAILER_ROLE_LABEL = { drop:'Thả hàng (Trailer/Tow)', pickup:'Lấy hàng (Trailer/Tow)' };
 
 // ═══════════════════════════════════════════════════
 // STATE
@@ -707,7 +959,7 @@ const TRAILER_ROLE_LABEL = { drop:'Thả hàng (Trailer)', pickup:'Lấy hàng (
 // transform: chuyển đổi tọa độ world (mét, từ SLAM) ↔ display (pixel, trong editor)
 // ppm = pixels per meter. ppm=1 → schematic (pixel coords). ppm=80 → SLAM meters
 const _DEFAULT_TRANSFORM = { originX:0, originY:0, ppm:1, imagePath:null };
-let state = { mapId:null, nodes:{}, edges:[], nextId:1, transform:{..._DEFAULT_TRANSFORM} };
+let state = _newStateObj();
 let undoStack = [], redoStack = [];
 let activeTool = 'select';
 let zoom = 1, panX = 0, panY = 0;
@@ -806,11 +1058,601 @@ function redo(){
 // ═══════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
+// NHIỀU TẦNG — 1 map (cùng map_id) có 1 hay nhiều tầng, mỗi tầng 1 tab.
+// • state.floors = [{id, name, note, level, transform}] — transform riêng từng tầng (ảnh nền,
+//   gốc toạ độ, tỉ lệ) ; state.activeFloor = id tầng đang xem/sửa ; state.transform luôn trỏ
+//   tới transform của tầng đang xem (để code cũ dùng state.transform vẫn đúng).
+// • Mỗi node có n.floor (id tầng). Cạnh thuộc tầng của node nguồn. ID node là DUY NHẤT trong cả map.
+// • Chỉ node/cạnh của tầng đang xem được vẽ, chọn, căn, tự tạo bảng rẽ...
+// ═══════════════════════════════════════════════════
+function _freshFloors(){
+  return [{ id:'F1', name:'Tầng 1', note:'', level:1, transform:{..._DEFAULT_TRANSFORM} }];
+}
+function _newStateObj(){
+  const floors = _freshFloors();
+  return { mapId:null, nodes:{}, edges:[], nextId:1, floors, elevators:[], activeFloor:floors[0].id, transform:floors[0].transform };
+}
+function curFloor(){
+  return state.floors.find(f=>f.id===state.activeFloor) || state.floors[0];
+}
+function floorOfNode(n){
+  return (n && n.floor && state.floors.some(f=>f.id===n.floor)) ? n.floor : state.floors[0].id;
+}
+function nodeInCurFloor(n){ return floorOfNode(n) === curFloor().id; }
+function floorNodeIds(){ return Object.keys(state.nodes).filter(id=>nodeInCurFloor(state.nodes[id])); }
+function floorNodeList(){ return Object.values(state.nodes).filter(nodeInCurFloor); }
+function trOfNode(n){
+  const f = state.floors.find(x=>x.id===floorOfNode(n));
+  return (f || state.floors[0]).transform;
+}
+function _newFloorId(){
+  let i = state.floors.length + 1;
+  while(state.floors.some(f=>f.id==='F'+i)) i++;
+  return 'F'+i;
+}
+function _floorNodeCount(fid){
+  let c = 0;
+  for(const n of Object.values(state.nodes)) if(floorOfNode(n)===fid) c++;
+  return c;
+}
+function _esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderFloorTabs(){
+  const btn = document.getElementById('floor-btn'), menu = document.getElementById('floor-menu');
+  if(!btn || !menu) return;
+  const sig = state.activeFloor + '|' + state.floors.map(f=>[f.id, f.name, f.note, f.level, _floorNodeCount(f.id)].join('~')).join('|');
+  if(sig === _floorTabsSig && menu.childElementCount) return;
+  _floorTabsSig = sig;
+  const cur = curFloor();
+  btn.innerHTML = `<span>🏢</span><b>${_esc(cur.name)}</b>` +
+    (cur.note ? `<small>${_esc(cur.note)}</small>` : '') +
+    `<span style="color:var(--muted);font-size:10px">${state.floors.length > 1 ? state.floors.length + ' tầng ' : ''}▾</span>`;
+  menu.innerHTML = '';
+  state.floors.forEach(f=>{
+    const row = document.createElement('div');
+    row.className = 'fm-row' + (f.id===state.activeFloor ? ' active' : '');
+    const item = document.createElement('div');
+    item.className = 'fm-item';
+    item.title = f.note || '';
+    item.innerHTML = `<b>${f.id===state.activeFloor ? '✓ ' : ''}${_esc(f.name)}</b>` +
+      `<small>${_esc(f.note || ('Tầng số ' + f.level))} · ${_floorNodeCount(f.id)} node</small>`;
+    item.onclick = ()=>{ _closeFloorMenu(); switchFloor(f.id); };
+    const ed = document.createElement('button');
+    ed.className = 'fm-edit'; ed.type = 'button'; ed.title = 'Sửa tầng này'; ed.textContent = '✎';
+    ed.onclick = (ev)=>{ ev.stopPropagation(); _closeFloorMenu(); openFloorDialog(f.id); };
+    row.appendChild(item); row.appendChild(ed);
+    menu.appendChild(row);
+  });
+  const sep = document.createElement('div'); sep.className = 'fm-sep'; menu.appendChild(sep);
+  const add = document.createElement('div');
+  add.className = 'fm-add'; add.textContent = '＋ Thêm tầng mới';
+  add.onclick = ()=>{ _closeFloorMenu(); openFloorDialog(null); };
+  menu.appendChild(add);
+  const evm = document.createElement('div');
+  evm.className = 'fm-add'; evm.style.color = '#a5b4fc';
+  evm.textContent = '🛗 Quản lý thang máy…' + (state.elevators.length ? ` (${state.elevators.length})` : '');
+  evm.onclick = ()=>{ _closeFloorMenu(); openElevDialog(); };
+  menu.appendChild(evm);
+}
+function _closeFloorMenu(){ document.getElementById('floor-bar').classList.remove('open'); }
+document.getElementById('floor-btn').onclick = (ev)=>{ ev.stopPropagation(); document.getElementById('floor-bar').classList.toggle('open'); };
+document.addEventListener('mousedown', ev=>{
+  const bar = document.getElementById('floor-bar');
+  if(bar.classList.contains('open') && !bar.contains(ev.target)) bar.classList.remove('open');
+});
+
+function switchFloor(fid){
+  if(!state.floors.some(f=>f.id===fid)) return;
+  state.activeFloor = fid;
+  state.transform = curFloor().transform;
+  selNodes.clear(); selEdges.clear();
+  edgeSrc = null;
+  prevLine.setAttribute('opacity','0');
+  resetBezier();
+  _updateSlamBackground(state.transform);
+  renderFloorTabs();
+  renderAll(); updateProps();
+  setTimeout(fitView, 30);
+}
+
+// ── Hộp thoại thêm / sửa tầng ──────────────────────────────────────────────
+let _fd = null;   // {id|null, name, note, level, image: dataURL|null, removeImage, resolution, ox, oy}
+
+function _fdEl(id){ return document.getElementById(id); }
+
+function openFloorDialog(fid){
+  const f = fid ? state.floors.find(x=>x.id===fid) : null;
+  const tr = f ? f.transform : null;
+  _fd = {
+    id: f ? f.id : null,
+    image: null, removeImage: false,
+  };
+  _fdEl('fd-title').textContent = f ? `✏ Sửa tầng — ${f.name}` : '＋ Thêm tầng mới';
+  _fdEl('fd-name').value  = f ? f.name : `Tầng ${state.floors.length + 1}`;
+  _fdEl('fd-level').value = f ? f.level : state.floors.length + 1;
+  _fdEl('fd-note').value  = f ? f.note : '';
+  _fdEl('fd-res').value   = tr && tr.resolution ? tr.resolution : 0.05;
+  _fdEl('fd-ox').value    = tr ? (tr.originX || 0) : 0;
+  _fdEl('fd-oy').value    = tr ? (tr.originY || 0) : 0;
+  _fdRefreshImgLabel();
+  _fdEl('fd-delete').style.display = (f && state.floors.length > 1) ? '' : 'none';
+  // Import vào tầng chỉ dùng được cho tầng đã tồn tại (tầng mới: lưu xong rồi import)
+  _fdEl('fd-import-wrap').style.display = f ? '' : 'none';
+  _fdEl('fd-ok').textContent = f ? '💾 Áp dụng' : '＋ Tạo tầng';
+  _fdEl('floor-modal-overlay').classList.add('open');
+  setTimeout(()=>{ _fdEl('fd-name').focus(); _fdEl('fd-name').select(); }, 50);
+  if(f) _fdLoadMapChoices();
+}
+function closeFloorDialog(){
+  _fdEl('floor-modal-overlay').classList.remove('open');
+  _fd = null;
+}
+function _fdRefreshImgLabel(){
+  const f = _fd && _fd.id ? state.floors.find(x=>x.id===_fd.id) : null;
+  let txt = 'Chưa có ảnh nền';
+  if(_fd && _fd.image) txt = '🖼 ' + (_fd.imageName || 'ảnh mới') + ' (chưa áp dụng)';
+  else if(_fd && !_fd.removeImage && f && f.transform.imagePath) txt = '🖼 Đang dùng ảnh nền của tầng này';
+  _fdEl('fd-img-name').textContent = txt;
+}
+function _fdPickImage(){ _fdEl('fd-img-file').click(); }
+function _fdImageChosen(ev){
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if(!file || !_fd) return;
+  const rd = new FileReader();
+  rd.onload = ()=>{
+    if(!_fd) return;
+    _fd.image = rd.result; _fd.imageName = file.name; _fd.removeImage = false;
+    _fdRefreshImgLabel();
+  };
+  rd.readAsDataURL(file);
+}
+function _fdRemoveImage(){
+  if(!_fd) return;
+  _fd.image = null; _fd.removeImage = true;
+  _fdRefreshImgLabel();
+}
+function _loadImageSize(url){
+  return new Promise(res=>{
+    const i = new Image();
+    i.onload = ()=>res({w:i.naturalWidth, h:i.naturalHeight});
+    i.onerror = ()=>res({w:0, h:0});
+    i.src = url;
+  });
+}
+
+async function applyFloorDialog(){
+  if(!_fd) return;
+  const name  = _fdEl('fd-name').value.trim();
+  if(!name){ toast('Nhập tên tầng', 'error'); return; }
+  const level = parseInt(_fdEl('fd-level').value);
+  const note  = _fdEl('fd-note').value.trim();
+  const res   = parseFloat(_fdEl('fd-res').value) || 0.05;
+  const ox    = parseFloat(_fdEl('fd-ox').value) || 0;
+  const oy    = parseFloat(_fdEl('fd-oy').value) || 0;
+
+  let f = _fd.id ? state.floors.find(x=>x.id===_fd.id) : null;
+  // "Số tầng" là tham số gửi cho thang máy ("đi tới tầng N") → phải DUY NHẤT trong map
+  const _lvl = isNaN(level) ? state.floors.length + 1 : level;
+  const _dup = state.floors.find(x=>x.level === _lvl && (!f || x.id !== f.id));
+  if(_dup){ toast(`Số tầng ${_lvl} đã dùng cho "${_dup.name}" — mỗi tầng cần số tầng riêng (thang máy dùng số này)`, 'error'); return; }
+  const isNew = !f;
+  if(isNew){
+    f = { id:_newFloorId(), name, note, level: isNaN(level) ? state.floors.length + 1 : level,
+          transform:{..._DEFAULT_TRANSFORM} };
+    state.floors.push(f);
+  } else {
+    f.name = name; f.note = note; if(!isNaN(level)) f.level = level;
+  }
+  const tr = f.transform;
+  tr.resolution = res; tr.originX = ox; tr.originY = oy;
+
+  if(_fd.image){
+    const sz = await _loadImageSize(_fd.image);
+    tr.imagePath = _fd.image; tr.pendingImage = _fd.image;
+    tr.natW = sz.w; tr.natH = sz.h; tr.imageV = null;
+  } else if(_fd.removeImage){
+    tr.imagePath = null; tr.pendingImage = null; tr.natW = 0; tr.natH = 0;
+  }
+  mapChanged = true;
+  document.getElementById('sb-map').textContent = `● ${_t('sb_unsaved')}`;
+  closeFloorDialog();
+  if(isNew){ switchFloor(f.id); toast(`Đã thêm ${f.name}`, 'success'); }
+  else {
+    if(f.id === state.activeFloor){ state.transform = f.transform; _updateSlamBackground(state.transform); }
+    renderFloorTabs(); renderAll();
+    toast('Đã cập nhật tầng', 'success');
+  }
+}
+
+function deleteFloorFromDialog(){
+  if(!_fd || !_fd.id || state.floors.length <= 1) return;
+  const f = state.floors.find(x=>x.id===_fd.id);
+  if(!f) return;
+  const cnt = _floorNodeCount(f.id);
+  const doDel = ()=>{
+    saveSnapshot();
+    for(const id of Object.keys(state.nodes)){
+      if(floorOfNode(state.nodes[id]) === f.id) delete state.nodes[id];
+    }
+    state.edges = state.edges.filter(e=>state.nodes[e.src] && state.nodes[e.dst]);
+    state.floors = state.floors.filter(x=>x.id!==f.id);
+    closeFloorDialog();
+    switchFloor(state.floors[0].id);
+    toast(`Đã xóa ${f.name}`);
+  };
+  _confirmOverFloorDialog('Xóa tầng', `Xóa "${f.name}" cùng ${cnt} node và các cạnh của tầng này?`, doDel);
+}
+
+// confirm() của editor dùng modal riêng → tạm ẩn hộp thoại tầng; Hủy thì mở lại hộp thoại tầng.
+function _confirmOverFloorDialog(title, msg, cb){
+  const cancelBtn = _fdEl('modal-cancel');
+  _fdEl('floor-modal-overlay').classList.remove('open');
+  confirm(title, msg, ()=>{ cancelBtn.onclick = closeModal; cb(); });
+  cancelBtn.onclick = ()=>{
+    cancelBtn.onclick = closeModal; closeModal();
+    if(_fd) _fdEl('floor-modal-overlay').classList.add('open');
+  };
+}
+
+// ── Import vào tầng đang sửa ───────────────────────────────────────────────
+function _fdImportDrawio(){
+  if(!_fd || !_fd.id) return;
+  const fid = _fd.id;
+  closeFloorDialog();
+  if(state.activeFloor !== fid) switchFloor(fid);
+  document.getElementById('drawio-file-input').click();
+}
+
+async function _fdLoadMapChoices(){
+  const sel = _fdEl('fd-import-map');
+  sel.innerHTML = '<option value="">— chọn bản đồ đã lưu —</option>';
+  try{
+    const r = await fetch(`${API}/api/maps/list`);
+    if(!r.ok) return;
+    const maps = await r.json();
+    for(const m of maps){
+      if(String(m.id) === String(state.mapId)) continue;
+      const o = document.createElement('option');
+      o.value = m.id; o.textContent = m.name || `Map ${m.id}`;
+      sel.appendChild(o);
+    }
+  }catch(e){ console.warn('[floors] không tải được danh sách map', e); }
+}
+
+async function _fdImportSavedMap(){
+  if(!_fd || !_fd.id) return;
+  const srcId = _fdEl('fd-import-map').value;
+  if(!srcId){ toast('Chọn bản đồ cần import', 'error'); return; }
+  const fid = _fd.id;
+  const f = state.floors.find(x=>x.id===fid);
+  if(!f) return;
+  const doImport = async ()=>{
+    try{
+      const r = await fetch(`${API}/api/maps/${srcId}`);
+      if(!r.ok){ toast('Không tải được bản đồ nguồn', 'error'); return; }
+      const data = await r.json();
+      const parsed = await _parseMapData(data);
+      const srcFloor = parsed.floors[0];
+      // Chỉ lấy tầng đầu của bản đồ nguồn
+      const srcNodes = Object.values(parsed.nodes).filter(n=>n.floor===srcFloor.id);
+      const srcIds = new Set(srcNodes.map(n=>n.id));
+      saveSnapshot();
+      // Xóa nội dung cũ của tầng đích
+      for(const id of Object.keys(state.nodes)){
+        if(floorOfNode(state.nodes[id]) === fid) delete state.nodes[id];
+      }
+      state.edges = state.edges.filter(e=>state.nodes[e.src] && state.nodes[e.dst]);
+      // ID phải duy nhất trong cả map → node trùng ID với tầng khác được cấp ID mới
+      const used = new Set(Object.keys(state.nodes));
+      const idMap = {};
+      let next = Math.max(state.nextId, 1);
+      for(const n of srcNodes){
+        let nid = n.id;
+        if(used.has(nid)){ while(used.has(String(next))) next++; nid = String(next); }
+        used.add(nid); idMap[n.id] = nid;
+      }
+      let remapped = 0;
+      for(const n of srcNodes){
+        const nn = JSON.parse(JSON.stringify(n));
+        nn.id = idMap[n.id]; nn.floor = fid;
+        if(nn.elevatorId && !state.elevators.some(e=>e.id===nn.elevatorId)) nn.elevatorId = '';
+        if(nn.id !== n.id) remapped++;
+        if(nn.turnMap){
+          const tm = {};
+          for(const [k, v] of Object.entries(nn.turnMap)){
+            const m = /^(.+)_(.+)_(fwd|bwd)$/.exec(k);
+            if(!m){ tm[k] = v; continue; }
+            // Dòng bảng rẽ trỏ tới node KHÔNG được import (vd ở tầng khác của map nguồn) → bỏ,
+            // vì ID đó có thể đã là node khác trong map này.
+            if(idMap[m[1]] && idMap[m[2]]) tm[`${idMap[m[1]]}_${idMap[m[2]]}_${m[3]}`] = v;
+          }
+          nn.turnMap = tm;
+        }
+        state.nodes[nn.id] = nn;
+      }
+      for(const e of parsed.edges){
+        if(!srcIds.has(e.src) || !srcIds.has(e.dst)) continue;
+        const ne = JSON.parse(JSON.stringify(e));
+        ne.src = idMap[e.src]; ne.dst = idMap[e.dst];
+        ne.id = `e_${ne.src}_${ne.dst}`;
+        state.edges.push(ne);
+      }
+      const numIds = Object.keys(state.nodes).map(x=>parseInt(x)).filter(x=>!isNaN(x));
+      state.nextId = numIds.length ? Math.max(...numIds) + 1 : 1;
+      // Hệ toạ độ + ảnh nền của bản đồ nguồn (node giữ nguyên vị trí hiển thị)
+      const st = srcFloor.transform;
+      f.transform = { originX:st.originX, originY:st.originY, resolution:st.resolution, ppm:st.ppm,
+                      natW:st.natW, natH:st.natH, imagePath:st.imagePath, pendingImage:null, imageV:null };
+      if(st.imagePath){
+        try{
+          const blob = await (await fetch(st.imagePath.startsWith('http') ? st.imagePath : `${API}${st.imagePath}`)).blob();
+          f.transform.pendingImage = await new Promise((ok, bad)=>{
+            const rd = new FileReader(); rd.onload = ()=>ok(rd.result); rd.onerror = bad; rd.readAsDataURL(blob);
+          });
+          f.transform.imagePath = f.transform.pendingImage;
+        }catch(e){ console.warn('[floors] không sao chép được ảnh nền', e); f.transform.imagePath = null; f.transform.natW = 0; f.transform.natH = 0; }
+      }
+      closeFloorDialog();
+      if(state.activeFloor !== fid) switchFloor(fid);
+      else { state.transform = f.transform; _updateSlamBackground(state.transform); renderFloorTabs(); renderAll(); updateProps(); setTimeout(fitView, 50); }
+      mapChanged = true;
+      toast(`Đã import ${srcNodes.length} node từ "${data.name || srcId}" vào ${f.name}` +
+            (remapped ? ` (${remapped} node đổi ID vì trùng tầng khác)` : ''), 'success');
+    }catch(e){ toast('Lỗi import: ' + e.message, 'error'); console.error(e); }
+  };
+  _confirmOverFloorDialog('Import bản đồ vào tầng', `Thay toàn bộ node/cạnh của "${f.name}" bằng nội dung bản đồ đã chọn (tầng đầu tiên)?`, doImport);
+}
+
+document.getElementById('fd-ok').onclick       = applyFloorDialog;
+document.getElementById('fd-cancel').onclick   = closeFloorDialog;
+document.getElementById('fd-delete').onclick   = deleteFloorFromDialog;
+document.getElementById('fd-img-btn').onclick  = _fdPickImage;
+document.getElementById('fd-img-rm').onclick   = _fdRemoveImage;
+document.getElementById('fd-img-file').onchange = _fdImageChosen;
+document.getElementById('fd-import-drawio').onclick = _fdImportDrawio;
+document.getElementById('fd-import-btn').onclick    = _fdImportSavedMap;
+
+// ═══════════════════════════════════════════════════
+// THANG MÁY — node loại 'elevator' (điểm dừng thang trên 1 tầng) mang n.elevatorId.
+// Các node CÙNG elevatorId ở các tầng khác nhau = cùng 1 thang (nối giữa các tầng).
+// state.elevators = [{id, name, note}] — danh sách thang của map (lưu agv_maps.elevators).
+// Điều khiển thang (gọi thang/mở cửa) làm sau — hiện chỉ khai báo trên bản đồ.
+// ═══════════════════════════════════════════════════
+function _elevName(id){
+  const e = state.elevators.find(x=>x.id===id);
+  return e ? e.name : '';
+}
+function _floorName(fid){
+  const f = state.floors.find(x=>x.id===fid);
+  return f ? f.name : fid;
+}
+function _elevNodes(eid){
+  return Object.values(state.nodes).filter(n=>n.type==='elevator' && n.elevatorId===eid);
+}
+function _elevFloorNames(eid){
+  const seen = [];
+  _elevNodes(eid).forEach(n=>{ const f = floorOfNode(n); if(!seen.includes(f)) seen.push(f); });
+  return seen.map(_floorName);
+}
+function _newElevId(){
+  let i = state.elevators.length + 1;
+  while(state.elevators.some(e=>e.id==='E'+i)) i++;
+  return 'E'+i;
+}
+
+function _jumpToNode(nid){
+  const n = state.nodes[nid]; if(!n) return;
+  const fid = floorOfNode(n);
+  if(fid !== state.activeFloor) switchFloor(fid);
+  selNodes.clear(); selEdges.clear(); selNodes.add(nid);
+  renderAll(); updateProps();
+  // đưa node vào giữa khung nhìn
+  panX = wrap.clientWidth/2 - n.x*zoom; panY = wrap.clientHeight/2 - n.y*zoom;
+  applyTransform();
+}
+
+function _elevLinksHtml(n, eid){
+  if(!eid) return '<span style="color:var(--muted)">Chọn thang để xem các tầng được nối.</span>';
+  const others = _elevNodes(eid).filter(x=>!n || x.id !== n.id);
+  const floorsAll = new Set(others.map(floorOfNode));
+  if(n) floorsAll.add(floorOfNode(n));
+  const cat = _catEntry(eid);
+  let html = cat ? `<div style="margin-bottom:4px;font-size:11px">${_linkBadge(cat)} · ${_catParams(cat)}</div>` : '';
+  html += `<div style="margin-bottom:4px"><b>${_esc(_elevName(eid) || eid)}</b> nối <b>${floorsAll.size}</b> tầng`;
+  if(floorsAll.size < 2) html += ` <span style="color:#f59e0b">⚠ cần thêm node thang cùng mã ở tầng khác</span>`;
+  html += '</div>';
+  if(others.length){
+    html += others.map(x=>
+      `<div style="display:flex;align-items:center;gap:6px;margin-top:3px"><span style="flex:1">${_esc(_floorName(floorOfNode(x)))} · node ${_esc(x.id)}</span>` +
+      `<button class="tb-btn" type="button" style="padding:2px 8px" onclick="_jumpToNode('${_esc(x.id)}')">Đi tới →</button></div>`).join('');
+  }
+  return html;
+}
+
+function _refreshElevRole(n){
+  const role = document.getElementById('pn-elev-role'), ref = document.getElementById('pn-elev-ref');
+  if(!role || !ref) return;
+  role.value = (n && n.elevRole) || '';
+  ref.innerHTML = state.elevators.map(e=>`<option value="${_esc(e.id)}">${_esc(e.name)} (${_esc(e.id)})</option>`).join('');
+  ref.value = (n && n.elevRef) || '';
+  if(role.value && !ref.value && state.elevators.length) ref.value = state.elevators[0].id;
+  ref.style.display = role.value ? 'block' : 'none';
+}
+document.addEventListener('change', e=>{
+  if(e.target && e.target.id === 'pn-elev-role') _refreshElevRole({elevRole:e.target.value, elevRef:(document.getElementById('pn-elev-ref')||{}).value});
+});
+
+function _refreshElevField(n){
+  _refreshElevRole(n);
+  const f = document.getElementById('pn-elev-field');
+  if(!f) return;
+  const isEl = document.getElementById('pn-type').value === 'elevator';
+  f.style.display = isEl ? 'block' : 'none';
+  if(!isEl) return;
+  const sel = document.getElementById('pn-elev-id');
+  const keep = (n && n.elevatorId) || '';
+  sel.innerHTML = '<option value="">— chọn thang —</option>' +
+    state.elevators.map(e=>`<option value="${_esc(e.id)}">${_esc(e.name)} (${_esc(e.id)})</option>`).join('');
+  sel.value = keep;
+  if(sel.value !== keep) sel.value = '';
+  document.getElementById('pn-cabin-tag').value = (n && n.cabinTag) || '';
+  document.getElementById('pn-cabin-door').value = (n && n.cabinDoor) || '';
+  document.getElementById('pn-elev-links').innerHTML = _elevLinksHtml(n, sel.value);
+}
+
+function _elevatorWarnings(){
+  const w = [];
+  if(state.elevators.length){
+    const seen = {};
+    state.floors.forEach(f=>{ (seen[f.level] = seen[f.level] || []).push(f.name); });
+    Object.entries(seen).forEach(([lv, names])=>{
+      if(names.length > 1) w.push(`Số tầng ${lv} bị trùng (${names.join(', ')}) — thang máy không phân biệt được các tầng này`);
+    });
+  }
+  const els = Object.values(state.nodes).filter(n=>n.type==='elevator');
+  els.filter(n=>!n.elevatorId).forEach(n=>w.push(`Node ${n.id} là thang máy nhưng chưa chọn thang`));
+  // Cabin 1 cửa: node thang phải là NODE CỤT (chỉ nối 1 node chờ) — vào hướng nào ra hướng ngược lại
+  els.filter(n=>n.elevatorId).forEach(n=>{
+    const nb = new Set();
+    state.edges.forEach(e=>{ if(e.src===n.id) nb.add(e.dst); else if(e.dst===n.id) nb.add(e.src); });
+    if(nb.size !== 1) w.push(`Node thang ${n.id} nên là node cụt (hiện nối ${nb.size} node) — cần đúng 1 node chờ phía trước cabin`);
+  });
+  state.elevators.forEach(e=>{
+    const nodes = els.filter(n=>n.elevatorId===e.id);
+    if(!nodes.length) return;
+    const byFloor = {};
+    nodes.forEach(n=>{ (byFloor[floorOfNode(n)] = byFloor[floorOfNode(n)] || []).push(n.id); });
+    const fl = Object.keys(byFloor);
+    if(fl.length < 2) w.push(`${e.name}: mới có ở ${fl.length} tầng (cần ≥ 2)`);
+    fl.forEach(f=>{ if(byFloor[f].length > 1) w.push(`${e.name}: ${_floorName(f)} có ${byFloor[f].length} node thang (${byFloor[f].join(', ')})`); });
+  });
+  return w;
+}
+
+// ── Hộp thoại quản lý thang máy ────────────────────────────────────────────
+// Danh mục thang đã khai báo (server) — nguồn duy nhất để chọn thang cho bản đồ
+let elevCatalog = null;   // null = chưa tải / lỗi
+async function loadElevCatalog(){
+  try{
+    const r = await fetch(`${API}/api/elevators/catalog`);
+    if(!r.ok) throw new Error(r.status);
+    elevCatalog = (await r.json()).elevators || [];
+  }catch(e){ elevCatalog = null; }
+}
+function _catEntry(id){ return elevCatalog ? elevCatalog.find(c=>c.id===id) : null; }
+function _linkBadge(c){
+  const col = c.link_online ? '#16a34a' : (c.link_link==='stale' ? '#d97706' : '#8c909f');
+  const txt = {online:'đã kết nối', offline:'mất kết nối', stale:'chỉ thấy tin cũ', never:'chưa thấy tín hiệu'}[c.link_link] || '';
+  return `<span style="color:${col};font-weight:700">${c.link_online?'●':'○'} ${txt}</span>`;
+}
+function _catParams(c){
+  return `nhà máy: ${_esc(c.link_factory || c.factory || '—')}` +
+    (c.floors && c.floors.length ? ` · tầng: ${c.floors.map(f=>'T'+f.level).join(', ')}` : '') +
+    (c.note ? `<br>${_esc(c.note)}` : '');
+}
+async function openElevDialog(){
+  document.getElementById('ev-picker').style.display = 'none';
+  await loadElevCatalog();
+  // đồng bộ tên/ghi chú theo danh mục (danh mục là nguồn chính)
+  if(elevCatalog) state.elevators.forEach(e=>{ const c=_catEntry(e.id); if(c){ e.name=c.name; e.note=c.note||''; } });
+  renderElevRows();
+  document.getElementById('elev-modal-overlay').classList.add('open');
+}
+function closeElevDialog(){
+  document.getElementById('elev-modal-overlay').classList.remove('open');
+  renderFloorTabs(); updateProps(); renderAll();
+}
+function renderElevRows(){
+  const box = document.getElementById('ev-list');
+  box.innerHTML = '';
+  if(!state.elevators.length){
+    box.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:6px 2px">Chưa có thang nào. Bấm “＋ Thêm thang”, rồi đặt node loại <b>Elevator</b> trên từng tầng và chọn thang đó.</div>';
+  }
+  state.elevators.forEach(e=>{
+    const row = document.createElement('div');
+    row.className = 'ev-row';
+    const fl = _elevFloorNames(e.id);
+    const cat = _catEntry(e.id);
+    const info = `<div class="ev-info">${fl.length ? 'Nối: ' + fl.map(_esc).join(' ↔ ') : 'Chưa có node nào dùng thang này'} · ${_elevNodes(e.id).length} node</div>`;
+    if(cat){
+      // thang có trong danh mục → thông số lấy từ danh mục (sửa ở Quản lý AGV → Khai báo thang máy)
+      row.innerHTML =
+        `<div class="ev-top"><span class="ev-id">${_esc(e.id)}</span><b style="flex:1;font-size:13px">${_esc(cat.name)}</b>` +
+        `<button class="props-btn danger ev-del" type="button" title="Bỏ thang này khỏi bản đồ">🗑</button></div>` +
+        `<div class="ev-info">${_linkBadge(cat)} · ${_catParams(cat)}</div>` + info;
+    } else {
+      row.innerHTML =
+        `<div class="ev-top"><span class="ev-id">${_esc(e.id)}</span><b style="flex:1;font-size:13px">${_esc(e.name)}</b>` +
+        `<button class="props-btn danger ev-del" type="button" title="Bỏ thang này khỏi bản đồ">🗑</button></div>` +
+        `<div class="ev-info" style="color:#d97706">⚠ ${elevCatalog ? 'Thang này chưa có trong danh mục — khai báo ở Quản lý AGV → Khai báo thang máy' : 'Không tải được danh mục thang từ server'}</div>` + info;
+    }
+    row.querySelector('.ev-del').onclick = ()=>{
+      const used = _elevNodes(e.id).length;
+      const doDel = ()=>{
+        state.elevators = state.elevators.filter(x=>x.id!==e.id);
+        Object.values(state.nodes).forEach(n=>{ if(n.elevatorId===e.id) n.elevatorId = ''; });
+        mapChanged = true;
+        renderElevRows();
+        document.getElementById('elev-modal-overlay').classList.add('open');
+      };
+      if(!used){ doDel(); return; }
+      document.getElementById('elev-modal-overlay').classList.remove('open');
+      const cancelBtn = document.getElementById('modal-cancel');
+      confirm('Xóa thang máy', `Xóa "${e.name}"? ${used} node đang dùng thang này sẽ bị bỏ liên kết.`, ()=>{ cancelBtn.onclick = closeModal; doDel(); });
+      cancelBtn.onclick = ()=>{ cancelBtn.onclick = closeModal; closeModal(); document.getElementById('elev-modal-overlay').classList.add('open'); };
+    };
+    box.appendChild(row);
+  });
+}
+// Thêm thang vào bản đồ = CHỌN từ danh mục (không tự gõ mã)
+async function addElevator(){
+  const box = document.getElementById('ev-picker');
+  if(box.style.display !== 'none'){ box.style.display = 'none'; return; }
+  await loadElevCatalog();
+  if(!elevCatalog){
+    box.innerHTML = '<div style="color:#dc2626;font-size:12px">Không tải được danh mục thang từ server (server cần khởi động lại để có tính năng này).</div>';
+  } else {
+    const free = elevCatalog.filter(c=>!state.elevators.some(e=>e.id===c.id));
+    box.innerHTML = '<div style="font-size:12px;font-weight:700;margin-bottom:4px">Chọn thang từ danh mục</div>' +
+      (free.length ? free.map(c=>
+        `<div class="ev-row" style="display:flex;align-items:center;gap:8px"><div style="flex:1"><div><span class="ev-id">${_esc(c.id)}</span> <b>${_esc(c.name)}</b></div>` +
+        `<div class="ev-info">${_linkBadge(c)} · ${_catParams(c)}</div></div>` +
+        `<button class="props-btn primary" type="button" data-cid="${_esc(c.id)}">Chọn</button></div>`).join('')
+        : '<div style="color:var(--muted);font-size:12px">' + (elevCatalog.length ? 'Đã chọn hết thang trong danh mục.' : 'Danh mục trống — khai báo thang ở Quản lý AGV → Khai báo thang máy.') + '</div>');
+    box.querySelectorAll('button[data-cid]').forEach(b=>{
+      b.onclick = ()=>{
+        const c = _catEntry(b.dataset.cid); if(!c) return;
+        state.elevators.push({ id:c.id, name:c.name, note:c.note||'' });
+        mapChanged = true; box.style.display = 'none'; renderElevRows();
+      };
+    });
+  }
+  box.style.display = 'block';
+}
+document.getElementById('ev-add').onclick   = addElevator;
+loadElevCatalog().then(()=>{ try{ updateProps(); }catch(e){} });
+document.getElementById('ev-close').onclick = closeElevDialog;
+document.getElementById('pn-elev-manage').onclick = openElevDialog;
+document.getElementById('pn-elev-id').onchange = ()=>{
+  const nid = selNodes.size === 1 ? [...selNodes][0] : null;
+  document.getElementById('pn-elev-links').innerHTML = _elevLinksHtml(nid ? state.nodes[nid] : null, document.getElementById('pn-elev-id').value);
+};
+
+
+let _floorTabsSig = '';
 function renderAll(){
+  renderFloorTabs();
   renderEdges(); renderNodes();
-  const nc = Object.keys(state.nodes).length;
-  document.getElementById('sb-nodes').textContent = `${_t('sb_nodes')} ${nc}`;
-  document.getElementById('sb-edges').textContent = `${_t('sb_edges')} ${state.edges.length}`;
+  const total = Object.keys(state.nodes).length;
+  const nc = floorNodeIds().length;
+  const ec = state.edges.filter(e=>state.nodes[e.src] && nodeInCurFloor(state.nodes[e.src])).length;
+  document.getElementById('sb-nodes').textContent =
+    `${_t('sb_nodes')} ${nc}` + (state.floors.length > 1 ? ` / ${total}` : '');
+  document.getElementById('sb-edges').textContent = `${_t('sb_edges')} ${ec}`;
   emptyHint.style.display = nc === 0 ? 'block' : 'none';
 }
 
@@ -819,6 +1661,7 @@ function renderEdges(){
   for(const e of state.edges){
     const na = state.nodes[e.src], nb = state.nodes[e.dst];
     if(!na||!nb) continue;
+    if(!nodeInCurFloor(na)) continue;      // chỉ vẽ cạnh của tầng đang xem
     const sel = selEdges.has(e.id);
 
     const isBez = !!(e.cp1 && e.cp2);
@@ -961,6 +1804,55 @@ function renderEdges(){
     }
 
     // ── Speed label ───────────────────────────────────────────────────────────
+    // ── Hướng đi RIÊNG theo loại xe: mũi tên MÀU + chữ cái loại xe (C=Chở, K=Kéo, R=Rơ-moóc) ──
+    //    Mũi tên chỉ đúng chiều xe loại đó ĐƯỢC đi; ✕ = cấm hoàn toàn loại đó.
+    {
+      const TD_COLOR  = { carry:'#16a34a', tow:'#ea580c', trailer:'#9333ea' };
+      const TD_LETTER = { carry:'C', tow:'K', trailer:'R' };
+      const _p0 = {x:sx,y:sy}, _p1 = {x:ex,y:ey};
+      const ptAt = (t) => {
+        if(isBez){
+          const pt = bzPt(t,_p0,e.cp1,e.cp2,_p1), tan = bzTan(t,_p0,e.cp1,e.cp2,_p1);
+          return { x:pt.x, y:pt.y, a:Math.atan2(tan.y,tan.x)*180/Math.PI };
+        }
+        return { x:sx+(ex-sx)*t, y:sy+(ey-sy)*t, a:angle };
+      };
+      const addText = (x, y, str, fill, size, weight) => {
+        const tx = document.createElementNS('http://www.w3.org/2000/svg','text');
+        tx.setAttribute('x',x); tx.setAttribute('y',y);
+        tx.setAttribute('text-anchor','middle'); tx.setAttribute('dominant-baseline','central');
+        tx.setAttribute('font-size',size); tx.setAttribute('font-weight',weight||'700');
+        tx.setAttribute('fill',fill); tx.setAttribute('pointer-events','none');
+        tx.textContent = str;
+        g.appendChild(tx);
+      };
+      Object.entries(e.typeDirs || {}).forEach(([t, dir], i) => {
+        const pos = ptAt([0.25, 0.5, 0.75][i % 3]);
+        const col2 = TD_COLOR[t] || '#6b7280';
+        const rad = pos.a * Math.PI / 180;
+        const lx = pos.x + (-Math.sin(rad)) * 15, ly = pos.y + Math.cos(rad) * 15;   // lệch ra ngoài lane
+        if(dir === 'blocked'){
+          addText(pos.x, pos.y, '✕', col2, 14, '900');
+        } else {
+          const arr = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+          arr.setAttribute('points', '6,0 -4,-5.5 -4,5.5');
+          arr.setAttribute('transform', `translate(${pos.x},${pos.y}) rotate(${dir==='forward' ? pos.a : pos.a+180}) scale(1.35)`);
+          arr.setAttribute('fill', col2); arr.setAttribute('stroke', '#ffffff'); arr.setAttribute('stroke-width', '0.8');
+          arr.setAttribute('pointer-events','none');
+          g.appendChild(arr);
+        }
+        addText(lx, ly, TD_LETTER[t] || '?', col2, 10, '800');
+      });
+      // Cạnh đang chọn: đánh dấu rõ đầu NGUỒN và đầu ĐÍCH (chiều "tiến" = nguồn → đích)
+      if(sel){
+        const a0 = ptAt(0.1), a1 = ptAt(0.9);
+        const off = (pt) => { const r = pt.a * Math.PI / 180; return { x: pt.x + (-Math.sin(r)) * -15, y: pt.y + Math.cos(r) * -15 }; };
+        const o0 = off(a0), o1 = off(a1);
+        addText(o0.x, o0.y, 'nguồn', '#b45309', 9, '800');
+        addText(o1.x, o1.y, 'đích',   '#b45309', 9, '800');
+      }
+    }
+
     if(e.speed && e.speed !== 0.5){
       const mx=(sx+ex)/2, my=(sy+ey)/2;
       // perp offset so label sits above the lane
@@ -1018,12 +1910,13 @@ function renderEdges(){
 function renderNodes(){
   nodeLayer.innerHTML = '';
   for(const [id,n] of Object.entries(state.nodes)){
+    if(!nodeInCurFloor(n)) continue;       // chỉ vẽ node của tầng đang xem
     const sel = selNodes.has(id);
     const col = TYPE_COLOR[n.type]||'#3b82f6';
     // Chức năng đặc biệt (cửa tự động / thả-lấy hàng Trailer) → tô màu NỀN
     // node để nhận biết ngay trên bản đồ, ưu tiên vai trò Trailer (cụ thể hơn
     // "Loại vị trí") rồi mới tới cửa tự động. Không có gì đặc biệt → nền trắng.
-    const specialFill = TRAILER_ROLE_COLOR[n.trailerRole] || (n.type==='door' ? TYPE_COLOR.door : null);
+    const specialFill = TRAILER_ROLE_COLOR[n.trailerRole] || ((n.type && n.type!=='normal' && TYPE_COLOR[n.type]) ? TYPE_COLOR[n.type] : null);
     const compat = n.agvCompat||'slam_qr';
     const isRFID = compat==='RFID';
     const isBoth = compat==='both';
@@ -1049,6 +1942,18 @@ function renderNodes(){
       g.appendChild(glow);
     }
 
+    // Viền cảnh báo junction (kết quả "Kiểm tra junction"): đỏ = thiếu bảng rẽ, vàng = góc mơ hồ
+    if(_turnFlags[id] && !sel){
+      const ring = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      ring.setAttribute('r', R+6);
+      ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', _turnFlags[id]==='missing' ? '#ef4444' : '#f59e0b');
+      ring.setAttribute('stroke-width', '3');
+      ring.setAttribute('stroke-dasharray', '5 3');
+      ring.setAttribute('pointer-events', 'none');
+      g.appendChild(ring);
+    }
+
     // Drop shadow
     const shadow = document.createElementNS('http://www.w3.org/2000/svg','circle');
     shadow.setAttribute('r', R+1);
@@ -1070,8 +1975,9 @@ function renderNodes(){
     const tid = document.createElementNS('http://www.w3.org/2000/svg','text');
     tid.setAttribute('text-anchor','middle'); tid.setAttribute('dominant-baseline','central');
     tid.setAttribute('font-size','10'); tid.setAttribute('font-weight','700');
-    tid.setAttribute('fill', textCol); tid.setAttribute('pointer-events','none');
-    tid.textContent = id.length>4 ? id.slice(-4) : id;
+    tid.setAttribute('fill', (n.type && n.type!=='normal' && n.type!=='door' && TYPE_COLOR[n.type] && !TRAILER_ROLE_COLOR[n.trailerRole]) ? '#ffffff' : textCol); tid.setAttribute('pointer-events','none');
+    const _lab = id.split('@')[0];            // mặt cabin dùng chung "100@F2" hiển thị là thẻ 100
+    tid.textContent = _lab.length>4 ? _lab.slice(-4) : _lab;
     g.appendChild(tid);
 
     // name label below
@@ -1084,6 +1990,23 @@ function renderNodes(){
       lbl.setAttribute('pointer-events','none');
       lbl.textContent = n.name.length>12 ? n.name.slice(0,12)+'…' : n.name;
       g.appendChild(lbl);
+    }
+
+    // Thang máy: huy hiệu ⇅ + tên thang dưới node
+    if(n.type==='elevator'){
+      const bd = document.createElementNS('http://www.w3.org/2000/svg','text');
+      bd.setAttribute('x', String(R*0.95)); bd.setAttribute('y', String(-R*0.75));
+      bd.setAttribute('font-size','11'); bd.setAttribute('font-weight','700');
+      bd.setAttribute('fill','#4338ca'); bd.setAttribute('pointer-events','none');
+      bd.textContent = '⇅';
+      g.appendChild(bd);
+      const ev = document.createElementNS('http://www.w3.org/2000/svg','text');
+      ev.setAttribute('y', String(NODE_R + (n.name ? 22 : 12)));
+      ev.setAttribute('text-anchor','middle'); ev.setAttribute('font-size','9'); ev.setAttribute('font-weight','700');
+      ev.setAttribute('fill', n.elevatorId ? '#4f46e5' : '#ef4444'); ev.setAttribute('pointer-events','none');
+      const en = n.elevatorId ? _elevName(n.elevatorId) : '';
+      ev.textContent = '🛗 ' + (n.elevatorId ? (en.length > 10 ? en.slice(0,10)+'…' : en) : '?');
+      g.appendChild(ev);
     }
 
     // edge src indicator
@@ -1165,7 +2088,7 @@ function toggleSelEdge(eid, ev){
 
 function addNode(x, y){
   const id = uid();
-  state.nodes[id] = { id, name:'', x:snap(x), y:snap(y), type:'normal', action:'', speed:0.5, agvCompat:'slam_qr' };
+  state.nodes[id] = { id, name:'', floor:curFloor().id, x:snap(x), y:snap(y), type:'normal', action:'', speed:0.5, agvCompat:'slam_qr' };
   return id;
 }
 function addEdge(src, dst){
@@ -1328,6 +2251,7 @@ svg.addEventListener('mouseup', ev=>{
     const x1=Math.min(sx,ex),x2=Math.max(sx,ex),y1=Math.min(sy,ey),y2=Math.max(sy,ey);
     if(!ev.shiftKey){ selNodes.clear(); selEdges.clear(); }
     for(const [id,n] of Object.entries(state.nodes)){
+      if(!nodeInCurFloor(n)) continue;
       if(n.x>=x1&&n.x<=x2&&n.y>=y1&&n.y<=y2) selNodes.add(id);
     }
     boxStart=null; boxLayer.innerHTML='';
@@ -1379,6 +2303,30 @@ function _numToDoorId(numStr){
   const n = parseInt(String(numStr||'').trim(), 10);
   return (!isNaN(n) && n > 0) ? ('gate'+n) : '';
 }
+const TYPE_DIR_OPTIONS = [
+  ['', 'Theo hướng chung'],
+  ['forward', 'Chỉ chiều tiến (nguồn → đích)'],
+  ['backward', 'Chỉ chiều ngược (đích → nguồn)'],
+  ['blocked', 'Cấm hoàn toàn'],
+];
+function _initTypeDirSelects(){
+  ['carry','tow','trailer'].forEach(t => {
+    const el = document.getElementById('pe-td-' + t);
+    if(el && !el.options.length)
+      el.innerHTML = TYPE_DIR_OPTIONS.map(o => `<option value="${o[0]}">${o[1]}</option>`).join('');
+  });
+}
+function _parseTypeDirs(raw){
+  if(!raw) return {};
+  let o = raw;
+  if(typeof raw === 'string'){ try{ o = JSON.parse(raw); }catch(_){ return {}; } }
+  const out = {};
+  ['carry','tow','trailer'].forEach(t => {
+    const v = String((o || {})[t] || '').toLowerCase();
+    if(['forward','backward','blocked'].includes(v)) out[t] = v;
+  });
+  return out;
+}
 function updateProps(){
   const pEmpty=document.getElementById('props-empty');
   const pNode=document.getElementById('props-node');
@@ -1386,7 +2334,7 @@ function updateProps(){
   const btnApply=document.getElementById('btn-apply');
   const btnDel=document.getElementById('btn-delete-sel');
 
-  if(selNodes.size===1){
+  if(selNodes.size===1 && !selEdges.size){
     const id=[...selNodes][0], n=state.nodes[id];
     if(!n) return;
     document.getElementById('props-title').textContent='Node';
@@ -1396,6 +2344,7 @@ function updateProps(){
     document.getElementById('pn-id').value=id;
     document.getElementById('pn-name').value=n.name||'';
     document.getElementById('pn-type').value=n.type||'normal';
+    _refreshElevField(n);
     document.getElementById('pn-action').value=n.action||'';
     const doorIdEl = document.getElementById('pn-door-id');
     if(doorIdEl) doorIdEl.value = _doorIdToNum(n.doorId);
@@ -1403,6 +2352,9 @@ function updateProps(){
     if(trailerStagingEl) trailerStagingEl.checked = !!n.trailerStaging;
     const trailerEmptyStagingEl = document.getElementById('pn-trailer-empty-staging');
     if(trailerEmptyStagingEl) trailerEmptyStagingEl.checked = !!n.trailerEmptyStaging;
+    const waitingNodeEl = document.getElementById('pn-waiting-node');
+    if(waitingNodeEl) waitingNodeEl.checked = !!n.waitingNode;
+    ['carry','tow','trailer'].forEach(t=>{ const el=document.getElementById('pn-allow-'+t); if(el) el.checked = (n.allowedAgvTypes||[]).includes(t); });
     // Load team number
     const teamEl=document.getElementById('pn-team');
     if(teamEl) teamEl.value = (n.team!=null) ? n.team : '';
@@ -1451,9 +2403,11 @@ function updateProps(){
     const vdaSec = document.getElementById('pn-vda-section');
     if(vdaSec) vdaSec.style.display = (compat==='slam_qr'||compat==='both') ? 'block' : 'none';
     _setIdEditable(compat==='RFID');
+    const daFld0 = document.getElementById('pn-default-action-field');
+    if(daFld0) daFld0.style.display = (compat==='RFID') ? 'none' : '';
     pEmpty.style.display='none'; pNode.style.display='block'; pEdge.style.display='none';
     btnApply.style.display=''; btnDel.style.display='';
-  } else if(selEdges.size===1){
+  } else if(selEdges.size===1 && !selNodes.size){
     const eid=[...selEdges][0], e=state.edges.find(x=>x.id===eid);
     if(!e) return;
     document.getElementById('props-title').textContent='Cạnh';
@@ -1463,16 +2417,36 @@ function updateProps(){
     document.getElementById('pe-speed').value    = e.speed||0.5;
     document.getElementById('pe-speed-bwd').value= (e.speedBwd!=null) ? e.speedBwd : '';
     document.getElementById('pe-width').value    = e.width||0.95;
+    document.getElementById('pe-distance').value = (e.distanceOverride!=null) ? e.distanceOverride : '';
     document.getElementById('pe-lidar-off').value= e.lidarOff||'none';
+    _initTypeDirSelects();
+    ['carry','tow','trailer'].forEach(t => {
+      const sel_ = document.getElementById('pe-td-' + t);
+      // Ghi rõ theo ID node thật của cạnh này để khỏi phải đoán đâu là nguồn/đích
+      sel_.options[1].text = `Chỉ đi ${e.src} → ${e.dst}`;
+      sel_.options[2].text = `Chỉ đi ${e.dst} → ${e.src}`;
+      sel_.value = (e.typeDirs || {})[t] || '';
+    });
     pEmpty.style.display='none'; pNode.style.display='none'; pEdge.style.display='block';
     btnApply.style.display=''; btnDel.style.display='';
+  } else if(selNodes.size + selEdges.size > 1){
+    // Chọn NHIỀU node / cạnh → bảng cài chức năng hàng loạt
+    document.getElementById('props-title').textContent='Cài hàng loạt';
+    document.getElementById('props-sub').textContent=
+      [selNodes.size?`${selNodes.size} node`:'', selEdges.size?`${selEdges.size} cạnh`:''].filter(Boolean).join(' + ')+' được chọn';
+    pEmpty.style.display='none'; pNode.style.display='none'; pEdge.style.display='none';
+    _showBulkPanel();
+    btnApply.style.display='none'; btnDel.style.display='';
+    return;
   } else {
     document.getElementById('props-title').textContent='Thuộc tính';
-    document.getElementById('props-sub').textContent=selNodes.size>1?`${selNodes.size} nodes được chọn`:'Chọn node hoặc cạnh để chỉnh sửa';
+    document.getElementById('props-sub').textContent='Chọn node hoặc cạnh để chỉnh sửa';
     pEmpty.style.display='block'; pNode.style.display='none'; pEdge.style.display='none';
-    btnApply.style.display = selNodes.size>1 ? '' : 'none';
+    btnApply.style.display = 'none';
     btnDel.style.display = (selNodes.size||selEdges.size) ? '' : 'none';
   }
+  const _bulk = document.getElementById('props-bulk');
+  if(_bulk) _bulk.style.display='none';
 }
 
 document.getElementById('btn-apply').onclick = ()=>{
@@ -1499,8 +2473,15 @@ document.getElementById('btn-apply').onclick = ()=>{
     n.type   = document.getElementById('pn-type').value;
     n.action = document.getElementById('pn-action').value;
     n.doorId = _numToDoorId(document.getElementById('pn-door-id')?.value);
+    n.elevatorId = (n.type === 'elevator') ? (document.getElementById('pn-elev-id')?.value || '') : '';
+    n.elevRole = document.getElementById('pn-elev-role')?.value || '';
+    n.elevRef = n.elevRole ? (document.getElementById('pn-elev-ref')?.value || '') : '';
+    n.cabinTag = (n.type === 'elevator') ? (document.getElementById('pn-cabin-tag')?.value || '').trim() : '';
+    n.cabinDoor = (n.type === 'elevator') ? (document.getElementById('pn-cabin-door')?.value || '') : '';
     n.trailerStaging = document.getElementById('pn-trailer-staging')?.checked || false;
     n.trailerEmptyStaging = document.getElementById('pn-trailer-empty-staging')?.checked || false;
+    n.waitingNode = document.getElementById('pn-waiting-node')?.checked || false;
+    n.allowedAgvTypes = ['carry','tow','trailer'].filter(t=>document.getElementById('pn-allow-'+t)?.checked);
     // Lưu team number (Dropoff hoặc wait_user — node đại diện 1 Tổ cụ thể)
     const _teamVal    = document.getElementById('pn-team')?.value;
     const _actValNow  = document.getElementById('pn-arrival-action')?.value;
@@ -1544,14 +2525,214 @@ document.getElementById('btn-apply').onclick = ()=>{
     const _peSpdBwd = document.getElementById('pe-speed-bwd').value;
     e.speedBwd  = (_peSpdBwd!=null && _peSpdBwd!=='') ? (parseFloat(_peSpdBwd)||null) : null;
     e.width     = parseFloat(document.getElementById('pe-width').value)||0.95;
+    const _peDist = document.getElementById('pe-distance').value;
+    e.distanceOverride = (_peDist!=null && _peDist!=='' && parseFloat(_peDist) > 0)
+      ? parseFloat(_peDist) : null;
     e.lidarOff  = document.getElementById('pe-lidar-off').value||'none';
+    const _td = {};
+    ['carry','tow','trailer'].forEach(t => { const v = document.getElementById('pe-td-' + t)?.value; if(v) _td[t] = v; });
+    e.typeDirs = _td;
     renderAll(); toast('Đã cập nhật cạnh','success');
   }
 };
+// ═══════════════════════════════════════════════════
+// SAO CHÉP / DÁN CHỨC NĂNG + CÀI HÀNG LOẠT
+// Không bao gồm các thuộc tính RIÊNG của từng phần tử: ID, vị trí, tên, số Tổ,
+// số cửa, bảng rẽ (turnMap — phụ thuộc node kề), khoảng cách thật của cạnh.
+// ═══════════════════════════════════════════════════
+let _nodeClip = null;      // { nodes:[node...], edges:[edge...] } — bản sao sâu lúc bấm Copy
+let _pasteCount = 0;       // số lần dán liên tiếp → dịch chéo dần để các bản không đè nhau
+
+function copySelection(){
+  if(!selNodes.size){ toast('Chọn ít nhất 1 node để sao chép', 'error'); return; }
+  const ids = new Set([...selNodes].filter(id=>state.nodes[id]));
+  if(!ids.size) return;
+  _nodeClip = {
+    nodes: [...ids].map(id=>JSON.parse(JSON.stringify(state.nodes[id]))),
+    // Chỉ lấy cạnh có CẢ 2 đầu nằm trong tập node được chọn
+    edges: state.edges.filter(e=>ids.has(e.src) && ids.has(e.dst)).map(e=>JSON.parse(JSON.stringify(e))),
+  };
+  _pasteCount = 0;
+  toast(`Đã sao chép ${_nodeClip.nodes.length} node, ${_nodeClip.edges.length} cạnh — bấm Ctrl+V để dán`, 'success');
+}
+
+function pasteSelection(){
+  if(!_nodeClip){ toast('Chưa sao chép node nào', 'error'); return; }
+  saveSnapshot();
+  _pasteCount++;
+  const off = 40 * _pasteCount;                       // dịch chéo xuống-phải
+  const idMap = {};
+  const newIds = [];
+  _nodeClip.nodes.forEach(src=>{
+    let id = uid();
+    while(state.nodes[id]) id = uid();                // chắc chắn không trùng ID
+    const n = JSON.parse(JSON.stringify(src));
+    n.id = id;
+    n.floor = curFloor().id;                          // dán vào tầng đang xem
+    n.x = snap(src.x + off); n.y = snap(src.y + off);
+    // Thuộc tính RIÊNG của từng node không nhân bản: tên, số Tổ, số cửa, bảng rẽ (phụ thuộc node kề)
+    n.name = ''; n.team = null; n.doorId = ''; n.elevatorId = ''; n.cabinTag = ''; n.cabinDoor = ''; n.turnMap = {};
+    state.nodes[id] = n;
+    idMap[src.id] = id;
+    newIds.push(id);
+  });
+  const newEdgeIds = [];
+  _nodeClip.edges.forEach(src=>{
+    const s2 = idMap[src.src], d2 = idMap[src.dst];
+    if(!s2 || !d2) return;
+    const e = JSON.parse(JSON.stringify(src));
+    e.id = `e_${s2}_${d2}`; e.src = s2; e.dst = d2;
+    if(e.cp1){ e.cp1.x += off; e.cp1.y += off; }
+    if(e.cp2){ e.cp2.x += off; e.cp2.y += off; }
+    state.edges.push(e);
+    newEdgeIds.push(e.id);
+  });
+  // Chọn luôn các bản mới để kéo/sửa ngay
+  selNodes.clear(); selEdges.clear();
+  newIds.forEach(id=>selNodes.add(id));
+  mapChanged = true;
+  renderAll(); updateProps();
+  toast(`Đã dán ${newIds.length} node, ${newEdgeIds.length} cạnh (đổi ID/vị trí rồi nối cạnh với phần còn lại)`, 'success');
+}
+
+// Mỗi trường: k = key trong state, src = id <select> gốc (lấy luôn danh sách lựa chọn
+// để không lặp lại), bool = ô có/không, num = ô số.
+const NODE_BULK_FIELDS = [
+  {k:'agvCompat', label:'Tương thích AGV', src:'pn-agvcompat'},
+  {k:'type', label:'Loại vị trí', src:'pn-type'},
+  {k:'action', label:'Hành động', src:'pn-action'},
+  {k:'arrivalAction', label:'Hành động khi tới', src:'pn-arrival-action'},
+  {k:'approachDir', label:'Hướng vào', src:'pn-approach-dir'},
+  {k:'turnAllowed', label:'Cho phép quay', src:'pn-turn-allowed'},
+  {k:'fwdTurn', label:'Rẽ chiều tiến', src:'pn-fwd-turn'},
+  {k:'bwdTurn', label:'Rẽ chiều lùi', src:'pn-bwd-turn'},
+  {k:'lidarOff', label:'Tắt LIDAR', src:'pn-lidar-off'},
+  {k:'stationAgvType', label:'Loại xe của trạm', src:'pn-station-agv-type'},
+  {k:'trailerRole', label:'Vai trò xe kéo/rơ-moóc', src:'pn-trailer-role'},
+  {k:'allowedAgvTypes', label:'🚧 Loại xe được phép vào', list:true, options:[
+    ['__clear__','Mọi loại xe (bỏ giới hạn)'],['carry','Chỉ chở (carry)'],['tow','Chỉ kéo (tow)'],['trailer','Chỉ rơ-moóc (trailer)'],
+    ['carry,tow','Chở + Kéo'],['carry,trailer','Chở + Rơ-moóc'],['tow,trailer','Kéo + Rơ-moóc']]},
+  {k:'waitingNode', label:'Node chờ (waiting)', bool:true},
+  {k:'trailerStaging', label:'Điểm thả hàng đầy cố định (Staging)', bool:true},
+  {k:'trailerEmptyStaging', label:'Điểm lấy hàng rỗng cố định', bool:true},
+  {k:'speed', label:'Tốc độ (m/s)', num:true},
+];
+const BULK_TD_OPTIONS = [
+  ['__clear__', 'Theo hướng chung (bỏ hạn chế)'],
+  ['forward', 'Chỉ chiều nguồn → đích của TỪNG cạnh'],
+  ['backward', 'Chỉ chiều đích → nguồn của TỪNG cạnh'],
+  ['blocked', 'Cấm hoàn toàn'],
+  ['__swap__', 'ĐẢO chiều hạn chế đang có (tiến ↔ ngược)'],
+];
+const EDGE_BULK_FIELDS = [
+  {k:'direction', label:'Hướng di chuyển', src:'pe-dir'},
+  {k:'lidarOff', label:'LIDAR vật cản', src:'pe-lidar-off'},
+  {k:'speed', label:'Tốc độ chiều đi (m/s)', num:true},
+  {k:'speedBwd', label:'Tốc độ chiều về (m/s)', num:true},
+  {k:'width', label:'Chiều rộng đường (m)', num:true},
+  {k:'td_carry',   label:'🧭 Hướng riêng — Chở (carry)', list:true, typeKey:'carry',   options:BULK_TD_OPTIONS},
+  {k:'td_tow',     label:'🧭 Hướng riêng — Kéo (tow)',   list:true, typeKey:'tow',     options:BULK_TD_OPTIONS},
+  {k:'td_trailer', label:'🧭 Hướng riêng — Rơ-moóc',     list:true, typeKey:'trailer', options:BULK_TD_OPTIONS},
+  {k:'distanceOverride', label:'📏 Khoảng cách thật (m) — nhập 0 để về tự tính', num:true},
+];
+
+function _bulkFieldsHtml(prefix, fields){
+  return fields.map(f=>{
+    const id = `bulk-${prefix}-${f.k}`;
+    let ctl = '';
+    if(f.bool){
+      ctl = `<select id="${id}" style="font-size:11px"><option value="">— giữ nguyên —</option><option value="1">✓ Bật</option><option value="0">✗ Tắt</option></select>`;
+    } else if(f.num){
+      ctl = `<input id="${id}" type="number" min="0" step="0.1" placeholder="— giữ nguyên —" style="font-size:11px"/>`;
+    } else if(f.list){
+      ctl = `<select id="${id}" style="font-size:11px"><option value="__keep__">— giữ nguyên —</option>` +
+            f.options.map(o=>`<option value="${o[0]}">${o[1]}</option>`).join('') + `</select>`;
+    } else {
+      const srcEl = document.getElementById(f.src);
+      if(!srcEl) return '';
+      const opts = [...srcEl.options].map(o=>`<option value="${o.value}">${o.textContent.replace(/</g,'&lt;')}</option>`).join('');
+      ctl = `<select id="${id}" style="font-size:11px"><option value="__keep__">— giữ nguyên —</option>${opts}</select>`;
+    }
+    return `<div class="field" style="margin-bottom:6px"><label style="font-size:11px">${f.label}</label>${ctl}</div>`;
+  }).join('');
+}
+
+function _showBulkPanel(){
+  const wrap = document.getElementById('props-bulk');
+  wrap.style.display = 'block';
+  const hasN = selNodes.size > 0, hasE = selEdges.size > 0;
+  document.getElementById('bulk-node-wrap').style.display = hasN ? 'block' : 'none';
+  document.getElementById('bulk-edge-wrap').style.display = hasE ? 'block' : 'none';
+  if(hasN) document.getElementById('bulk-node-fields').innerHTML = _bulkFieldsHtml('n', NODE_BULK_FIELDS);
+  if(hasE) document.getElementById('bulk-edge-fields').innerHTML = _bulkFieldsHtml('e', EDGE_BULK_FIELDS);
+  document.getElementById('bulk-info').textContent =
+    'Chọn giá trị cho các ô cần đổi, rồi bấm "Áp dụng". Hoặc sao chép các node đã chọn (kèm cạnh nối giữa chúng) rồi dán thành bản mới.';
+  const cp = document.getElementById('bulk-copy-btn');
+  if(cp) cp.style.display = hasN ? '' : 'none';
+  const paste = document.getElementById('bulk-paste-btn');
+  if(paste) paste.style.display = _nodeClip ? '' : 'none';
+}
+
+function _collectBulk(prefix, fields){
+  const out = {};
+  fields.forEach(f=>{
+    const el = document.getElementById(`bulk-${prefix}-${f.k}`);
+    if(!el) return;
+    const v = el.value;
+    if(f.bool){ if(v !== '') out[f.k] = (v === '1'); }
+    else if(f.num){ if(v !== '' && !isNaN(parseFloat(v))) out[f.k] = parseFloat(v); }
+    else if(f.list){
+      if(v !== '__keep__'){
+        if(f.typeKey) out[f.k] = (v === '__clear__') ? '' : v;
+        else out[f.k] = (v === '__clear__') ? [] : v.split(',');
+      }
+    }
+    else if(v !== '__keep__') out[f.k] = v;
+  });
+  return out;
+}
+
+function applyBulk(){
+  const nChg = selNodes.size ? _collectBulk('n', NODE_BULK_FIELDS) : {};
+  const eChg = selEdges.size ? _collectBulk('e', EDGE_BULK_FIELDS) : {};
+  // Hướng riêng theo loại xe (td_*) nằm trong e.typeDirs, tách ra khỏi các trường cạnh thường
+  const tdChg = {};
+  Object.keys(eChg).forEach(k => { if(k.startsWith('td_')){ tdChg[k.slice(3)] = eChg[k]; delete eChg[k]; } });
+  if(!Object.keys(nChg).length && !Object.keys(eChg).length && !Object.keys(tdChg).length){
+    toast('Chưa chọn giá trị nào để áp dụng', 'error'); return;
+  }
+  saveSnapshot();
+  selNodes.forEach(id=>{
+    const n = state.nodes[id]; if(!n) return;
+    Object.assign(n, nChg);
+    // Giữ nhất quán như khi sửa từng node: nhóm cấp hàng chỉ có ở wait_sys/wait_user
+    if('arrivalAction' in nChg && !['wait_sys','wait_user'].includes(n.arrivalAction)) n.supplyGroups = [];
+  });
+  if('distanceOverride' in eChg && !(eChg.distanceOverride > 0)) eChg.distanceOverride = null;   // 0 → bỏ ghi đè, tự tính
+  state.edges.forEach(e=>{
+    if(!selEdges.has(e.id)) return;
+    Object.assign(e, eChg);
+    if(Object.keys(tdChg).length){
+      const td = Object.assign({}, e.typeDirs || {});
+      for(const [t, v] of Object.entries(tdChg)){
+        if(v === '__swap__'){
+          if(td[t] === 'forward') td[t] = 'backward';
+          else if(td[t] === 'backward') td[t] = 'forward';
+        } else if(v) td[t] = v; else delete td[t];
+      }
+      e.typeDirs = td;
+    }
+  });
+  mapChanged = true;
+  renderAll(); updateProps();
+  toast(`Đã cài hàng loạt cho ${selNodes.size} node, ${selEdges.size} cạnh`, 'success');
+}
+
 document.getElementById('btn-delete-sel').onclick = deleteSelected;
 
 function onNodeTypeChange(){
   onArrivalActionChange_pn();
+  _refreshElevField(selNodes.size === 1 ? state.nodes[[...selNodes][0]] : null);
 }
 
 // ── Tag-input "Tổ được cấp" trong properties panel ──────────────────
@@ -1642,11 +2823,17 @@ function onArrivalActionChange_pn(){
     if(!showTeamBehavior) document.getElementById('pn-team-agv-type').value = 'none';
     const noteEl = document.getElementById('pn-team-behavior-note');
     if(noteEl && showTeamBehavior){
+      // Field trailer_role/trailer_*_staging DÙNG CHUNG cho cả Trailer lẫn AGV kéo
+      // (tow) — nhưng quy trình nâng/hạ móc NGƯỢC NHAU giữa 2 loại xe (xem
+      // line_agv_handler._is_tow_agv phía server) nên phải ghi rõ CẢ 2 ở đây,
+      // tránh người dùng tưởng field này chỉ dành riêng cho Trailer.
       if(isPickupRole){
         noteEl.innerHTML = '🛒 <b>Trailer</b> đến đây: tự động <b>NÂNG móc</b> chờ xe hàng đầy, cảm biến tự hạ móc khi lắp xong (chờ xác nhận web trước khi kéo đi tiếp).<br>' +
+          '🚜 <b>Tow</b> đến đây: tự động <b>HẠ móc</b> chờ xe hàng đầy, người dùng bấm <b>Nâng móc</b> trên web khi lắp xong mới đi tiếp (ngược chiều lệnh so với Trailer).<br>' +
           '🤖 <b>Carry</b> đến đây: hoạt động bình thường — chờ xác nhận lấy hàng từ người dùng, không bị ảnh hưởng.';
       } else {
         noteEl.innerHTML = '🛒 <b>Trailer</b> đến đây: tự động <b>NÂNG móc</b> thả xe hàng rỗng, rồi tự đi tiếp (tới node khác cùng Tổ để lấy hàng đầy).<br>' +
+          '🚜 <b>Tow</b> đến đây: tự động <b>HẠ móc</b> thả xe hàng rỗng, rồi tự đi tiếp (ngược chiều lệnh so với Trailer).<br>' +
           '🤖 <b>Carry</b> đến đây: hoạt động bình thường — chờ xác nhận giao hàng từ người dùng, không bị ảnh hưởng.';
       }
     }
@@ -1736,6 +2923,9 @@ function onAgvCompatChange(){
   if(turnSec) turnSec.style.display = (v==='RFID'||v==='both') ? 'block' : 'none';
   const vdaSec = document.getElementById('pn-vda-section');
   if(vdaSec) vdaSec.style.display = (v==='slam_qr'||v==='both') ? 'block' : 'none';
+  // 'Hành động mặc định' (PICKUP/DROP...) chỉ AGV VDA5050 dùng — ẩn với node RFID thuần. Giá trị đã lưu giữ nguyên, không bị xoá.
+  const daFld = document.getElementById('pn-default-action-field');
+  if(daFld) daFld.style.display = (v==='RFID') ? 'none' : '';
 }
 
 // ── Turn Map junction editor ─────────────────────────────────────
@@ -1745,7 +2935,7 @@ function _populateEditorTurnDropdowns() {
   if (!fromSel || !toSel) return;
   const currentId = selNodes.size === 1 ? [...selNodes][0] : null;
   const opts = Object.values(state.nodes)
-    .filter(n => n.id !== currentId)
+    .filter(n => n.id !== currentId && nodeInCurFloor(n))
     .map(n => {
       const lbl = n.name ? `${n.name} (${n.id})` : `Node ${n.id}`;
       return `<option value="${n.id}">${lbl}</option>`;
@@ -1817,6 +3007,245 @@ window.addEditorTurnMapEntry    = addEditorTurnMapEntry;
 window.removeEditorTurnMapEntry = removeEditorTurnMapEntry;
 
 // ═══════════════════════════════════════════════════
+// TỰ TẠO BẢNG RẼ (Junction Turn Map) + KIỂM TRA JUNCTION
+// Tính hướng rẽ tại mỗi nút giao (>=3 hướng) và góc cua gấp từ HÌNH HỌC bản đồ. Với cạnh cong
+// (bezier) dùng hướng TIẾP TUYẾN tại node (control point sát node) thay vì đường nối tâm 2 node.
+// Quy ước khớp server (line_agv_plan_builder.get_turn_direction): toạ độ màn hình Y-xuống,
+// cross(in,out) > 0 = rẽ PHẢI. Khoá bảng rẽ PHÂN CHIỀU: "{đến từ}_{đi tiếp}_fwd" (xe TIẾN từ A qua node
+// tới B) và "{đến từ}_{đi tiếp}_bwd" (xe LÙI từ A qua node tới B). Quay tại chỗ để chuyển hướng cho xe
+// lùi A→N→B có CÙNG hướng trái/phải với xe tiến A→N→B (server cũng suy ra như vậy), nên 2 chiều sinh ra
+// cùng giá trị; vẫn ghi RIÊNG từng chiều để người dùng chỉnh được từng chiều độc lập.
+// Ghi ĐỦ MỌI CẶP (đến từ → đi tiếp), kể cả cặp đi thẳng: ngã tư 4 hướng = 4×3×2 = 24 dòng,
+// ngã ba = 3×2×2 = 12 dòng (khớp bảng nhập tay hiện có).
+// Node đặt "không cho phép quay" (turnAllowed='no') và node chỉ-SLAM bị bỏ qua.
+// ═══════════════════════════════════════════════════
+const TM_STRAIGHT_DEG = 20;    // |góc| <= 20°  → đi thẳng
+const TM_AMBIG_DEG    = 40;    // 20°..40°      → mơ hồ (cong nhẹ / có thể lệch toạ độ) — cần xem lại
+const TM_UTURN_DEG    = 150;   // > 150°        → quay đầu 180° (không phải rẽ) — bỏ qua
+let _turnFlags = {};           // id -> 'missing' | 'ambiguous' (tô viền sau khi Kiểm tra)
+
+function _tmAllows(e, a, b){   // đi từ a sang b trên cạnh e được không
+  if(e.direction === 'blocked') return false;
+  if(e.direction === 'forward')  return e.src === a && e.dst === b;
+  if(e.direction === 'backward') return e.dst === a && e.src === b;
+  return true;
+}
+function _tmAdj(){
+  const m = {};
+  for(const id of Object.keys(state.nodes)) m[id] = [];
+  state.edges.forEach(e => {
+    if(!state.nodes[e.src] || !state.nodes[e.dst] || e.src === e.dst) return;
+    m[e.src].push({ nbr: e.dst, e });
+    m[e.dst].push({ nbr: e.src, e });
+  });
+  return m;
+}
+function _tmLookPoint(n, nbrId, e){      // điểm "nhìn" từ node n về phía hàng xóm
+  const cp = (e.src === n.id) ? e.cp1 : e.cp2;       // control point sát n (nếu là cạnh cong)
+  if(cp && Math.hypot(cp.x - n.x, cp.y - n.y) > 1e-3) return cp;
+  return state.nodes[nbrId];
+}
+function _tmAngle(n, a, ea, b, eb){      // góc rẽ có dấu (độ): dương = phải, âm = trái
+  const pa = _tmLookPoint(n, a, ea), pb = _tmLookPoint(n, b, eb);
+  const inV  = { x: n.x - pa.x, y: n.y - pa.y };
+  const outV = { x: pb.x - n.x, y: pb.y - n.y };
+  if(Math.hypot(inV.x, inV.y) < 1e-6 || Math.hypot(outV.x, outV.y) < 1e-6) return null;
+  return Math.atan2(inV.x * outV.y - inV.y * outV.x, inV.x * outV.x + inV.y * outV.y) * 180 / Math.PI;
+}
+function _tmServerClass(n, a, b){        // cách server tự suy khi KHÔNG có bảng (nối tâm, sin<0.3)
+  const A = state.nodes[a], B = state.nodes[b];
+  const inV = { x: n.x - A.x, y: n.y - A.y }, outV = { x: B.x - n.x, y: B.y - n.y };
+  const m = Math.hypot(inV.x, inV.y) * Math.hypot(outV.x, outV.y);
+  if(m < 1e-6) return 'straight';
+  const sin = (inV.x * outV.y - inV.y * outV.x) / m;
+  return Math.abs(sin) < 0.3 ? 'straight' : (sin > 0 ? 'right' : 'left');
+}
+function _tmHas(n, a, b, travel){
+  // Đã có cấu hình cho chiều này: khoá đúng chiều, hoặc khoá cũ không hậu tố (áp cho cả 2 chiều)
+  const tm = n.turnMap || {};
+  return tm[`${a}_${b}_${travel}`] !== undefined || tm[`${a}_${b}`] !== undefined;
+}
+
+// Phân tích 1 node. Trả null nếu không phải nút giao / góc cua cần bảng rẽ.
+function _tmAnalyzeNode(id, adj){
+  const n = state.nodes[id];
+  if(!n) return null;
+  if(String(n.turnAllowed || 'yes').toLowerCase() === 'no') return null;      // không cho quay: bỏ qua
+  if((n.agvCompat || 'slam_qr') === 'slam_qr') return null;                    // bảng rẽ chỉ cho RFID
+  const nb = {};
+  (adj[id] || []).forEach(x => { if(!nb[x.nbr]) nb[x.nbr] = x.e; });
+  const ids = Object.keys(nb);
+  if(ids.length < 2) return null;
+  const pairs = [];
+  for(const a of ids){
+    if(!_tmAllows(nb[a], a, id)) continue;
+    for(const b of ids){
+      if(a === b || !_tmAllows(nb[b], id, b)) continue;
+      const ang = _tmAngle(n, a, nb[a], b, nb[b]);
+      if(ang === null) continue;
+      const abs = Math.abs(ang);
+      let cls = abs <= TM_STRAIGHT_DEG ? 'straight' : (abs > TM_UTURN_DEG ? 'uturn' : (ang > 0 ? 'right' : 'left'));
+      const amb = (abs > TM_STRAIGHT_DEG && abs < TM_AMBIG_DEG) || (abs > 130 && abs <= TM_UTURN_DEG);
+      pairs.push({ a, b, ang, cls, amb, hasFwd: _tmHas(n, a, b, 'fwd'), hasBwd: _tmHas(n, a, b, 'bwd'),
+                   srv: _tmServerClass(n, a, b) });
+    }
+  }
+  const hasTurn = pairs.some(p => p.cls === 'left' || p.cls === 'right');
+  const relevant = ids.length >= 3 || hasTurn;        // nút giao, hoặc góc cua gấp
+  return relevant ? { id, n, pairs, degree: ids.length } : null;
+}
+
+function _tmScopeIds(){
+  return selNodes.size ? [...selNodes] : floorNodeIds();
+}
+
+// Kế hoạch tự tạo: danh sách mục sẽ ghi + thống kê
+function _tmPlan(includeAmbiguous, overwrite, bothTravel = true){
+  const adj = _tmAdj();
+  const plan = { writes: [], ambiguous: [], skippedExisting: 0, uturn: 0, nodes: 0 };
+  for(const id of _tmScopeIds()){
+    const r = _tmAnalyzeNode(id, adj);
+    if(!r) continue;
+    plan.nodes++;
+    for(const p of r.pairs){
+      if(p.cls === 'uturn'){ plan.uturn++; continue; }
+      // 'straight' chỉ cần ghi khi server (nối tâm) sẽ tự suy ra RẼ nhưng thực tế là đi thẳng
+      const val = p.cls;     // GHI ĐỦ mọi cặp (kể cả đi thẳng) cho cả 2 chiều — đúng định dạng bảng nhập tay
+      for(const travel of (bothTravel ? ['fwd', 'bwd'] : ['fwd'])){
+        const has = travel === 'fwd' ? p.hasFwd : p.hasBwd;
+        if(has && !overwrite){ plan.skippedExisting++; continue; }
+        const item = { id, a: p.a, b: p.b, val, ang: p.ang, travel };
+        if(p.amb && !includeAmbiguous){ plan.ambiguous.push(item); continue; }
+        plan.writes.push(item);
+      }
+    }
+  }
+  return plan;
+}
+
+function _tmModal(title, bodyHtml, buttons){
+  let ov = document.getElementById('turn-modal');
+  if(ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'turn-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center';
+  ov.innerHTML = `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;width:min(560px,92vw);max-height:80vh;display:flex;flex-direction:column;color:var(--text)">
+    <h3 style="margin:0 0 10px;font-size:15px">${title}</h3>
+    <div id="turn-modal-body" style="overflow-y:auto;font-size:12px;line-height:1.6;flex:1">${bodyHtml}</div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px" id="turn-modal-btns"></div></div>`;
+  document.body.appendChild(ov);
+  const bar = ov.querySelector('#turn-modal-btns');
+  buttons.forEach(b => {
+    const el = document.createElement('button');
+    el.className = 'props-btn' + (b.primary ? ' primary' : '');
+    el.textContent = b.label;
+    el.onclick = () => { ov.remove(); if(b.onClick) b.onClick(); };
+    bar.appendChild(el);
+  });
+  ov.addEventListener('mousedown', e => { if(e.target === ov) ov.remove(); });
+}
+
+function _tmFmtItem(it){
+  const lab = { left:'↶ trái', right:'↷ phải', straight:'↑ thẳng' }[it.val] || it.val;
+  const tv = it.travel === 'bwd' ? '<span style="color:#fdba74">[Lùi]</span>' : '<span style="color:#7dd3fc">[Tiến]</span>';
+  return `<div>${tv} ${it.a} → <b style="color:#f97316">${it.id}</b> → ${it.b} : <b>${lab}</b> <span style="color:var(--muted)">(${it.ang.toFixed(0)}°)</span></div>`;
+}
+
+function autoGenerateTurnMaps(){
+  if(!Object.keys(state.nodes).length){ toast('Bản đồ trống', 'error'); return; }
+  const base = _tmPlan(false, false, true);
+  const scopeTxt = selNodes.size ? `${selNodes.size} node đang chọn` : 'cả bản đồ';
+  const ambHtml = base.ambiguous.length
+    ? `<div style="margin-top:8px;color:#f59e0b"><b>${base.ambiguous.length} ca góc mơ hồ (20°–40° hoặc 130°–150°) — CHƯA áp dụng</b>, nên xem lại:</div>
+       <div style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px 8px">${base.ambiguous.slice(0, 60).map(_tmFmtItem).join('')}${base.ambiguous.length > 60 ? '<div style="color:var(--muted)">… và ' + (base.ambiguous.length - 60) + ' ca nữa</div>' : ''}</div>
+       <label style="display:flex;gap:6px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="tm-inc-amb"/> Áp dụng cả các ca mơ hồ (theo dấu của góc)</label>`
+    : '';
+  const body = `<div>Phạm vi: <b>${scopeTxt}</b> — ${base.nodes} node cần bảng rẽ (nút giao ≥3 hướng hoặc góc cua gấp). Node đặt "không cho phép quay" và node chỉ-SLAM được bỏ qua.</div>
+    <div style="margin-top:6px">• Sẽ thêm: <b style="color:#4ade80">${base.writes.length}</b> dòng rẽ<br>
+    • Bỏ qua vì đã có (nhập tay): <b>${base.skippedExisting}</b><br>
+    • Quay đầu 180° (không phải rẽ, bỏ qua): <b>${base.uturn}</b></div>
+    <div style="margin-top:6px;max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px 8px">${base.writes.slice(0, 40).map(_tmFmtItem).join('') || '<span style="color:var(--muted)">Không có dòng nào để thêm.</span>'}${base.writes.length > 40 ? '<div style="color:var(--muted)">… và ' + (base.writes.length - 40) + ' dòng nữa</div>' : ''}</div>${ambHtml}
+    <label style="display:flex;gap:6px;align-items:center;margin-top:8px;cursor:pointer"><input type="checkbox" id="tm-both" checked/> Tạo cả chiều LÙI (mỗi cặp ghi 2 dòng: [Tiến] và [Lùi]); bỏ tick = chỉ chiều tiến</label>
+    <label style="display:flex;gap:6px;align-items:center;margin-top:4px;cursor:pointer;color:#f87171"><input type="checkbox" id="tm-overwrite"/> Ghi đè cả các dòng đã nhập tay</label>`;
+  _tmModal('⤵ Tự tạo bảng rẽ (Junction Turn Map)', body, [
+    { label: 'Hủy' },
+    { label: 'Áp dụng', primary: true, onClick: () => {
+        // modal đã gỡ khỏi DOM khi bấm → đọc lựa chọn từ biến lưu tạm (cập nhật khi tick ô)
+        applyAutoTurnMaps(window.__tmOpts.incAmb, window.__tmOpts.over, window.__tmOpts.both);
+    } },
+  ]);
+  window.__tmOpts = { incAmb: false, over: false, both: true };
+  const ia = document.getElementById('tm-inc-amb'), ow = document.getElementById('tm-overwrite'),
+        bo = document.getElementById('tm-both');
+  if(ia) ia.onchange = () => { window.__tmOpts.incAmb = ia.checked; };
+  if(ow) ow.onchange = () => { window.__tmOpts.over = ow.checked; };
+  if(bo) bo.onchange = () => { window.__tmOpts.both = bo.checked; };
+}
+
+function applyAutoTurnMaps(includeAmbiguous, overwrite, bothTravel = true){
+  const plan = _tmPlan(includeAmbiguous, overwrite, bothTravel);
+  if(!plan.writes.length){ toast('Không có dòng rẽ nào để thêm', ''); return; }
+  saveSnapshot();
+  const touched = new Set();
+  plan.writes.forEach(w => {
+    const n = state.nodes[w.id];
+    n.turnMap = Object.assign({}, n.turnMap || {});
+    n.turnMap[`${w.a}_${w.b}_${w.travel}`] = w.val;
+    touched.add(w.id);
+  });
+  // Ca mơ hồ chưa áp dụng → đánh dấu vàng để người dùng xem lại
+  _turnFlags = {};
+  plan.ambiguous.forEach(a => { _turnFlags[a.id] = 'ambiguous'; });
+  renderAll(); updateProps();
+  toast(`Đã tạo ${plan.writes.length} dòng rẽ cho ${touched.size} node` +
+        (plan.ambiguous.length ? ` — còn ${plan.ambiguous.length} ca mơ hồ (viền vàng) cần xem lại` : ''), 'success');
+}
+
+function checkJunctions(){
+  if(!Object.keys(state.nodes).length){ toast('Bản đồ trống', 'error'); return; }
+  const adj = _tmAdj();
+  _turnFlags = {};
+  const missing = [], ambiguous = [];
+  let checked = 0;
+  for(const id of _tmScopeIds()){
+    const r = _tmAnalyzeNode(id, adj);
+    if(!r) continue;
+    checked++;
+    const needs = r.pairs.filter(p => p.cls !== 'uturn' && !p.amb && (!p.hasFwd || !p.hasBwd));
+    const amb   = r.pairs.filter(p => p.amb && (!p.hasFwd || !p.hasBwd));
+    if(needs.length){ _turnFlags[id] = 'missing'; missing.push({ id, count: needs.length }); }
+    else if(amb.length){ _turnFlags[id] = 'ambiguous'; ambiguous.push({ id, count: amb.length }); }
+  }
+  renderAll();
+  const list = (arr, color) => arr.length
+    ? `<div style="margin-top:4px;color:${color}">${arr.slice(0, 80).map(x => `${x.id} <span style="color:var(--muted)">(${x.count})</span>`).join(' · ')}${arr.length > 80 ? ' …' : ''}</div>` : '';
+  const body = `<div>Đã kiểm tra <b>${checked}</b> nút giao / góc cua (node "không cho quay" và chỉ-SLAM được bỏ qua).</div>
+    <div style="margin-top:8px"><b style="color:#ef4444">● Viền ĐỎ — thiếu bảng rẽ: ${missing.length} node</b>${list(missing, '#fca5a5')}</div>
+    <div style="margin-top:8px"><b style="color:#f59e0b">● Viền VÀNG — góc mơ hồ cần xem lại: ${ambiguous.length} node</b>${list(ambiguous, '#fcd34d')}</div>
+    <div style="margin-top:10px;color:var(--muted)">Mẹo: chọn các node đó (hoặc không chọn gì) rồi bấm "⤵ Tự tạo bảng rẽ". Viền cảnh báo sẽ mất khi bạn bấm "Xóa tô viền" hoặc kiểm tra lại.</div>`;
+  _tmModal('🔍 Kiểm tra junction', body, [
+    { label: 'Xóa tô viền', onClick: () => { _turnFlags = {}; renderAll(); } },
+    { label: 'Đóng', primary: true },
+  ]);
+}
+
+document.getElementById('btn-auto-turn').onclick  = autoGenerateTurnMaps;
+document.getElementById('btn-check-turn').onclick = checkJunctions;
+(function(){
+  const btn = document.getElementById('btn-junction-menu'), menu = document.getElementById('junction-menu');
+  btn.onclick = (ev) => {
+    ev.stopPropagation();
+    if(menu.style.display === 'block'){ menu.style.display = 'none'; return; }
+    const r = btn.getBoundingClientRect();
+    menu.style.left = Math.min(r.left, window.innerWidth - 210) + 'px';
+    menu.style.top  = (r.bottom + 4) + 'px';
+    menu.style.display = 'block';
+  };
+  document.addEventListener('mousedown', ev => { if(!menu.contains(ev.target) && ev.target !== btn) menu.style.display = 'none'; });
+  menu.addEventListener('click', () => { menu.style.display = 'none'; });
+})();
+
+// ═══════════════════════════════════════════════════
 // ALIGNMENT
 // ═══════════════════════════════════════════════════
 function alignH(){
@@ -1838,7 +3267,7 @@ function alignV(){
 // FIT VIEW
 // ═══════════════════════════════════════════════════
 function fitView(){
-  const ns=Object.values(state.nodes);
+  const ns=floorNodeList();
   if(!ns.length) return;
   const xs=ns.map(n=>n.x), ys=ns.map(n=>n.y);
   const minX=Math.min(...xs)-60, maxX=Math.max(...xs)+60;
@@ -1872,7 +3301,9 @@ document.addEventListener('keydown', ev=>{
     if(ev.key==='z'){ ev.preventDefault(); undo(); }
     else if(ev.key==='y'||ev.key==='Y'){ ev.preventDefault(); redo(); }
     else if(ev.key==='s'){ ev.preventDefault(); saveMap(); }
-    else if(ev.key==='a'){ ev.preventDefault(); Object.keys(state.nodes).forEach(id=>selNodes.add(id)); renderAll(); updateProps(); }
+    else if(ev.key==='a'){ ev.preventDefault(); floorNodeIds().forEach(id=>selNodes.add(id)); renderAll(); updateProps(); }
+    else if(ev.key==='c' || ev.key==='C'){ ev.preventDefault(); copySelection(); }
+    else if(ev.key==='v' || ev.key==='V'){ ev.preventDefault(); pasteSelection(); }
     return;
   }
   switch(ev.key){
@@ -1901,12 +3332,16 @@ document.getElementById('btn-zoom-in').onclick  = ()=>{ zoom=Math.min(8,zoom*1.2
 document.getElementById('btn-zoom-out').onclick = ()=>{ zoom=Math.max(0.08,zoom/1.2); applyTransform(); };
 document.getElementById('snap-grid').onchange  = ev=>{ snapGrid=ev.target.checked; };
 document.getElementById('btn-clear').onclick   = ()=>{
-  confirm('Xóa toàn bộ','Tất cả node và cạnh sẽ bị xóa. Tiếp tục?',()=>{
-    saveSnapshot(); state.nodes={}; state.edges=[]; selNodes.clear(); selEdges.clear();
-    renderAll(); updateProps(); toast('Đã xóa toàn bộ');
+  confirm('Xóa toàn bộ tầng', `Tất cả node và cạnh của "${curFloor().name}" sẽ bị xóa (các tầng khác giữ nguyên). Tiếp tục?`,()=>{
+    saveSnapshot();
+    for(const id of Object.keys(state.nodes)){ if(nodeInCurFloor(state.nodes[id])) delete state.nodes[id]; }
+    state.edges = state.edges.filter(e=>state.nodes[e.src] && state.nodes[e.dst]);
+    selNodes.clear(); selEdges.clear();
+    renderAll(); updateProps(); toast('Đã xóa toàn bộ tầng hiện tại');
   });
 };
 document.getElementById('btn-save').onclick = saveMap;
+document.getElementById('btn-copy-map').onclick = copyMap;
 
 document.getElementById('btn-new').onclick = ()=>{
   if(mapChanged){ confirm('Tạo mới','Thay đổi chưa lưu sẽ mất. Tiếp tục?',()=>newMap()); }
@@ -1917,7 +3352,8 @@ function newMap(){
   const existing = document.getElementById('slam-bg');
   if(existing) existing.remove();
   _removeOverlayFlip();
-  state={mapId:null, nodes:{}, edges:[], nextId:1, transform:{..._DEFAULT_TRANSFORM}};
+  state=_newStateObj();
+  _updateSlamBackground(state.transform);
   undoStack=[]; redoStack=[]; selNodes.clear(); selEdges.clear(); mapChanged=false;
   document.getElementById('map-name-input').value='Bản đồ mới';
   document.getElementById('map-select').value='';
@@ -1932,7 +3368,9 @@ function newMap(){
 // ═══════════════════════════════════════════════════
 document.getElementById('btn-import-drawio').onclick = ()=>{
   const doIt = ()=>document.getElementById('drawio-file-input').click();
-  if(mapChanged){ confirm('Import draw.io','Thay đổi chưa lưu sẽ mất (import sẽ bắt đầu từ bản đồ trống). Tiếp tục?',doIt); }
+  // Import chỉ thay nội dung của TẦNG ĐANG XEM; các tầng khác giữ nguyên.
+  const hasContent = floorNodeIds().length > 0;
+  if(hasContent){ confirm('Import draw.io', `Layout draw.io sẽ THAY toàn bộ node/cạnh của "${curFloor().name}" (các tầng khác giữ nguyên). Tiếp tục?`, doIt); }
   else doIt();
 };
 
@@ -1990,14 +3428,37 @@ function _importDrawioXml(xmlText){
 
   // ── Bước 1: gom vertex (node) — id draw.io → {label, x, y} ────────────────
   const vertexById = {};   // drawioId -> {label, cx, cy}
+  // Toạ độ trong draw.io của hình nằm TRONG nhóm/container/swimlane là TƯƠNG ĐỐI so với
+  // cell cha (thuộc tính parent) → phải cộng dồn toạ độ các cell cha lên đến layer gốc,
+  // nếu không node trong nhóm sẽ bị lệch hàng loạt ("nhảy lung tung").
+  const cellById = {};
+  cells.forEach(c=>{ cellById[c.getAttribute('id')] = c; });
+  const _parentOffset = (c)=>{
+    let ox = 0, oy = 0, pid = c.getAttribute('parent'), guard = 0;
+    while(pid && cellById[pid] && guard++ < 50){
+      const p = cellById[pid];
+      if(p.getAttribute('vertex') === '1'){
+        const pg = p.querySelector('mxGeometry');
+        if(pg){
+          ox += parseFloat(pg.getAttribute('x')) || 0;
+          oy += parseFloat(pg.getAttribute('y')) || 0;
+        }
+      }
+      pid = p.getAttribute('parent');
+    }
+    return { ox, oy };
+  };
+  let nestedCount = 0;
   cells.forEach(c=>{
     if(c.getAttribute('vertex') !== '1') return;
     const geo = c.querySelector('mxGeometry');
     if(!geo) return;
     const label = _stripHtmlLabel(c.getAttribute('value'));
     if(!label) return;   // bỏ qua hình không có nhãn (không biết là node số mấy)
-    const x = parseFloat(geo.getAttribute('x')) || 0;
-    const y = parseFloat(geo.getAttribute('y')) || 0;
+    const off = _parentOffset(c);
+    if(off.ox || off.oy) nestedCount++;
+    const x = (parseFloat(geo.getAttribute('x')) || 0) + off.ox;
+    const y = (parseFloat(geo.getAttribute('y')) || 0) + off.oy;
     const w = parseFloat(geo.getAttribute('width'))  || 0;
     const h = parseFloat(geo.getAttribute('height')) || 0;
     vertexById[c.getAttribute('id')] = { label, cx: x + w/2, cy: y + h/2 };
@@ -2008,17 +3469,20 @@ function _importDrawioXml(xmlText){
   const dupLabels = Object.keys(labelCount).filter(l=>labelCount[l] > 1);
 
   // ── Bước 2: dựng state.nodes từ vertex (bắt đầu từ bản đồ trống) ──────────
-  const existingSlam = document.getElementById('slam-bg');
-  if(existingSlam) existingSlam.remove();
-  _removeOverlayFlip();
-  state = { mapId: null, nodes: {}, edges: [], nextId: 1, transform: {..._DEFAULT_TRANSFORM} };
+  // Chỉ thay nội dung tầng đang xem (giữ nguyên mapId, các tầng khác, ảnh nền của tầng)
+  saveSnapshot();
+  const _fidImp = curFloor().id;
+  for(const id of Object.keys(state.nodes)){ if(floorOfNode(state.nodes[id]) === _fidImp) delete state.nodes[id]; }
+  state.edges = state.edges.filter(e=>state.nodes[e.src] && state.nodes[e.dst]);
+  const _addedIds = new Set();
 
   let nodeCount = 0;
   Object.entries(vertexById).forEach(([drawioId, v])=>{
     const id = v.label;
-    if(state.nodes[id]) return;   // nhãn trùng — giữ node đầu tiên, báo ở dupLabels
+    if(state.nodes[id]) return;   // nhãn trùng (hoặc trùng ID với node của tầng khác) — giữ node đầu tiên
+    _addedIds.add(id);
     state.nodes[id] = {
-      id, name: '', x: Math.round(v.cx), y: Math.round(v.cy),
+      id, name: '', floor: _fidImp, x: Math.round(v.cx), y: Math.round(v.cy),
       type: 'normal', action: '', speed: 0.5, agvCompat: 'RFID',
       fwdTurn: 'none', bwdTurn: 'none', turnAllowed: 'yes', lidarOff: 'no', vdaTurnAngle: '360',
       arrivalAction: 'none', approachDir: 'none', stationAgvType: 'none',
@@ -2045,6 +3509,7 @@ function _importDrawioXml(xmlText){
     const sv = srcId && vertexById[srcId], dv = dstId && vertexById[dstId];
     if(!sv || !dv || sv.label === dv.label){ edgeSkipped++; return; }
     const src = sv.label, dst = dv.label;
+    if(!_addedIds.has(src) || !_addedIds.has(dst)){ edgeSkipped++; return; }   // node bị bỏ (trùng ID) → không nối nhầm
     const eid = `e_${src}_${dst}`;
     if(edgeSet.has(eid)) return;
     edgeSet.add(eid);
@@ -2065,15 +3530,14 @@ function _importDrawioXml(xmlText){
     edgeCount++;
   });
 
-  undoStack = []; redoStack = []; selNodes.clear(); selEdges.clear(); mapChanged = true;
-  document.getElementById('map-name-input').value = 'Bản đồ mới';
-  document.getElementById('map-select').value = '';
-  document.getElementById('sb-map').textContent = 'Mới (import)';
+  selNodes.clear(); selEdges.clear(); mapChanged = true;
+  document.getElementById('sb-map').textContent = `● Chưa lưu (import vào ${curFloor().name})`;
   renderAll(); updateProps(); fitView();
 
   let msg = `Đã import ${nodeCount} node, ${edgeCount} cạnh (${curvedCount} cong) từ draw.io`;
   if(dupLabels.length) msg += ` — CẢNH BÁO: nhãn trùng lặp bị bỏ bớt: ${dupLabels.join(', ')}`;
   if(edgeSkipped) msg += ` (${edgeSkipped} cạnh bị bỏ qua vì thiếu nhãn 1 đầu)`;
+  if(nestedCount) msg += ` (${nestedCount} node nằm trong nhóm/container — đã cộng toạ độ cha)`;
   toast(msg, dupLabels.length ? 'error' : 'success');
   console.log('[IMPORT-DRAWIO]', { nodeCount, edgeCount, curvedCount, edgeSkipped, dupLabels });
 }
@@ -2128,7 +3592,7 @@ function _removeOverlayFlip(){ _overlayFlipCX = null; }
 function _slamImageUrl(imagePath){
   if(!imagePath) return null;
   // Ảnh gốc — đã flip node/edge nên không cần flip ảnh thêm
-  return imagePath.startsWith('http') ? imagePath : `${API}${imagePath}`;
+  return (imagePath.startsWith('http') || imagePath.startsWith('data:')) ? imagePath : `${API}${imagePath}`;
 }
 
 function _updateSlamBackground(tr) {
@@ -2150,7 +3614,7 @@ function _updateSlamBackground(tr) {
     let imgX = 0, imgY = 0, dispW = natW, dispH = natH;
     if(!(tr.natW > 0)){
       // Schematic fallback: scale theo node bounding box
-      const ns = Object.values(state.nodes);
+      const ns = floorNodeList();
       if(ns.length >= 2){
         const xs = ns.map(n=>n.x), ys = ns.map(n=>n.y);
         const minX=Math.min(...xs), maxX=Math.max(...xs);
@@ -2207,7 +3671,7 @@ function _updateSlamToggleBtn(hasImage){
 }
 
 function _rotateWorld(deg){
-  const ns = Object.values(state.nodes);
+  const ns = floorNodeList();
   if(!ns.length){ toast('Không có node để xoay','error'); return; }
 
   // Tâm bounding box của tất cả nodes
@@ -2257,23 +3721,31 @@ document.getElementById('map-select').onchange = async function(){
   else loadMap(id);
 };
 
-async function loadMap(mapId){
-  try{
-    const r=await fetch(`${API}/api/maps/${mapId}`);
-    if(!r.ok){ toast('Không thể tải bản đồ','error'); return; }
-    const data=await r.json();
+// Đọc dữ liệu 1 bản đồ từ API (/api/maps/{id}) → {floors, nodes, edges, nextId} (toạ độ hiển thị).
+// Hỗ trợ nhiều tầng: mỗi tầng có transform (gốc/tỉ lệ/ảnh nền) riêng; map cũ (chưa có floors) → 1 tầng.
+async function _parseMapData(data){
+  const rawPoints = data.robot_points || [];
+  const srvFloors = (Array.isArray(data.floors) && data.floors.length) ? data.floors : [{
+    id:'F1', name:'Tầng 1', note:'', level:1,
+    origin_x: data.origin_x ?? data.robot_maps?.x, origin_y: data.origin_y ?? data.robot_maps?.y,
+    resolution: data.resolution ?? data.robot_maps?.resolution, image_path: data.image_path || null,
+  }];
+  const firstId = String(srvFloors[0].id);
+  const floorIdOf = v => { const s = String(v || ''); return srvFloors.some(f=>String(f.id)===s) ? s : firstId; };
 
-    const rawPoints = data.robot_points || [];
-    const originX   = parseFloat(data.origin_x ?? data.robot_maps?.x) || 0;
-    const originY   = parseFloat(data.origin_y ?? data.robot_maps?.y) || 0;
-    const resolution= parseFloat(data.resolution ?? data.robot_maps?.resolution) || 0.05;
-    const ppm       = _autoDetectPPM(rawPoints);   // giữ cho schematic fallback
-    const imagePath = data.image_path || null;
+  const floors = [];
+  for(const sf of srvFloors){
+    const fid = String(sf.id);
+    const fpts = rawPoints.filter(p=>floorIdOf(p.floor_id)===fid);
+    const originX    = parseFloat(sf.origin_x) || 0;
+    const originY    = parseFloat(sf.origin_y) || 0;
+    const resolution = parseFloat(sf.resolution) || 0.05;
+    const ppm        = _autoDetectPPM(fpts);   // giữ cho schematic fallback
+    const imagePath  = sf.image_path || null;
 
-    // ── Load ảnh SLAM trước để lấy natW/natH (giống AgvMap) ──────────────
+    // Load ảnh SLAM trước để lấy natW/natH (giống AgvMap)
     let natW = 0, natH = 0;
     if(imagePath){
-      // Dùng URL gốc (không flip) chỉ để lấy kích thước natW/natH
       const rawImgUrl = imagePath.startsWith('http') ? imagePath : `${API}${imagePath}`;
       try{
         const tmp = await new Promise((res, rej) => {
@@ -2281,97 +3753,168 @@ async function loadMap(mapId){
           i.src = rawImgUrl;
         });
         natW = tmp.naturalWidth; natH = tmp.naturalHeight;
-      } catch(e){ console.warn('[loadMap] Không load được ảnh SLAM'); }
+      } catch(e){ console.warn('[loadMap] Không load được ảnh nền tầng', fid); }
     }
+    floors.push({
+      id: fid, name: sf.name || `Tầng ${floors.length + 1}`, note: sf.note || '',
+      level: (typeof sf.level === 'number') ? sf.level : floors.length + 1,
+      transform: { originX, originY, resolution, ppm, natW, natH, imagePath, pendingImage:null, imageV: sf.image_v || null },
+    });
+  }
+  const trOf = fid => (floors.find(f=>f.id===fid) || floors[0]).transform;
 
-    const tr = { originX, originY, resolution, ppm, natW, natH, imagePath };
+  // ── Nodes dùng đúng worldToPixel của AgvMap (theo transform của tầng chứa node) ──
+  const nodes = {};
+  const _INT_TYPE = ['normal','conveyor','charger','dropoff','home','buffer','parking','wait','door','elevator'];
+  for(const p of rawPoints){
+    const id = String(p.name_id);
+    const act = _parseActionField(p.action);
+    const nfid = floorIdOf(p.floor_id);
+    const wx = parseFloat(p.x)||0, wy = parseFloat(p.y)||0;
+    const dp = _w2d(wx, wy, trOf(nfid));
+    // Ưu tiên dùng type integer từ DB; fallback sang guessType từ action
+    const typeInt = typeof p.type === 'number' ? p.type : parseInt(p.type);
+    const nodeType = (!isNaN(typeInt) && _INT_TYPE[typeInt]) ? _INT_TYPE[typeInt] : _guessType(act, p.name);
+    const agvCompat = act.agvCompat || p.agv_compat || 'slam_qr';
+    nodes[id] = {
+      id, name: p.name||'', floor: nfid,
+      x: Math.round(dp.x), y: Math.round(dp.y),
+      type: nodeType, action: act.defaultAction||'',
+      speed: parseFloat(p.speed)||0.5,
+      agvCompat,
+      fwdTurn:     act.fwd_turn     || 'none',
+      bwdTurn:     act.bwd_turn     || 'none',
+      turnAllowed: act.turn_allowed || 'yes',
+      lidarOff:    act.lidar_off    || 'no',
+      vdaTurnAngle:act.vda_turn_angle || '360',
+      arrivalAction: (['wait_sys','wait_user','wait_charge'].includes(act.arrival_action) ? act.arrival_action : 'none'),
+      approachDir:   act.approach_dir   || 'none',
+      stationAgvType: (['carry','tow','trailer'].includes(act.station_agv_type) ? act.station_agv_type : 'none'),
+      exitReverseMs: (act.exit_reverse_ms != null) ? parseInt(act.exit_reverse_ms) : null,
+      exitTurn: (['left','right'].includes(act.exit_turn) ? act.exit_turn : 'none'),
+      doorId: act.door_id || '',
+      elevatorId: act.elevator_id || '',
+      elevRole: (['zone','queue','exit'].includes(act.elev_role) ? 'zone' : ''),
+      elevRef: act.elev_ref || '',
+      cabinTag: '',
+      cabinDoor: '',
+      cabinDoors: (act.cabin_doors && typeof act.cabin_doors === 'object') ? act.cabin_doors : null,
+      cabinFacets: (act.cabin_facets && typeof act.cabin_facets === 'object') ? act.cabin_facets : null,
+      trailerStaging: act.trailer_staging === 'yes',
+      trailerEmptyStaging: act.trailer_empty_staging === 'yes',
+      waitingNode: act.waiting_node === 'yes',
+      allowedAgvTypes: (Array.isArray(act.allowed_agv_types) ? act.allowed_agv_types
+                        : (act.allowed_agv_types ? String(act.allowed_agv_types).split(',') : []))
+                        .map(t=>String(t).trim().toLowerCase()).filter(t=>['carry','tow','trailer'].includes(t)),
+      trailerRole: (['drop','pickup'].includes(act.trailer_role) ? act.trailer_role : 'none'),
+      turnMap: (act.turn_map && typeof act.turn_map === 'object') ? {...act.turn_map} : {},
+      team: act.team != null ? parseInt(act.team) : null,
+      teamAgvType: (['carry','tow','trailer'].includes(act.team_agv_type) ? act.team_agv_type : 'none'),
+      supplyGroups: Array.isArray(act.supply_group) ? [...act.supply_group]
+                  : (act.supply_group ? act.supply_group.split(',').map(s=>s.trim()).filter(Boolean) : []),
+      trailerPickupTeams: Array.isArray(act.trailer_pickup_teams) ? [...act.trailer_pickup_teams]
+                  : (act.trailer_pickup_teams ? act.trailer_pickup_teams.split(',').map(s=>s.trim()).filter(Boolean) : []),
+      trailerDropTeams: Array.isArray(act.trailer_drop_teams) ? [...act.trailer_drop_teams]
+                  : (act.trailer_drop_teams ? act.trailer_drop_teams.split(',').map(s=>s.trim()).filter(Boolean) : []),
+    };
+  }
+
+  const numIds = Object.keys(nodes).map(x=>parseInt(x)).filter(x=>!isNaN(x));
+  const nextId = numIds.length ? Math.max(...numIds)+1 : 1;
+
+  // ── Edges (tầng của cạnh = tầng của node nguồn) ───────────────────────────
+  const edges = [];
+  const edgeSet = new Set();
+  const edgeFloor = (r) => (nodes[String(r.id_source)] ? nodes[String(r.id_source)].floor : floorIdOf(r.floor_id));
+  for(const r2 of (data.roads||[])){
+    const eid=`e_${r2.id_source}_${r2.id_dest}`;
+    if(edgeSet.has(eid)) continue; edgeSet.add(eid);
+    edges.push({ id:eid, src:String(r2.id_source), dst:String(r2.id_dest),
+      direction:_dirFromCode(r2.move_direction), speed:parseFloat(r2.speed)||0.5, width:parseFloat(r2.width)||0.95,
+      speedBwd: (r2.speed_bwd!=null) ? parseFloat(r2.speed_bwd) : null,
+      // Khoảng cách thật đã lưu — chỉ nạp lại làm override khi distance_manual=true
+      // (tức người dùng đã từng nhập tay). Cạnh chưa nhập tay vẫn tự tính lại
+      // theo toạ độ vẽ mỗi lần lưu (distance_manual=false) — không bị "đóng băng"
+      // bởi giá trị auto cũ.
+      distanceOverride: (r2.distance_manual && r2.distance!=null && !isNaN(parseFloat(r2.distance))) ? parseFloat(r2.distance) : null,
+      lidarOff: (r2.lidar_off_dir && r2.lidar_off_dir !== 'none') ? r2.lidar_off_dir : (r2.lidar_off ? 'both' : 'none'),
+      typeDirs: _parseTypeDirs(r2.type_directions) });
+  }
+  for(const b of (data.benziers||[])){
+    const eid=`e_${b.id_source}_${b.id_dest}`;
+    if(edgeSet.has(eid)) continue; edgeSet.add(eid);
+    const tr = trOf(edgeFloor(b));
+    // Lấy control points và chuyển sang display coords
+    const cp1w = { x: parseFloat(b.curve_point_start_x ?? b.curve_point_start?.[0]) || 0,
+                   y: parseFloat(b.curve_point_start_y ?? b.curve_point_start?.[1]) || 0 };
+    const cp2w = { x: parseFloat(b.curve_point_end_x   ?? b.curve_point_end?.[0])   || 0,
+                   y: parseFloat(b.curve_point_end_y   ?? b.curve_point_end?.[1])   || 0 };
+    const cp1 = _w2d(cp1w.x, cp1w.y, tr);
+    const cp2 = _w2d(cp2w.x, cp2w.y, tr);
+    edges.push({ id:eid, src:String(b.id_source), dst:String(b.id_dest),
+      direction:_dirFromCode(b.move_direction), speed:parseFloat(b.speed)||0.5, width:parseFloat(b.width)||0.95,
+      speedBwd: (b.speed_bwd!=null) ? parseFloat(b.speed_bwd) : null,
+      cp1: {x:Math.round(cp1.x), y:Math.round(cp1.y)},
+      cp2: {x:Math.round(cp2.x), y:Math.round(cp2.y)},
+      // Xem giải thích distanceOverride ở nhánh robotRoads phía trên.
+      distanceOverride: (b.distance_manual && b.distance!=null && !isNaN(parseFloat(b.distance))) ? parseFloat(b.distance) : null,
+      lidarOff: (b.lidar_off_dir && b.lidar_off_dir !== 'none') ? b.lidar_off_dir : (b.lidar_off ? 'both' : 'none'),
+      typeDirs: _parseTypeDirs(b.type_directions) });
+  }
+  // ── Cabin thang DÙNG CHUNG: DB chỉ có 1 node (1 thẻ RFID) nối node chờ của nhiều tầng. Editor vẽ theo từng tầng
+  //    nên tách thành "mặt" cabin trên mỗi tầng (id "<thẻ>@<tầng>", cabinTag=<thẻ>); lúc lưu gộp lại (xem _mergeCabinFacets).
+  for(const id of Object.keys(nodes)){
+    const n = nodes[id];
+    const cf = n.cabinFacets; delete n.cabinFacets;
+    const cd = n.cabinDoors || {}; delete n.cabinDoors;
+    if(n.type === 'elevator') n.cabinDoor = cd[n.floor] || '';
+    if(!cf || n.type !== 'elevator') continue;
+    const nbByFloor = {};
+    edges.forEach(e=>{
+      const o = e.src===id ? e.dst : (e.dst===id ? e.src : null);
+      if(o && nodes[o] && nodes[o].floor !== n.floor) (nbByFloor[nodes[o].floor] = nbByFloor[nodes[o].floor] || []).push(o);
+    });
+    for(const [fid, nbs] of Object.entries(nbByFloor)){
+      const fid2 = `${id}@${fid}`;
+      let x, y;
+      if(cf[fid] && cf[fid].x != null){ const dp = _w2d(parseFloat(cf[fid].x)||0, parseFloat(cf[fid].y)||0, trOf(fid)); x = dp.x; y = dp.y; }
+      else { x = nodes[nbs[0]].x + 70; y = nodes[nbs[0]].y; }        // chưa có vị trí riêng: đặt cạnh node chờ
+      nodes[fid2] = { ...n, id:fid2, floor:fid, x:Math.round(x), y:Math.round(y), cabinTag:id, cabinDoor: cd[fid] || '' };
+      edges.forEach(e=>{
+        if(e.src===id && nbs.includes(e.dst)) e.src = fid2;
+        else if(e.dst===id && nbs.includes(e.src)) e.dst = fid2;
+        else return;
+        e.id = `e_${e.src}_${e.dst}`;
+      });
+    }
+  }
+  const elevators = (Array.isArray(data.elevators) ? data.elevators : [])
+    .map(e=>({ id:String(e.id), name:e.name || String(e.id), note:e.note || '' }));
+  return { floors, nodes, edges, nextId, elevators };
+}
+
+async function loadMap(mapId){
+  try{
+    const r=await fetch(`${API}/api/maps/${mapId}`);
+    if(!r.ok){ toast('Không thể tải bản đồ','error'); return; }
+    const data=await r.json();
+
+    const parsed = await _parseMapData(data);
 
     _removeOverlayFlip();
     _overlayFlipCX = null;
-    state = { mapId, nodes:{}, edges:[], nextId:1, transform:tr };
-
-    // ── Load nodes dùng đúng worldToPixel của AgvMap ─────────────────────
-    const _INT_TYPE = ['normal','conveyor','charger','dropoff','home','buffer','parking','wait','door'];
-    for(const p of rawPoints){
-      const id = String(p.name_id);
-      const act = _parseActionField(p.action);
-      const wx = parseFloat(p.x)||0, wy = parseFloat(p.y)||0;
-      const dp = _w2d(wx, wy, tr);
-      // Ưu tiên dùng type integer từ DB; fallback sang guessType từ action
-      const typeInt = typeof p.type === 'number' ? p.type : parseInt(p.type);
-      const nodeType = (!isNaN(typeInt) && _INT_TYPE[typeInt]) ? _INT_TYPE[typeInt] : _guessType(act, p.name);
-      const agvCompat = act.agvCompat || p.agv_compat || 'slam_qr';
-      state.nodes[id] = {
-        id, name: p.name||'',
-        x: Math.round(dp.x), y: Math.round(dp.y),
-        type: nodeType, action: act.defaultAction||'',
-        speed: parseFloat(p.speed)||0.5,
-        agvCompat,
-        fwdTurn:     act.fwd_turn     || 'none',
-        bwdTurn:     act.bwd_turn     || 'none',
-        turnAllowed: act.turn_allowed || 'yes',
-        lidarOff:    act.lidar_off    || 'no',
-        vdaTurnAngle:act.vda_turn_angle || '360',
-        arrivalAction: (['wait_sys','wait_user','wait_charge'].includes(act.arrival_action) ? act.arrival_action : 'none'),
-        approachDir:   act.approach_dir   || 'none',
-        stationAgvType: (['carry','tow','trailer'].includes(act.station_agv_type) ? act.station_agv_type : 'none'),
-        exitReverseMs: (act.exit_reverse_ms != null) ? parseInt(act.exit_reverse_ms) : null,
-        exitTurn: (['left','right'].includes(act.exit_turn) ? act.exit_turn : 'none'),
-        doorId: act.door_id || '',
-        trailerStaging: act.trailer_staging === 'yes',
-        trailerEmptyStaging: act.trailer_empty_staging === 'yes',
-        trailerRole: (['drop','pickup'].includes(act.trailer_role) ? act.trailer_role : 'none'),
-        turnMap: (act.turn_map && typeof act.turn_map === 'object') ? {...act.turn_map} : {},
-        team: act.team != null ? parseInt(act.team) : null,
-        teamAgvType: (['carry','tow','trailer'].includes(act.team_agv_type) ? act.team_agv_type : 'none'),
-        supplyGroups: Array.isArray(act.supply_group) ? [...act.supply_group]
-                    : (act.supply_group ? act.supply_group.split(',').map(s=>s.trim()).filter(Boolean) : []),
-        trailerPickupTeams: Array.isArray(act.trailer_pickup_teams) ? [...act.trailer_pickup_teams]
-                    : (act.trailer_pickup_teams ? act.trailer_pickup_teams.split(',').map(s=>s.trim()).filter(Boolean) : []),
-        trailerDropTeams: Array.isArray(act.trailer_drop_teams) ? [...act.trailer_drop_teams]
-                    : (act.trailer_drop_teams ? act.trailer_drop_teams.split(',').map(s=>s.trim()).filter(Boolean) : []),
-      };
-    }
-
-    const numIds=Object.keys(state.nodes).map(x=>parseInt(x)).filter(x=>!isNaN(x));
-    state.nextId = numIds.length ? Math.max(...numIds)+1 : 1;
-
-    // ── Load edges ────────────────────────────────────────────────────────
-    const edgeSet = new Set();
-    for(const r2 of (data.roads||[])){
-      const eid=`e_${r2.id_source}_${r2.id_dest}`;
-      if(edgeSet.has(eid)) continue; edgeSet.add(eid);
-      state.edges.push({ id:eid, src:String(r2.id_source), dst:String(r2.id_dest),
-        direction:_dirFromCode(r2.move_direction), speed:parseFloat(r2.speed)||0.5, width:parseFloat(r2.width)||0.95,
-        speedBwd: (r2.speed_bwd!=null) ? parseFloat(r2.speed_bwd) : null,
-        lidarOff: (r2.lidar_off_dir && r2.lidar_off_dir !== 'none') ? r2.lidar_off_dir : (r2.lidar_off ? 'both' : 'none') });
-    }
-    for(const b of (data.benziers||[])){
-      const eid=`e_${b.id_source}_${b.id_dest}`;
-      if(edgeSet.has(eid)) continue; edgeSet.add(eid);
-      // Lấy control points và chuyển sang display coords
-      const cp1w = { x: parseFloat(b.curve_point_start_x ?? b.curve_point_start?.[0]) || 0,
-                     y: parseFloat(b.curve_point_start_y ?? b.curve_point_start?.[1]) || 0 };
-      const cp2w = { x: parseFloat(b.curve_point_end_x   ?? b.curve_point_end?.[0])   || 0,
-                     y: parseFloat(b.curve_point_end_y   ?? b.curve_point_end?.[1])   || 0 };
-      const cp1 = _w2d(cp1w.x, cp1w.y, tr);
-      const cp2 = _w2d(cp2w.x, cp2w.y, tr);
-      state.edges.push({ id:eid, src:String(b.id_source), dst:String(b.id_dest),
-        direction:_dirFromCode(b.move_direction), speed:parseFloat(b.speed)||0.5, width:parseFloat(b.width)||0.95,
-        speedBwd: (b.speed_bwd!=null) ? parseFloat(b.speed_bwd) : null,
-        cp1: {x:Math.round(cp1.x), y:Math.round(cp1.y)},
-        cp2: {x:Math.round(cp2.x), y:Math.round(cp2.y)},
-        lidarOff: (b.lidar_off_dir && b.lidar_off_dir !== 'none') ? b.lidar_off_dir : (b.lidar_off ? 'both' : 'none') });
-    }
+    state = { mapId, nodes:parsed.nodes, edges:parsed.edges, nextId:parsed.nextId,
+              floors:parsed.floors, elevators:parsed.elevators, activeFloor:parsed.floors[0].id, transform:parsed.floors[0].transform };
 
     // ── Hiển thị ảnh SLAM (server-side flip = giống AgvMap CSS scale(-1,1)) ─
-    _updateSlamBackground(tr);
+    _updateSlamBackground(state.transform);
 
     document.getElementById('map-name-input').value = data.name||'';
     mapChanged=false; document.getElementById('sb-map').textContent=`Đã tải: ${data.name}`;
     undoStack=[]; redoStack=[]; selNodes.clear(); selEdges.clear();
 
-    toast(`Đã tải: ${data.name} · res=${resolution} natW=${natW}`, 'success');
+    toast(`Đã tải: ${data.name} · ${state.floors.length} tầng`, 'success');
+    renderFloorTabs();
     renderAll(); updateProps();
     setTimeout(fitView, 80);
   } catch(e){ toast('Lỗi tải: '+e.message,'error'); console.error(e); }
@@ -2385,6 +3928,9 @@ function _guessType(actionData, name){
   if(lt==='home') return 'home';
   if(lt==='buffer') return 'buffer';
   if(lt==='parking') return 'parking';
+  if(lt==='wait') return 'wait';
+  if(lt==='door') return 'door';
+  if(lt==='elevator') return 'elevator';
   const n=(name||'').toLowerCase();
   if(n.includes('charg')) return 'charger';
   if(n.includes('home')) return 'home';
@@ -2410,11 +3956,18 @@ function saveMap(){
   _showSaveModal(currentName, name => _doSaveMap(name));
 }
 
-function _showSaveModal(currentName, onConfirm){
+function _showSaveModal(currentName, onConfirm, titleHtml, confirmLabel){
   const overlay = document.getElementById('save-modal-overlay');
   const inp     = document.getElementById('save-modal-name');
   const btnOk   = document.getElementById('save-modal-confirm');
   const btnCxl  = document.getElementById('save-modal-cancel');
+  const titleEl = document.getElementById('save-modal-title');
+
+  // titleHtml/confirmLabel tuỳ chọn — dùng chung modal này cho cả Lưu và Sao
+  // chép (khác chữ tiêu đề/nút, không khác hành vi). Không truyền → giữ
+  // đúng chữ "Lưu bản đồ" như trước giờ.
+  titleEl.textContent = titleHtml || '💾 Lưu bản đồ';
+  btnOk.textContent   = confirmLabel || '💾 Lưu';
 
   inp.value    = currentName;
   btnOk.disabled = !currentName;
@@ -2439,6 +3992,41 @@ function _showSaveModal(currentName, onConfirm){
   setTimeout(()=>{ inp.focus(); inp.select(); }, 60);
 }
 
+// Gom các node Elevator cùng số thẻ RFID thành 1 node DB. Trả {idMap: id mặt→số thẻ, skip: id mặt không ghi riêng,
+// facets: {thẻ: {tầng: {x,y}}} vị trí (toạ độ thế giới) của các mặt ở tầng khác node chính, error}.
+function _mergeCabinFacets(){
+  const groups = {};
+  Object.values(state.nodes).forEach(n=>{
+    if(n.type !== 'elevator') return;
+    const t = String(n.cabinTag || n.id);
+    (groups[t] = groups[t] || []).push(n);
+  });
+  const out = { idMap:{}, skip:new Set(), facets:{}, doors:{}, error:'' };
+  for(const [t, arr] of Object.entries(groups)){
+    if(arr.length < 2) continue;                       // không dùng chung
+    const clash = state.nodes[t];
+    if(clash && clash.type !== 'elevator'){
+      out.error = `Số thẻ cabin ${t} trùng với node ${t} (không phải thang) — đổi số thẻ hoặc ID node`; return out;
+    }
+    const prim = arr.find(n=>n.id === t) || arr[0];
+    const floorsSeen = new Set();
+    for(const n of arr){
+      const f = floorOfNode(n);
+      if(floorsSeen.has(f)){ out.error = `Cabin thẻ ${t}: tầng ${_floorName(f)} có 2 node (${prim.id}, ${n.id}) — mỗi tầng chỉ 1 mặt cabin`; return out; }
+      floorsSeen.add(f);
+      if(n.elevatorId !== prim.elevatorId){ out.error = `Cabin thẻ ${t}: node ${n.id} và ${prim.id} thuộc 2 thang khác nhau`; return out; }
+      out.idMap[n.id] = t;
+      if(n.cabinDoor) (out.doors[t] = out.doors[t] || {})[f] = n.cabinDoor;
+      if(n !== prim){
+        out.skip.add(n.id);
+        const wp = _d2w(n.x, n.y, trOfNode(n));
+        (out.facets[t] = out.facets[t] || {})[f] = { x:Math.round(wp.x*1000)/1000, y:Math.round(wp.y*1000)/1000 };
+      }
+    }
+  }
+  return out;
+}
+
 async function _doSaveMap(name){
   document.getElementById('map-name-input').value = name;
   state.mapName = name;
@@ -2449,11 +4037,16 @@ async function _doSaveMap(name){
   const tr = state.transform || _DEFAULT_TRANSFORM;
   const _r3 = v => Math.round(v*1000)/1000;  // 3 decimal places
 
-  const _TYPE_INT = {normal:0,conveyor:1,charger:2,dropoff:3,home:4,buffer:5,parking:6,wait:7,door:8};
-  const robotPoints=Object.values(state.nodes).map(n=>{
-    const wp = _d2w(n.x, n.y, tr);
+  // Cabin thang DÙNG CHUNG: các node Elevator cùng số thẻ (cabinTag, hoặc chính id của node chính) gộp thành 1 node
+  // trong DB (1 thẻ RFID). Mặt ở tầng khác lưu vị trí riêng trong action.cabin_facets để nạp lại đúng chỗ.
+  const _cab = _mergeCabinFacets();
+  if(_cab.error){ toast(_cab.error, 'error'); return; }
+  const _TYPE_INT = {normal:0,conveyor:1,charger:2,dropoff:3,home:4,buffer:5,parking:6,wait:7,door:8,elevator:9};
+  const robotPoints=Object.values(state.nodes).filter(n=>!_cab.skip.has(n.id)).map(n=>{
+    const wp = _d2w(n.x, n.y, trOfNode(n));
+    const _tag = _cab.idMap[n.id] || n.id;
     return {
-      name_id:n.id, name:n.name||'',
+      name_id:_tag, name:n.name||'', floor:floorOfNode(n),
       x:_r3(wp.x), y:_r3(wp.y), theta:0,
       type: _TYPE_INT[n.type] ?? 0, zone:'',
       action: {
@@ -2470,8 +4063,14 @@ async function _doSaveMap(name){
         ...(n.arrivalAction==='wait_charge' && n.stationAgvType && n.stationAgvType!=='none' ? {station_agv_type:n.stationAgvType} : {}),
         ...(n.exitReverseMs && n.exitTurn && n.exitTurn!=='none' ? {exit_reverse_ms:n.exitReverseMs, exit_turn:n.exitTurn} : {}),
         ...(n.doorId ? {door_id:n.doorId} : {}),
+        ...(n.type==='elevator' && n.elevatorId ? {elevator_id:n.elevatorId} : {}),
+        ...(n.elevRole && n.elevRef ? {elev_role:n.elevRole, elev_ref:n.elevRef} : {}),
+        ...(_cab.facets[_tag] ? {cabin_facets:_cab.facets[_tag]} : {}),
+        ...(_cab.doors[_tag] ? {cabin_doors:_cab.doors[_tag]} : {}),
         ...(n.trailerStaging ? {trailer_staging:'yes'} : {}),
         ...(n.trailerEmptyStaging ? {trailer_empty_staging:'yes'} : {}),
+        ...(n.waitingNode ? {waiting_node:'yes'} : {}),
+        ...(n.allowedAgvTypes && n.allowedAgvTypes.length ? {allowed_agv_types:n.allowedAgvTypes} : {}),
         ...(n.trailerRole && n.trailerRole!=='none' ? {trailer_role:n.trailerRole} : {}),
         ...(n.turnMap && Object.keys(n.turnMap).length  ? {turn_map:n.turnMap}             : {}),
         ...((n.type==='dropoff' || n.arrivalAction==='wait_user') && n.team!=null ? {team:n.team} : {}),
@@ -2488,30 +4087,41 @@ async function _doSaveMap(name){
   const robotRoads=[], robotBenziers=[];
   for(const e of state.edges){
     const ns=state.nodes[e.src], nd=state.nodes[e.dst];
-    const ws=ns?_d2w(ns.x,ns.y,tr):{x:0,y:0};
-    const we=nd?_d2w(nd.x,nd.y,tr):{x:0,y:0};
-    const dist = ns&&nd ? Math.round(Math.sqrt((we.x-ws.x)**2+(we.y-ws.y)**2)*100)/100 : 0;
+    const etr = ns ? trOfNode(ns) : tr;                 // cạnh thuộc tầng của node nguồn
+    const eFloor = ns ? floorOfNode(ns) : state.floors[0].id;
+    const _srcId = _cab.idMap[e.src] || e.src, _dstId = _cab.idMap[e.dst] || e.dst;
+    const ws=ns?_d2w(ns.x,ns.y,etr):{x:0,y:0};
+    const we=nd?_d2w(nd.x,nd.y,etr):{x:0,y:0};
+    // Khoảng cách THẬT (nếu người dùng đã nhập tay ở panel cạnh) LUÔN được ưu
+    // tiên hơn khoảng cách tự tính theo toạ độ vẽ — tránh mỗi lần lưu map lại
+    // ghi đè mất số đo thật chỉ vì node bị kéo lệch nhẹ. Chỉ dùng dist tự tính
+    // làm mặc định cho cạnh CHƯA TỪNG nhập tay (distanceOverride null).
+    const distAuto = ns&&nd ? Math.round(Math.sqrt((we.x-ws.x)**2+(we.y-ws.y)**2)*100)/100 : 0;
+    const _distManual = (e.distanceOverride!=null);
+    const dist = _distManual ? e.distanceOverride : distAuto;
     if(e.cp1 && e.cp2){
       // Bezier edge → robot_benziers (dùng array format để server đọc đúng)
-      const wc1 = _d2w(e.cp1.x, e.cp1.y, tr);
-      const wc2 = _d2w(e.cp2.x, e.cp2.y, tr);
+      const wc1 = _d2w(e.cp1.x, e.cp1.y, etr);
+      const wc2 = _d2w(e.cp2.x, e.cp2.y, etr);
       robotBenziers.push({
-        name:'', id_source:e.src, id_dest:e.dst,
+        name:'', floor:eFloor, id_source:_srcId, id_dest:_dstId,
         point_start:[_r3(ws.x),_r3(ws.y)], point_end:[_r3(we.x),_r3(we.y)],
         curve_point_start:[_r3(wc1.x),_r3(wc1.y)], curve_point_end:[_r3(wc2.x),_r3(wc2.y)],
         speed:e.speed||0.5, speed_bwd:(e.speedBwd!=null?e.speedBwd:null), width:e.width||0.95,
-        move_direction:_dirToCode(e.direction),
+        move_direction:_dirToCode(e.direction), distance:dist, distance_manual:_distManual,
         lidar_off: e.lidarOff !== 'none',
         lidar_off_dir: e.lidarOff || 'none',
+        type_directions: (e.typeDirs && Object.keys(e.typeDirs).length) ? e.typeDirs : null,
       });
     } else {
       robotRoads.push({
-        name:'', id_source:e.src, id_dest:e.dst,
+        name:'', floor:eFloor, id_source:_srcId, id_dest:_dstId,
         point_start:[_r3(ws.x),_r3(ws.y)], point_end:[_r3(we.x),_r3(we.y)],
         width:e.width||0.95, speed:e.speed||0.5, speed_bwd:(e.speedBwd!=null?e.speedBwd:null),
-        move_direction:_dirToCode(e.direction), distance:dist,
+        move_direction:_dirToCode(e.direction), distance:dist, distance_manual:_distManual,
         lidar_off: e.lidarOff !== 'none',
         lidar_off_dir: e.lidarOff || 'none',
+        type_directions: (e.typeDirs && Object.keys(e.typeDirs).length) ? e.typeDirs : null,
       });
     }
   }
@@ -2519,11 +4129,20 @@ async function _doSaveMap(name){
   const payload={
     robot_maps:{
       id:mapId, name,
-      x:tr.originX, y:tr.originY,
+      x:state.floors[0].transform.originX, y:state.floors[0].transform.originY,
       theta:0, layer:0,
       modifytime:new Date().toISOString().slice(0,19).replace('T',' '),
     },
     robot_points:robotPoints, robot_roads:robotRoads, robot_benziers:robotBenziers, robot_code:[],
+    elevators: state.elevators.map(e=>({ id:e.id, name:e.name, note:e.note })),
+    floors: state.floors.map(f=>({
+      id:f.id, name:f.name, note:f.note, level:f.level,
+      origin_x:f.transform.originX||0, origin_y:f.transform.originY||0,
+      resolution:f.transform.resolution||0.05,
+      image:f.transform.pendingImage || undefined,                       // ảnh mới chọn (chưa lưu)
+      keep_image:!!f.transform.imagePath && !f.transform.pendingImage,   // giữ ảnh đã có trên server
+      image_v:f.transform.imageV || null,
+    })),
   };
 
   try{
@@ -2532,9 +4151,15 @@ async function _doSaveMap(name){
     const res=await r.json();
     const savedId=res.map_id||mapId;
     state.mapId=savedId;
+    state.floors.forEach(f=>{ f.transform.pendingImage = null; });   // ảnh đã lên server
     mapChanged=false;
     document.getElementById('sb-map').textContent=`Đã lưu: ${name}`;
     loadMapList(); // refresh dropdown
+    const _ew = _elevatorWarnings();
+    if(_ew.length){
+      console.warn('[ELEVATOR]', _ew);
+      setTimeout(()=>toast('⚠ Thang máy: ' + _ew.slice(0,2).join(' · ') + (_ew.length > 2 ? ` (+${_ew.length-2} cảnh báo)` : ''), 'error'), 2500);
+    }
 
     // Đồng bộ sang Line AGV (map_data.json) + VDA5050 topology
     try{
@@ -2554,6 +4179,33 @@ async function _doSaveMap(name){
       toast('Đã lưu DB. Không thể đồng bộ AGV (server offline?)','error');
       console.warn('[MAP_EXPORT] export failed', ee);
     }
+  } catch(e){ toast('Lỗi kết nối server','error'); console.error(e); }
+}
+
+// ═══════════════════════════════════════════════════
+// API — COPY MAP (sao chép toàn bộ điểm/đường/cấu hình/ảnh nền thành 1
+// bản đồ MỚI độc lập — xem POST /api/maps/{map_id}/copy trong main.py)
+// ═══════════════════════════════════════════════════
+function copyMap(){
+  if(!state.mapId){ toast('Chưa có bản đồ nào đang mở để sao chép','error'); return; }
+  const baseName = document.getElementById('map-name-input').value.trim() || state.mapName || '';
+  _showSaveModal(baseName ? `${baseName} (copy)` : '', name => _doCopyMap(name),
+    '📋 Sao chép bản đồ', '📋 Sao chép');
+}
+
+async function _doCopyMap(name){
+  const srcId = state.mapId;
+  try{
+    const r = await fetch(`${API}/api/maps/${srcId}/copy`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({name}),
+    });
+    if(!r.ok){ const t=await r.text(); toast('Lỗi sao chép: '+t,'error'); return; }
+    const res = await r.json();
+    await loadMapList();
+    document.getElementById('map-select').value = res.id;
+    await loadMap(res.id);
+    toast(`Đã sao chép thành bản đồ mới: ${res.name}`,'success');
   } catch(e){ toast('Lỗi kết nối server','error'); console.error(e); }
 }
 
@@ -2586,6 +4238,7 @@ function buildLegend(){
 applyTransform();
 buildLegend();
 loadMapList();
+renderFloorTabs();
 renderAll();
 updateProps();
 // Center view

@@ -24,6 +24,15 @@ from telegram.ext import (
 
 logger = logging.getLogger(__name__)
 
+# Thư viện python-telegram-bot tự log traceback đầy đủ mỗi lần polling bị
+# "Conflict: terminated by other getUpdates request" (có tiến trình bot khác
+# đang chạy song song, gọi getUpdates cùng lúc) — lỗi này KHÔNG ảnh hưởng gì
+# tới hệ thống AGV, chỉ là bot Telegram tạm mất 1 lượt poll rồi tự thử lại.
+# Tạm nâng ngưỡng log của toàn bộ logger "telegram" lên CRITICAL để chặn spam
+# traceback này, tránh loãng log server. Bật lại (xoá dòng dưới) nếu cần debug
+# thật sự lỗi liên quan tới bot Telegram.
+logging.getLogger("telegram").setLevel(logging.CRITICAL)
+
 # ── Config ─────────────────────────────────────────────────────────────────────
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), "telegram_config.json")
 

@@ -1,0 +1,16 @@
+{
+  "name": "elevator_ride",
+  "description": "1 xe (SIM01) xuất phát ở trạm sạc tầng 1 rồi đi sang tầng 2 rồi về tầng 1 bằng thang máy (tầng 2 → về tầng 1). Kiểm tra chuỗi: tới node chờ → gọi thang → vào cabin → đi thang → ra (lùi/tiến ngược hướng vào) → nhả thang.",
+  "timeout_s": 420,
+  "agvs": {
+    "SIM01": {
+      "start_at_s": 0,
+      "route": ["37", "31"],
+      "return_to_charge": false
+    }
+  },
+  "expectations": [
+    {"type": "no_violations", "kinds": ["COLLISION", "HEADON_EDGE"], "max_count": 0},
+    {"type": "arrive", "agv_id": "SIM01", "within_s": 400, "node": "31"}
+  ]
+}

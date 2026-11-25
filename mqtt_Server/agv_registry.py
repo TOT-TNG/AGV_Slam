@@ -207,6 +207,47 @@ class AgvRegistry:
         (xe đầu kéo/rơ-moóc — chỉ đi 1 chiều tiến)."""
         return self._can_reverse.get(str(agv_id).strip(), True)
 
+    # ── Chế độ vận hành xe kéo (tow/trailer) — cấu hình THEO TỪNG XE ──
+    #   op_mode:     roundtrip (mặc định, chu trình thả rỗng/lấy đầy như cũ)
+    #                carry_hook  (lấy xe hàng bằng móc → chạy tới đích → chờ xác nhận thủ công)
+    #                carry_fixed (thùng gắn cố định, không móc → chạy tới đích → chờ xác nhận)
+    #   return_mode: charge    (xong thì về thẳng trạm sạc, mặc định)
+    #                drop_cart (chỉ có nghĩa với carry_hook: kéo xe hàng tới điểm thả cố định
+    #                           — node 'trailer_staging' — thả rồi mới về trạm sạc)
+    OP_MODES = ("roundtrip", "carry_hook", "carry_fixed")
+    RETURN_MODES = ("charge", "drop_cart")
+
+    def load_op_mode(self, db_url: str = _DB_URL) -> None:
+        """Nạp cột agv_devices.op_mode / return_mode (nếu có). Lỗi/cột chưa có →
+        bỏ qua im lặng, mọi xe giữ mặc định (roundtrip/charge = hành vi cũ)."""
+        try:
+            import psycopg2
+            conn = psycopg2.connect(db_url)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("SELECT name, op_mode, return_mode FROM agv_devices")
+                rows = cur.fetchall()
+            conn.close()
+        except Exception as e:
+            print(f"[REGISTRY] load_op_mode skipped: {e}")
+            return
+        self._op_mode = {}
+        self._return_mode = {}
+        for name, om, rm in rows:
+            n = str(name).strip()
+            if om in self.OP_MODES:
+                self._op_mode[n] = om
+            if rm in self.RETURN_MODES:
+                self._return_mode[n] = rm
+        print(f"[REGISTRY] op_mode != roundtrip: "
+              f"{ {k: v for k, v in self._op_mode.items() if v != 'roundtrip'} }")
+
+    def op_mode(self, agv_id: str) -> str:
+        return getattr(self, "_op_mode", {}).get(str(agv_id).strip(), "roundtrip")
+
+    def return_mode(self, agv_id: str) -> str:
+        return getattr(self, "_return_mode", {}).get(str(agv_id).strip(), "charge")
+
 
 # ── Module-level singleton ────────────────────────────────────────────────────
 agv_registry = AgvRegistry()

@@ -24,6 +24,7 @@
 14. [Ví dụ code thực tế](#14-ví-dụ-code-thực-tế)
 15. [Debug và Troubleshooting](#15-debug-và-troubleshooting)
 16. [Cửa tự động (Gate Controller)](#16-cửa-tự-động-gate-controller)
+17. [Thang máy (Elevator Controller)](#17-thang-máy-elevator-controller)
 
 ---
 
@@ -358,6 +359,7 @@ Topic: uagv/v2/VietDuc/AGV01/instantActions
 { "c": "set_btn_pic", "line": 3, "pic": 28 }  // Bật đèn nút tổ 3
 { "c": "reset_team_btns" }   // Tắt tất cả nút tổ
 { "c": "door_check" }        // Kiểm tra lidar cửa
+{ "c": "locate", "tag": 25, "prev": 24 }  // Đặt lại vị trí (xe vừa được thang chở sang tầng khác) — xem mục 17
 ```
 
 ### Tham số `run`
@@ -1123,6 +1125,143 @@ client.loop_forever()
 - [ ] Xử lý lệnh `open`/`close` lặp lại an toàn (idempotent) — server có thể gửi lại
 - [ ] Publish `state="closed"` ngay khi khởi động (trạng thái mặc định an toàn)
 - [ ] Nếu phát hiện lỗi cơ khí, publish `state="error"` càng sớm càng tốt
+
+---
+
+## 17. Thang máy (Elevator Controller)
+
+> Giao thức **riêng**, thiết kế **giống cửa tự động** (mục 16): bộ điều khiển thang là thiết bị
+> ĐỘC LẬP với AGV, server giao tiếp thẳng qua MQTT. Khác cửa ở chỗ lệnh mở kèm **số tầng**, và server
+> điều phối cả chuyến đi (xe vào cabin → thang chạy → xe ra).
+
+### 17.1. Bối cảnh và cấu hình bản đồ
+
+- 1 bản đồ có nhiều tầng (Map Editor: tab/menu tầng). Mỗi tầng có **"Số tầng"** (số nguyên, DUY NHẤT trong map)
+  — đây là giá trị server gửi trong lệnh `floor`.
+- Thang máy khai báo trong Map Editor ("🛗 Quản lý thang máy…"), mã thang dạng `E1`, `E2`... Mỗi tầng thang
+  dừng có đúng 1 node loại **Elevator** (điểm xe đứng TRONG cabin ở tầng đó), chọn cùng 1 thang.
+- Node Elevator phải là **node cụt** (chỉ nối 1 node chờ ngay trước cửa thang). Cabin 1 cửa: xe vào hướng nào
+  thì ra hướng ngược lại (vào TIẾN → ra LÙI, vào LÙI → ra TIẾN). Xe không lùi được (rơ-moóc/xe kéo) không dùng
+  thang — cấm bằng "Loại xe được phép vào node này" trên node Elevator.
+
+### 17.2. MQTT Topics
+
+```
+elevator/v1/{factory}/{elevator_id}/cmd     Server → Bộ điều khiển thang   (lệnh)
+elevator/v1/{factory}/{elevator_id}/state   Bộ điều khiển thang → Server   (trạng thái, RETAINED)
+```
+
+`factory` giống AGV/cửa; `elevator_id` là mã thang trong Map Editor (`E1`, `E2`...). **`state` PHẢI publish
+với `retain=true`.**
+
+### 17.3. Lệnh — Server → Thang
+
+```json
+{ "c": "open", "floor": 3 }
+{ "c": "close" }
+```
+
+| Lệnh | Ý nghĩa |
+|------|---------|
+| `open` + `floor` | Đi tới tầng `floor` (số tầng) rồi **mở cửa**. Đã ở tầng đó và cửa đã mở → chỉ publish lại `state: "open"`. Đang mở ở tầng khác → tự đóng cửa trước khi chạy. |
+| `close` | Đóng cửa (tại chỗ). Cửa đã đóng → publish lại `state: "closed"`. |
+
+Lệnh có thể bị server **gửi lại** (xem 17.5) → thiết bị xử lý lặp lại an toàn (idempotent).
+
+### 17.4. Trạng thái — Thang → Server
+
+```json
+{ "state": "open", "floor": 3 }
+```
+
+| `state` | Khi nào |
+|---------|---------|
+| `closed` | Cửa đã đóng hoàn toàn |
+| `opening` | Đang mở cửa |
+| `open` | Cửa đã mở HOÀN TOÀN ở `floor` — **server chờ đúng tín hiệu này (đúng tầng)** rồi mới cho xe đi |
+| `closing` | Đang đóng cửa |
+| `moving` | Đang chạy giữa các tầng |
+| `error` | Lỗi — server dừng tự động, huỷ chuỗi lệnh của xe, báo cảnh báo |
+
+`floor` = số tầng hiện tại/vừa tới (luôn kèm theo). Server chỉ coi là "tới nơi" khi `state="open"` VÀ `floor` đúng.
+
+### 17.5. Timeout / thử lại
+
+Chờ `open` (gọi thang hoặc tới tầng đích) quá **45 s**, chờ `closed` quá **20 s** → server gửi lại lệnh
+(tối đa **2 lần**), sau đó báo lỗi `ELEVATOR_ERROR`, huỷ chuỗi lệnh của xe (xe đứng yên tại chỗ).
+
+### 17.6. Một chuyến đi (server điều phối)
+
+```
+Xe tới node chờ trước cabin ở tầng A
+  → Server: {"c":"open","floor":A}           ... thang: opening → open@A
+  → Xe tiến/lùi vào cabin (node Elevator tầng A), dừng
+  → Server: {"c":"close"}                    ... thang: closing → closed
+  → Server: {"c":"open","floor":B}           ... thang: moving → opening → open@B
+  → Server đặt lại vị trí xe = node Elevator tầng B + gửi lệnh `locate` cho xe (xem 17.7)
+  → Xe ra khỏi cabin theo hướng NGƯỢC lúc vào, tới node chờ ngoài cabin ở tầng B
+  → Server nhả thang: có xe khác xếp hàng → cấp luôn, không thì {"c":"close"}
+```
+
+Mỗi thang chỉ phục vụ **1 xe một lúc**; xe xin sau xếp hàng (FIFO). Thang cần đổi giữa các tầng không có thang
+chung → server tự chia thành nhiều chuyến (đổi thang tại tầng trung gian).
+
+### 17.7. Lệnh `locate` cho xe (đội firmware AGV)
+
+Trong lúc thang chạy xe KHÔNG di chuyển nên không đọc được thẻ RFID mới — firmware xe vẫn nghĩ đang ở tag
+cũ. Server gửi lệnh tức thì (instantActions) ngay khi thang mở cửa ở tầng đích:
+
+```json
+{ "c": "locate", "tag": 25, "prev": 24 }
+```
+
+| Field | Ý nghĩa |
+|-------|---------|
+| `tag` | Tag RFID của node Elevator ở tầng đích — firmware đặt làm vị trí hiện tại |
+| `prev` | Tag node chờ ngoài cabin ở tầng đích — firmware coi là "tag trước đó" để các plan sau (ra khỏi cabin) tính đúng hướng |
+
+Sau `locate`, plan kế tiếp bắt đầu bằng `{"t": <tag>, ...}` như bình thường.
+
+### 17.8. Checklist cho đội firmware thang
+
+- [ ] Subscribe `elevator/v1/{factory}/{elevator_id}/cmd`; publish `state` lên `.../state` với `retain=true`
+- [ ] Mọi `state` đều kèm `floor`
+- [ ] `state="open"` CHỈ khi cửa mở hoàn toàn ở đúng tầng
+- [ ] `open` + `floor` khi đang ở tầng khác: tự đóng cửa → chạy → mở; báo `closing`/`closed`/`moving`/`opening`/`open`
+- [ ] Lệnh `open`/`close` lặp lại an toàn (idempotent)
+- [ ] Publish `state="closed"` + `floor` ngay khi khởi động
+- [ ] Báo `error` sớm nếu phát hiện sự cố
+- [ ] (Firmware AGV) Hỗ trợ lệnh `locate`
+
+### 17.9. Backend `uelev_v2` (thiết bị thang thật của đội phần cứng)
+
+Ngoài giao thức `elevator/v1` (open/close) ở trên, server có thêm backend nói giao thức **uelev/v2** (VDA5050-aligned:
+`instantActions` / `state` / `connection`, lệnh `hallCall` `holdDoor` `depart`…, ACK theo `actionId`) bằng thư viện
+`elevator_coord/` (đặc tả: `04-giao-thuc-mqtt.md`, `07-tich-hop-fms.md`). Chọn bằng biến môi trường:
+
+```
+ELEVATOR_BACKEND=legacy    # mặc định: elevator/v1 (open/close)
+ELEVATOR_BACKEND=uelev_v2  # uelev/v2 qua thư viện elevator_coord (mqtt_Server/elevator_bridge.py)
+ELEVATOR_UELEV_CONFIG=...  # (tuỳ chọn) JSON ghi đè: {"factory": "...", "elevators": {"E1": {"master": "master", "callers": {...}, "timing": {...}, "zones": [...]}}}
+ELEVATOR_LIDAR_GATE_ACTION=<mã>  # (tuỳ chọn) mã action "LIDAR_GATE" chèn vào đuôi plan cabin; để trống tới khi firmware xác nhận
+```
+
+Cấu hình thang tự suy ra từ bản đồ: mỗi tầng của thang → 1 bộ gọi `call<số tầng>` (tầng thấp nhất chỉ UP, cao nhất chỉ DN,
+giữa cả hai), Master `master`, `{elevatorId}` = id thang trong Map Editor, `{factory}` = factory của AGV.
+
+Chuỗi lệnh hàng đợi giữ nguyên (`elev_book` → `go_to W_A` → `elev_call` → `go_to cabin` → `elev_ride` → `go_to W_B` → `elev_release`),
+nhưng ý nghĩa đổi theo vòng đời ride của thư viện:
+
+| Lệnh | uelev_v2 |
+|------|----------|
+| `elev_book` | `request_ride(xe, tầng A→B)`; hoàn tất khi sự kiện `STARTED` (tới lượt dùng thang) |
+| `elev_call` | hoàn tất khi `BOARD_ALLOWED` (cabin mở + giữ cửa ở tầng A) |
+| `go_to cabin` | plan được **nối đuôi** trước khi gửi: `…cabin WAIT_SYS, LIDAR_ON, DIR(ngược chiều vào), RUN, thẻ_thoát WAIT_SYS` — xe mất mạng khi cabin đóng cửa nên không nhận thêm plan |
+| `elev_ride` | `agv_boarded()` (xe tới thẻ cabin) → chờ `EXIT_ALLOWED` → gửi `run` (có ACK `cmd_ack`) → xe tới thẻ thoát → `agv_exited()`; hoàn tất khi xe đã ra |
+| `elev_release` | dọn ctx (thư viện tự nhả thiết bị) |
+
+Không dùng lệnh `locate` ở backend này (xe tự đọc thẻ thoát). `BOARD_REVOKED` → server gửi `stop`; `BOARD_ALLOWED` lại → `run`.
+Xem `09-ack-lenh-fms.md` cho `run`/`stop` có `id` ↔ `state.cmd_ack` (`mqtt_Server/agv_cmd_channel.py`, `AGV_CMD_ACK_MODE=auto|strict|off`).
 
 ---
 

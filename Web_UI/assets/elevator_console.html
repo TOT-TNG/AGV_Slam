@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html class="dark" lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Thang máy &amp; Cửa tự động</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+  :root{--bg:#0b1326;--card:rgba(13,22,42,.9);--border:rgba(255,255,255,.09);--accent:#adc6ff;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--mut:#8c909f}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:#fff;font-family:Inter,system-ui,sans-serif;font-size:13px}
+  body{overflow-y:auto}
+  .material-symbols-outlined{font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;font-size:18px;line-height:1;vertical-align:middle;user-select:none}
+  ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:6px}
+  #wrap{display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:14px;padding:14px;max-width:1200px;margin:0 auto}
+  @media(max-width:820px){#wrap{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px}
+  .title{font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+  .title .material-symbols-outlined{font-size:14px}
+  .hint{font-size:10px;color:var(--mut);margin-bottom:8px;line-height:1.5}
+  code{font-family:'JetBrains Mono',monospace;font-size:10px;color:#c2c6d6}
+  input,select{width:100%;padding:7px 10px;border-radius:8px;background:rgba(15,20,32,.8);border:1px solid rgba(66,71,84,.5);color:#e1e2e7;font-size:12px;outline:none}
+  select{background:#fff;color:#111;border-color:#c0c8d8}select option{background:#fff;color:#111}
+  .btn{padding:9px 8px;border-radius:9px;border:1px solid;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .15s;width:100%}
+  .btn:disabled{opacity:.35;cursor:not-allowed}
+  .b-green{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.3);color:var(--ok)}.b-green:hover:not(:disabled){background:rgba(34,197,94,.2)}
+  .b-warn{background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.3);color:var(--warn)}.b-warn:hover:not(:disabled){background:rgba(251,191,36,.15)}
+  .b-blue{background:rgba(173,198,255,.1);border-color:rgba(173,198,255,.3);color:var(--accent)}.b-blue:hover:not(:disabled){background:rgba(173,198,255,.2)}
+  .b-red{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:var(--bad)}.b-red:hover:not(:disabled){background:rgba(239,68,68,.2)}
+  .btn-sm{padding:3px 9px;font-size:11px;width:auto}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .item{padding:9px 11px;border-radius:10px;background:rgba(15,20,32,.6);border:1px solid rgba(66,71,84,.5);cursor:pointer}
+  .item.sel{border-color:var(--accent);background:rgba(173,198,255,.1)}
+  .row{display:flex;align-items:center;gap:8px}
+  .dot{font-size:14px}.on{color:var(--ok)}.off{color:var(--mut)}.stale{color:var(--warn)}
+  .mono{font-family:'JetBrains Mono',monospace}
+  .chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:12px;font-size:11px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04)}
+  .warnbox{padding:7px 10px;border-radius:8px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.3);color:var(--warn);font-size:11px;margin-bottom:8px;line-height:1.5}
+  .errbox{padding:7px 10px;border-radius:8px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);color:var(--bad);font-size:11px;margin-bottom:8px;line-height:1.5}
+  .floor{margin:0;padding:8px 10px;font-size:12px;text-align:left;display:flex;align-items:center;gap:8px;border:1px solid rgba(66,71,84,.5);background:rgba(15,20,32,.6);color:#e1e2e7;border-radius:9px;cursor:pointer;width:100%}
+  .floor.picked{border-color:var(--accent);background:rgba(173,198,255,.18)}
+  .status{font-size:11px;text-align:center;margin-top:8px;min-height:16px;font-family:'JetBrains Mono',monospace}
+  .sep{margin-top:12px;padding-top:10px;border-top:1px solid rgba(66,71,84,.4)}
+  .sub{font-size:11px;font-weight:700;color:#e1e2e7;margin-bottom:6px}
+  .now{padding:12px;border-radius:12px;background:rgba(173,198,255,.07);border:1px solid rgba(173,198,255,.2);margin-bottom:10px}
+  .bigline{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:15px;margin-top:8px}
+  .pill{padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;border:1px solid currentColor}
+  .step{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin:14px 0 8px}
+  .num{width:22px;height:22px;border-radius:50%;background:var(--accent);color:#0b1326;display:inline-flex;align-items:center;justify-content:center;font-size:12px}
+  .shaft{display:flex;flex-direction:column;gap:4px;padding:8px;border-radius:12px;background:rgba(0,0,0,.25);border:1px dashed rgba(255,255,255,.15)}
+  .fl{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:9px;border:1px solid rgba(66,71,84,.5);background:rgba(15,20,32,.7);color:#e1e2e7;font-size:14px;cursor:pointer;width:100%;text-align:left}
+  .fl:hover{border-color:rgba(173,198,255,.5)}
+  .fl.here{background:rgba(74,222,128,.08)}
+  .fl.picked{border-color:var(--accent);background:rgba(173,198,255,.2)}
+  .fl .car{font-size:11px;color:var(--ok);font-weight:700}
+  .btn.big{padding:14px 10px;font-size:14px}
+  details.adv{margin-top:16px;padding:10px 12px;border-radius:10px;border:1px solid rgba(66,71,84,.5)}
+  details.adv summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--mut)}
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,.1);margin:10px 0 12px}
+  .tab{padding:9px 12px;font-size:12px;font-weight:700;color:var(--mut);background:transparent;border:none;border-bottom:3px solid transparent;cursor:pointer;border-radius:8px 8px 0 0}
+  .tab:hover{color:#c2c6d6;background:rgba(255,255,255,.04)}
+  .tab.on{color:var(--accent);border-bottom-color:var(--accent);background:rgba(173,198,255,.08)}
+  .devinfo{padding:11px 12px;border-radius:12px;background:rgba(173,198,255,.06);border:1px solid rgba(173,198,255,.18);margin-bottom:12px}
+  .kv{display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+  .kv:last-child{border-bottom:none}.kv span{color:var(--mut)}.kv b{text-align:right}
+  .kv b.on{color:var(--ok)}.kv b.stale{color:var(--warn)}.kv b.off{color:#c2c6d6}
+  .test{padding:12px;border-radius:12px;border:1px solid rgba(66,71,84,.5);margin-bottom:12px}
+  .test-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:6px}
+  small{font-size:10px;font-weight:500;opacity:.8}
+  .arrive{display:none;padding:10px 12px;border-radius:10px;font-size:13px;margin-bottom:12px;line-height:1.5}
+  .arrive.run{background:rgba(173,198,255,.1);border:1px solid rgba(173,198,255,.35);color:var(--accent)}
+  .arrive.ok{background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.4);color:var(--ok)}
+  .steps{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+  .stp{display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border-radius:8px;font-size:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)}
+  .stp.ok{color:var(--ok)}.stp.fail{color:var(--bad);border-color:rgba(239,68,68,.35)}.stp.run{color:var(--accent)}.stp.info{color:var(--warn)}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <!-- ═════ Cột trái: danh mục + kết nối ═════ -->
+  <div>
+    <div class="card">
+      <div class="title"><span class="material-symbols-outlined">app_registration</span>Khai báo thang máy</div>
+      <div class="hint">Danh mục thang dùng chung: Map Editor và bảng điều khiển bên phải đều chọn từ đây. <b>Mã thang</b> phải trùng
+        <code>{thang}</code> trên topic <code>uelev/v2/{nhà máy}/{thang}/{thiết bị}/…</code> (vd <code>ELV01</code>). ● = master đang kết nối.</div>
+      <div id="list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+      <div id="found" style="margin-bottom:8px"></div>
+      <div class="grid2" style="margin-bottom:6px">
+        <input id="f-id" placeholder="Mã thang (vd ELV01)" autocomplete="off"/>
+        <input id="f-name" placeholder="Tên thang" autocomplete="off"/>
+        <input id="f-factory" placeholder="Nhà máy chuẩn (vd tngfh)" autocomplete="off"/>
+        <input id="f-note" placeholder="Ghi chú (vị trí, tải trọng…)" autocomplete="off"/>
+      </div>
+      <button class="btn b-green" onclick="save()"><span class="material-symbols-outlined">add_circle</span>Lưu / thêm thang</button>
+      <div class="status" id="f-status"></div>
+    </div>
+
+    <div class="card">
+      <div class="title"><span class="material-symbols-outlined">sensor_door</span>Cửa tự động</div>
+      <div class="hint">Mở/đóng thủ công 1 cửa tự động — không cần xe đang chờ. Dùng khi bảo trì hoặc kiểm tra cửa.</div>
+      <input type="number" id="gate-num" min="1" step="1" placeholder="Số thứ tự cửa, vd: 1" style="margin-bottom:8px" class="mono"/>
+      <div class="grid2">
+        <button class="btn b-green" onclick="gate('open')"><span class="material-symbols-outlined">lock_open</span>MỞ cửa</button>
+        <button class="btn b-warn" onclick="gate('close')"><span class="material-symbols-outlined">lock</span>ĐÓNG cửa</button>
+      </div>
+      <div class="status" id="gate-status"></div>
+    </div>
+  </div>
+
+  <!-- ═════ Cột phải: điều khiển thang đã chọn — 4 tab / 4 thiết bị ═════ -->
+  <div>
+    <div class="card" id="ctl">
+      <div class="title"><span class="material-symbols-outlined">elevator</span>Kiểm tra thiết bị thang máy</div>
+      <div class="hint" id="ctl-empty">Chọn một thang trong danh mục bên trái.</div>
+      <div id="ctl-body" style="display:none">
+        <div id="now" class="now"></div>
+        <div id="warns"></div>
+        <div id="tabs" class="tabs"></div>
+
+        <!-- ══ TAB MASTER ══ -->
+        <div id="p-master" style="display:none">
+          <div id="m-info" class="devinfo"></div>
+          <div id="arrive" class="arrive"></div>
+
+          <div class="test">
+            <div class="test-h"><span class="num">1</span>Đưa thang tới một tầng</div>
+            <div class="hint">Bấm chọn tầng rồi bấm nút. “Đưa tới tầng” = thang tự đóng cửa → chạy → mở cửa và <b>giữ mở</b> chờ xe vào.</div>
+            <div id="shaft" class="shaft"></div>
+            <div class="row" style="margin-top:6px">
+              <input type="number" id="floor-num" placeholder="Thang có tầng khác? nhập số tầng (vd 4)" class="mono" oninput="pickNum()"/>
+              <button class="btn b-blue btn-sm" style="white-space:nowrap" onclick="addFloor()">＋ Thêm tầng</button>
+            </div>
+            <div class="grid2" style="margin-top:8px">
+              <button class="btn big b-green" id="b-go" onclick="goFloor()"><span class="material-symbols-outlined">rocket_launch</span><span id="go-label">Chọn tầng trước</span></button>
+              <button class="btn big b-blue" onclick="act('call_floor')"><span class="material-symbols-outlined">call</span>Chỉ gọi tầng<br/><small>(không giữ cửa)</small></button>
+            </div>
+          </div>
+
+          <div class="test">
+            <div class="test-h"><span class="num">2</span>Cửa thang</div>
+            <div class="hint">Giữ cửa mở khi xe chưa vào kịp (xe mất mạng…). Thang tự thả sau 30 s nên server tự làm mới giữ cửa.</div>
+            <div class="grid2">
+              <button class="btn big b-blue" onclick="act('hold')"><span class="material-symbols-outlined">lock_clock</span>Giữ cửa mở</button>
+              <button class="btn big b-warn" onclick="act('release')"><span class="material-symbols-outlined">door_front</span>Thả &amp; đóng cửa</button>
+            </div>
+            <div class="row" style="margin-top:8px;font-size:12px;color:#c2c6d6">Giữ tối đa
+              <select id="hold-min" style="width:auto">
+                <option value="1">1 phút</option><option value="3">3 phút</option><option value="5" selected>5 phút</option>
+                <option value="10">10 phút</option><option value="30">30 phút</option><option value="60">60 phút</option>
+              </select>
+              <label class="row" style="font-size:11px;margin-left:auto"><input type="checkbox" id="hold-close" checked style="width:auto"/> hết giờ tự đóng</label>
+            </div>
+            <div id="hold-live" class="status" style="color:var(--warn);margin-top:6px"></div>
+            <button class="btn b-warn" style="margin-top:8px" onclick="act('fast_close')"><span class="material-symbols-outlined">fast_forward</span>Đóng nhanh cửa ngay</button>
+          </div>
+
+          <div class="test">
+            <div class="test-h"><span class="num">3</span>Khôi phục</div>
+            <button class="btn b-red" onclick="act('reset')"><span class="material-symbols-outlined">restart_alt</span>Reset master</button>
+          </div>
+
+          <details class="adv" id="adv-ride">
+            <summary>Nâng cao: chạy thử trọn 1 chuyến xe đi thang</summary>
+            <div class="hint" style="margin-top:8px">Giả lập AGV: <b>gọi thang tới tầng đi</b> → thang mở cửa, báo về → (xe vào cabin, trễ vài giây)
+              → <b>đóng cửa, chạy tới tầng đến</b> → mở cửa, báo về → (xe ra, trễ vài giây) → <b>đóng cửa, báo đã đóng</b>. Thang thật sẽ chạy!</div>
+            <div class="grid2" style="margin-bottom:8px">
+              <label style="font-size:11px;color:var(--mut)">Xe gọi thang ở tầng<select id="rt-from"></select></label>
+              <label style="font-size:11px;color:var(--mut)">Xe đi tới tầng<select id="rt-to"></select></label>
+              <label style="font-size:11px;color:var(--mut)">Xe vào cabin (giây)<input type="number" id="rt-board" value="3.5" min="0" max="30" step="0.5"/></label>
+              <label style="font-size:11px;color:var(--mut)">Xe ra cabin (giây)<input type="number" id="rt-exit" value="3.5" min="0" max="30" step="0.5"/></label>
+            </div>
+            <label style="font-size:11px;color:var(--mut);display:block;margin-bottom:8px">Biết thang “đã tới” bằng cách nào?
+              <select id="rt-mode" onchange="rtModeChange()">
+                <option value="sensor">Cảm biến tầng của master (như xe thật)</option>
+                <option value="manual">Tôi tự nhìn thang rồi bấm xác nhận (khi chưa nối cảm biến)</option>
+                <option value="timer">Tự tính theo thời gian (khi chưa nối cảm biến)</option>
+              </select></label>
+            <div id="rt-travel-box" style="display:none;margin-bottom:8px"><label style="font-size:11px;color:var(--mut)">Thời gian thang chạy giữa 2 tầng (giây)
+              <input type="number" id="rt-travel" value="10" min="1" max="300" step="1"/></label></div>
+            <div id="rt-mode-hint" class="hint"></div>
+            <div class="grid2">
+              <button class="btn big b-green" id="rt-start" onclick="startRide()"><span class="material-symbols-outlined">play_arrow</span>Chạy thử 1 chuyến</button>
+              <button class="btn big b-red" id="rt-cancel" onclick="cancelRide()"><span class="material-symbols-outlined">stop</span>Hủy</button>
+            </div>
+            <button class="btn big b-green" id="rt-confirm" onclick="confirmArrive()" style="display:none;margin-top:8px">
+              <span class="material-symbols-outlined">check_circle</span><span id="rt-confirm-label">Thang đã tới</span></button>
+            <div id="rt-state" class="status" style="margin-top:8px"></div>
+            <div id="rt-steps" class="steps"></div>
+          </details>
+        </div>
+
+        <!-- ══ TAB BỘ GỌI TẦNG (1 / 2 / 3) — nội dung dựng theo thiết bị đang chọn ══ -->
+        <div id="p-caller" style="display:none">
+          <div id="c-info" class="devinfo"></div>
+          <div class="test">
+            <div class="test-h"><span class="num">1</span>Bấm nút gọi thang tại tầng này</div>
+            <div class="hint">Giả lập người bấm nút ngoài sảnh. Relay sẽ nhấn nút gọi của thang, và tự nhả sau 30 s nếu không làm mới.</div>
+            <div class="row" style="margin-bottom:8px;font-size:12px;color:#c2c6d6">Giữ nút gọi
+              <select id="hall-ttl" style="width:auto">
+                <option value="10">10 giây</option><option value="20" selected>20 giây</option>
+                <option value="60">1 phút</option><option value="300">5 phút</option>
+              </select><span style="color:var(--mut);font-size:11px">rồi tự nhả (bấm lại = gia hạn)</span></div>
+            <div id="c-btns" class="grid2"></div>
+          </div>
+          <div class="test">
+            <div class="test-h"><span class="num">2</span>Khôi phục</div>
+            <button class="btn b-red" id="c-reset"><span class="material-symbols-outlined">restart_alt</span>Reset bộ gọi này</button>
+          </div>
+        </div>
+
+        <div class="status" id="status"></div>
+        <div class="status" id="last-action" style="color:var(--mut)"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = `${location.protocol}//${location.hostname}:8000`;
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+let data = {elevators: [], discovered: []}, selId = null, selFloor = null, busy = false, last = null, sig = '';
+
+const LINK = {online:'ĐÃ KẾT NỐI', offline:'MẤT KẾT NỐI', stale:'chỉ thấy tin cũ trên broker', never:'chưa thấy tín hiệu'};
+const dot = l => l === 'online' ? '●' : (l === 'stale' ? '◌' : '○');
+const cls = l => l === 'online' ? 'on' : (l === 'stale' ? 'stale' : 'off');
+const cur = () => data.elevators.find(e => e.id === selId) || null;
+const master = e => {
+  const ms = e ? (e.devices || []).filter(d => d.kind === 'master') : [];
+  return ms.find(d => d.link === 'online') || ms[0] || null;
+};
+
+function msg(id, text, color, ms = 4000) {
+  const el = $(id); el.textContent = text; el.style.color = color;
+  if (ms) setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, ms);
+}
+
+// ── tải trạng thái ──────────────────────────────────────────────────────────
+async function refresh() {
+  try {
+    const r = await fetch(`${API}/api/elevator-console/state`);
+    if (!r.ok) throw new Error(r.status);
+    data = await r.json();
+    $('list').dataset.err = '';
+  } catch (e) {
+    $('list').innerHTML = `<div class="errbox">Không gọi được server (${esc(e.message)}). Nếu là 404: khởi động lại mqtt_Server để nạp bản cập nhật.</div>`;
+    $('list').dataset.err = '1';
+    return;
+  }
+  if (!selId && data.elevators.length) selId = (data.elevators.find(e => e.link_online) || data.elevators[0]).id;
+  if (selId && !cur()) selId = data.elevators.length ? data.elevators[0].id : null;
+  renderList(); renderCtl();
+}
+
+function renderList() {
+  const s = JSON.stringify([data, selId]);
+  if (s === sig) return; sig = s;
+  $('list').innerHTML = data.elevators.map(e => {
+    const ds = (e.devices || []).map(d => `<span class="${cls(d.link)}">${dot(d.link)}</span> ${esc(d.device)}`).join(' · ');
+    return `<div class="item ${e.id === selId ? 'sel' : ''}" onclick="pick('${esc(e.id)}')">`
+      + `<div class="row"><span class="dot ${cls(e.link_link)}">${dot(e.link_link)}</span><b class="mono">${esc(e.id)}</b>`
+      + `<span style="flex:1;font-size:12px">${esc(e.name)}</span>`
+      + `<button class="btn b-blue btn-sm" onclick="event.stopPropagation();edit('${esc(e.id)}')">Sửa</button>`
+      + `<button class="btn b-red btn-sm" onclick="event.stopPropagation();del('${esc(e.id)}')">Xóa</button></div>`
+      + `<div class="hint ${cls(e.link_link)}" style="margin:3px 0 0">${LINK[e.link_link] || ''}`
+      + (e.link_link !== 'online' && e.link_last_seen_sec != null ? ` (tin cuối ${Math.round(e.link_last_seen_sec)}s trước)` : '') + `</div>`
+      + `<div class="hint" style="margin:2px 0 0">nhà máy: ${esc(e.link_factory || e.factory || '—')}${e.factory_mixed ? ' ⚠ lệch' : ''}`
+      + (ds ? ` · ${ds}` : '') + (e.note ? `<br>${esc(e.note)}` : '') + `</div></div>`;
+  }).join('') || '<div class="hint" style="text-align:center">Chưa khai báo thang nào</div>';
+  $('found').innerHTML = data.discovered.length
+    ? '<div class="sub" style="color:var(--warn)">Phát hiện thang chưa khai báo</div>' + data.discovered.map(e =>
+      `<div class="row" style="font-size:11px;margin-bottom:4px"><span class="${cls(e.link_link)}">${dot(e.link_link)}</span><b class="mono">${esc(e.id)}</b>`
+      + `<span style="flex:1;color:var(--mut)">nhà máy ${esc(e.link_factory || '—')}</span>`
+      + `<button class="btn b-blue btn-sm" onclick="adopt('${esc(e.id)}','${esc((e.devices && e.devices[0] && e.devices[0].factory) || '')}')">Khai báo</button></div>`).join('')
+    : '';
+}
+
+function pick(id) { selId = id; selFloor = null; sig = ''; renderList(); renderCtl(); }
+
+// ── bảng điều khiển: 4 tab = master + bộ gọi tầng 1/2/3 ─────────────────────
+let tab = 'master';
+const RESULT_VI = {
+  direction_unsupported: 'bộ gọi này không có hướng đó', opposite_direction_active: 'đang gọi hướng ngược lại — phải nhả trước',
+  ttl_out_of_range: 'TTL ngoài khoảng 1–600 s', floor_out_of_range: 'tầng ngoài phạm vi (1–3)',
+  door_hold_active: 'đang giữ cửa nên không đóng nhanh được — phải thả giữ cửa trước', preempted_by_hold: 'bị lệnh giữ cửa chen ngang',
+  already_at_floor: 'thang đã ở đúng tầng đó', handed_to_fms: 'đã giao cho server giữ cửa', superseded: 'bị lệnh mới thay thế',
+};
+const viResult = r => !r ? '' : (RESULT_VI[r] ? `${RESULT_VI[r]} (${r})` : r);
+let extraFloors = new Set();      // tầng người dùng tự thêm (vd tầng 4, 5…) khi thang có nhiều hơn 3 tầng
+const CALLERS_DEFAULT = ['call1', 'call2', 'call3'];
+const numOf = n => parseInt(String(n).replace(/\D+/g, ''), 10) || 0;
+function tabList(e) {
+  const names = new Set(CALLERS_DEFAULT);
+  (e.devices || []).forEach(d => { if (d.kind === 'caller') names.add(d.device); });
+  return ['master', ...[...names].sort((a, b) => numOf(a) - numOf(b))];
+}
+function devOf(e, name) { return (e.devices || []).find(d => d.device === name && (name !== 'master' || d.kind === 'master')) || null; }
+function devLabel(e, name) {
+  if (name === 'master') return 'Master thang';
+  const d = devOf(e, name);
+  return 'Bộ gọi tầng ' + (d && d.floor != null ? d.floor : numOf(name));
+}
+function knownFloors(e) {
+  const m = new Map();
+  (e.floors || []).forEach(f => m.set(f.level, f.name || ('Tầng ' + f.level)));
+  (e.devices || []).forEach(d => { if (d.kind === 'caller' && d.floor != null) m.set(d.floor, m.get(d.floor) || ('Tầng ' + d.floor)); });
+  tabList(e).filter(n => n !== 'master').forEach(n => { const k = numOf(n); if (k && !m.has(k)) m.set(k, 'Tầng ' + k); });
+  extraFloors.forEach(k => { if (!m.has(k)) m.set(k, 'Tầng ' + k); });
+  const mm = master(e);
+  if (mm && mm.floor != null && !m.has(mm.floor)) m.set(mm.floor, 'Tầng ' + mm.floor);
+  return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([level, name]) => ({level, name}));
+}
+const PHASE_VI = {closing: 'đang đóng cửa', calling: 'đang bấm gọi tầng', transit: 'đang chạy, chờ cảm biến báo tới nơi'};
+async function releaseArea() {
+  const e = cur(); if (!e) return;
+  if (!confirm(`Nhả khóa vùng thang ${e.id}? Chỉ làm khi xe trước đã rời/hỏng, vì xe kế tiếp sẽ được gọi vào thang ngay.`)) return;
+  try {
+    const r = await fetch(`${API}/api/elevator-console/release-area`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: e.id})});
+    const d = await r.json().catch(() => ({}));
+    msg('status', r.ok && d.success ? '✓ Đã nhả khóa vùng thang' : `✗ ${d.detail || 'Không có khóa để nhả'}`, r.ok && d.success ? 'var(--ok)' : 'var(--bad)');
+    refresh();
+  } catch (err) { msg('status', '✗ Mất kết nối server', 'var(--bad)'); }
+}
+function fmtUp(s) { s = Math.round(s); return s >= 3600 ? Math.floor(s / 3600) + 'h' + Math.floor(s % 3600 / 60) + 'm' : (s >= 60 ? Math.floor(s / 60) + 'm' + (s % 60) + 's' : s + 's'); }
+function setTab(t) { tab = t; renderCtl(); }
+
+function kv(rows) {
+  return rows.map(([k, v, c]) => `<div class="kv"><span>${k}</span><b class="${c || ''}">${v}</b></div>`).join('');
+}
+const ERR_VI = {FLOOR_SENSOR_INCONSISTENT: 'cảm biến tầng báo mâu thuẫn (≥2 cảm biến tầng cùng active)'};
+function devHeader(d, name) {
+  const link = d ? d.link : 'never';
+  const seen = d && d.last_seen_sec != null ? `tin cuối ${Math.round(d.last_seen_sec)}s trước` : '';
+  return `<div class="row" style="margin-bottom:6px"><span class="dot ${cls(link)}">${dot(link)}</span><b style="font-size:14px">${esc(name)}</b>`
+    + `<span class="${cls(link)}" style="margin-left:auto;font-size:11px">${LINK[link] || ''}${seen && link !== 'online' ? ' · ' + seen : ''}</span></div>`;
+}
+
+function renderCtl() {
+  const e = cur();
+  $('ctl-empty').style.display = e ? 'none' : 'block';
+  $('ctl-body').style.display = e ? 'block' : 'none';
+  if (!e) return;
+  const m = master(e), online = e.link_online;
+
+  // tiêu đề thang + cảnh báo chung
+  $('now').innerHTML = `<div class="row"><span class="dot ${cls(e.link_link)}">${dot(e.link_link)}</span><b style="font-size:15px">${esc(e.name)}</b>`
+    + `<span class="mono" style="color:var(--mut)">${esc(e.id)}</span><span class="${cls(e.link_link)}" style="margin-left:auto;font-size:11px">${LINK[e.link_link] || ''}</span></div>`
+    + (e.owner ? `<div class="hint" style="margin:6px 0 0">Đang phục vụ xe ${esc(e.owner)}</div>` : '');
+  const w = [];
+  if (e.factory_mixed || (e.factory && e.link_factory && e.link_factory.split(', ').some(f => f !== e.factory)))
+    w.push(`<div class="warnbox">Thiết bị đang báo nhiều tên nhà máy (${esc(e.link_factory)}). Cần cài lại thiết bị lệch cho cùng một tên${e.factory ? ' (“' + esc(e.factory) + '”)' : ''}.</div>`);
+  if (e.owner) w.push(`<div class="warnbox">Thang đang chạy cho xe ${esc(e.owner)} — bấm lệnh tay sẽ được hỏi xác nhận trước.</div>`);
+  if (e.area_hold) w.push(`<div class="warnbox">🔒 <b>Khu vực thang đang khóa cho xe ${esc(e.area_hold.agv_id)}</b> (${Math.round(e.area_hold.since_s)}s)`
+    + `${e.area_note ? ' — ' + esc(e.area_note) : ''}. Xe kế tiếp chưa được gọi tới khi xe này đi qua mốc thoát khỏi khu vực. `
+    + `<button class="btn b-warn btn-sm" style="display:inline-flex;margin-left:6px" onclick="releaseArea()">Nhả khóa</button></div>`);
+  if (e.queue && e.queue.length) w.push(`<div class="hint" style="margin:0 0 8px">Hàng đợi (xe nào đặt thang trước được gọi trước): `
+    + e.queue.map((a, i) => `<b>${i + 1}. ${esc(a)}</b>`).join(' → ') + `</div>`);
+  if (data.bridge_active) w.push(`<div class="warnbox">Server đang chạy bộ điều phối xe (<code>ELEVATOR_BACKEND=uelev_v2</code>): nó tự gửi <code>reset</code> khi thấy relay bật mà không có chuyến xe nào sở hữu → giữ cửa / gọi thang bấm tay có thể bị xóa sau vài giây. Muốn test tay ổn định hãy tắt chế độ này.</div>`);
+  $('warns').innerHTML = w.join('');
+
+  // thanh tab
+  const names = tabList(e);
+  if (!names.includes(tab)) tab = 'master';
+  $('tabs').innerHTML = names.map(n => {
+    const d = devOf(e, n), link = d ? d.link : 'never';
+    return `<button class="tab ${n === tab ? 'on' : ''}" onclick="setTab('${esc(n)}')"><span class="${cls(link)}">${dot(link)}</span> ${esc(devLabel(e, n))}</button>`;
+  }).join('');
+  $('p-master').style.display = tab === 'master' ? 'block' : 'none';
+  $('p-caller').style.display = tab === 'master' ? 'none' : 'block';
+
+  if (tab === 'master') { renderMaster(e, m, online); renderRide(e); } else renderCaller(e, tab);
+
+  // kết quả lệnh cuối của thiết bị đang xem
+  const la = last && last.elev === e.id && last.device === tab ? devOf(e, tab) : null;
+  const st = la && (la.actions || []).find(a => a.id === last.id);
+  const sentInfo = la && (la.sent || []).find(a => a.id === last.id);
+  const VI = {WAITING: 'thiết bị đã nhận, đang chờ', RUNNING: 'thiết bị đang thực hiện', FINISHED: 'xong ✓', FAILED: 'THẤT BẠI ✗'};
+  const laEl = $('last-action'), mine = last && last.elev === e.id && last.device === tab;
+  let laTxt = '', laCol = 'var(--mut)';
+  if (mine) {
+    if (st) {
+      laTxt = `Lệnh vừa gửi: ${last.label} — ${VI[st.status] || st.status}${st.result ? ': ' + viResult(st.result) : ''}`;
+      laCol = st.status === 'FAILED' ? 'var(--bad)' : (st.status === 'FINISHED' ? 'var(--ok)' : 'var(--mut)');
+    } else if (sentInfo && sentInfo.state === 'queued') {
+      laTxt = `⏳ “${last.label}”: thiết bị đang OFFLINE nên lệnh được GIỮ trong hàng chờ, sẽ gửi khi thiết bị online lại (quá 60 giây sẽ bỏ).`;
+      laCol = 'var(--warn)';
+    } else if (sentInfo && sentInfo.state === 'retry') {
+      laTxt = `↻ “${last.label}”: chưa thấy phản hồi, đã gửi lại ${sentInfo.n} lần (cùng mã lệnh, thiết bị không chạy 2 lần). Tối đa 10 lần.`;
+      laCol = 'var(--warn)';
+    } else if (sentInfo && sentInfo.state === 'expired') {
+      laTxt = `✗ “${last.label}”: đã gửi lại 10 lần mà thiết bị KHÔNG phản hồi — thiết bị có vấn đề (kiểm tra nguồn/Wi-Fi/topic).`;
+      laCol = 'var(--bad)';
+    } else if (Date.now() - last.at > 3000) {
+      laTxt = `⚠ Lệnh “${last.label}” đã gửi hơn 3 giây mà thiết bị CHƯA phản hồi — kiểm tra thiết bị còn ONLINE, đúng mã thang/nhà máy, hoặc bộ điều phối khác đang chen lệnh.`;
+      laCol = 'var(--warn)';
+    } else laTxt = `Lệnh vừa gửi: ${last.label} — đã gửi, chờ thiết bị trả lời…`;
+  }
+  laEl.textContent = laTxt; laEl.style.color = laCol;
+}
+
+function renderMaster(e, m, online) {
+  const floor = m && m.floor != null ? m.floor : null;
+  let door, doorC;
+  if (m && m.cabin_closed_offline) { door = 'đóng cửa, đang chạy'; doorC = 'stale'; }
+  else if (!online) { door = 'chưa kết nối'; doorC = 'off'; }
+  else if (!m || m.door_open == null || m.door_sensor_valid === false) { door = 'chưa rõ'; doorC = 'stale'; }
+  else if (m.door_open) { door = 'ĐANG MỞ'; doorC = 'on'; }
+  else { door = 'đang đóng'; doorC = 'off'; }
+  const phase = m && m.depart_phase ? ({closing: 'đang đóng cửa', calling: 'đang gọi tầng', transit: 'đang chạy'}[m.depart_phase] || m.depart_phase) : 'không';
+  const sensors = m && m.sensors && Object.keys(m.sensors).length
+    ? Object.entries(m.sensors).map(([k, v]) => `${esc(k)}=${esc(v)}`).join(' · ') : '—';
+  const errs = (m && m.errors) || [];
+  $('m-info').innerHTML = devHeader(m, 'Master thang')
+    + kv([['Thang đang ở', floor == null ? 'chưa rõ' : 'tầng ' + esc(floor), floor == null ? 'stale' : ''],
+          ['Cửa', door, doorC],
+          ['Giữ cửa', m && m.door_hold ? 'đang giữ' + (m.door_hold_auto ? ' (master tự giữ khi tới nơi)' : '') + (m.hold_ttl_s ? ` · còn ${esc(m.hold_ttl_s)}s` : '') : 'không'],
+          ['Đang chạy lệnh đi tầng', esc(phase) + (m && m.depart_to != null ? ' → tầng ' + esc(m.depart_to) : '')],
+          ['Cảm biến (X4..X7 thô)', sensors],
+          ['Sóng Wi-Fi / thời gian chạy', m && m.diag && m.diag.rssi != null ? esc(m.diag.rssi) + ' dBm' + (m.diag.uptimeS != null ? ' · chạy ' + esc(fmtUp(m.diag.uptimeS)) : '') : '—',
+           m && m.diag && m.diag.rssi != null && m.diag.rssi < -75 ? 'stale' : ''],
+          ['Relay master', 'Y2 giữ cửa · Y3 đóng nhanh · Y4/Y5/Y6 gọi tầng 1/2/3'], ['Nhà máy', esc(m ? m.factory : '—')]])
+    + (errs.length || (m && m.door_sensor_valid === false)
+        ? `<div class="errbox" style="margin-top:6px">Master báo lỗi phần cứng: ${errs.map(x => esc(ERR_VI[x] || x)).join(' · ') || 'cảm biến cửa không hợp lệ'}. Trạng thái cửa/tầng có thể sai.</div>` : '');
+
+  // master TỰ phát hiện cabin tới nơi (không có thông báo riêng): depart=null + doorHoldAuto + floor = tầng đích
+  const dep = m && m.depart_phase, arrived = m && !dep && m.door_hold_auto && floor != null;
+  let ban = '', banCls = '';
+  if (m && m.cabin_closed_offline) { ban = `🚪 Cabin đang đóng cửa chạy tới <b>tầng ${esc(m.depart_to)}</b> — master <b>mất Wi-Fi là BÌNH THƯỜNG</b> khi cửa đóng, sẽ tự nối lại khi cửa mở ở tầng đến. Đừng bấm thêm lệnh.`; banCls = 'run'; }
+  else if (dep) { ban = `⟳ Master đang chạy lệnh đi tới <b>tầng ${esc(m.depart_to)}</b> (${esc(PHASE_VI[m.depart_phase] || m.depart_phase)}). Chờ master tự báo “đã tới”…`
+    + (floor == null ? '<br><small style="opacity:.9">Master chưa đọc được tầng — nếu chờ mãi, kiểm tra cảm biến tầng.</small>' : ''); banCls = 'run'; }
+  else if (arrived) { ban = `✓ <b>ĐÃ TỚI tầng ${esc(floor)}</b> — master tự giữ cửa (còn ${esc(m.hold_ttl_s)}s). Cửa không bị nhả dù mất mạng.`; banCls = 'ok'; }
+  $('arrive').innerHTML = ban; $('arrive').className = 'arrive ' + banCls; $('arrive').style.display = ban ? 'block' : 'none';
+
+  const fl = knownFloors(e);
+  $('shaft').innerHTML = [...fl].reverse().map(f => {
+    const here = f.level === floor, picked = f.level === selFloor;
+    return `<button class="fl ${picked ? 'picked' : ''} ${here ? 'here' : ''}" onclick="selectFloor(${f.level})">`
+      + `<b class="mono">${esc(f.level)}</b><span style="flex:1">${esc(f.name)}</span>`
+      + (here ? `<span class="car">🛗 thang ở đây</span>` : '') + (picked ? `<span class="car" style="color:var(--accent)">✓ đã chọn</span>` : '') + `</button>`;
+  }).join('') || '<div class="hint" style="text-align:center;margin:0">Chưa biết tầng nào — nhập số tầng bên dưới.</div>';
+  $('go-label').textContent = selFloor == null ? 'Chọn tầng trước' : (selFloor === floor ? `Mở cửa & giữ ở tầng ${selFloor}` : `Đưa tới tầng ${selFloor}`);
+  $('b-go').disabled = selFloor == null;
+  const h = e.manual_hold;
+  $('hold-live').textContent = h ? `🔒 Đang giữ cửa mở — còn ${Math.floor(h.remaining_sec / 60)}:${String(h.remaining_sec % 60).padStart(2, '0')}` : '';
+}
+
+function renderCaller(e, name) {
+  const d = devOf(e, name);
+  const fl = d && d.floor != null ? d.floor : numOf(name);
+  if (!d) {
+    $('c-info').innerHTML = devHeader(null, devLabel(e, name)) + '<div class="hint" style="margin:0">Chưa thấy thiết bị này trên broker.</div>';
+  } else {
+    const dirs = (d.directions || []).map(x => x === 'UP' ? '▲ lên' : '▼ xuống').join(' + ') || '—';
+    $('c-info').innerHTML = devHeader(d, devLabel(e, name))
+      + kv([['Tầng của bộ gọi', 'tầng ' + esc(d.floor == null ? '?' : d.floor)], ['Hướng có nút', dirs + ' <span style="color:var(--mut);font-weight:400">(relay: lên = Y2, xuống = Y3)</span>'],
+            ['Đang gọi', d.hall_active ? 'CÓ — ' + (d.hall_direction === 'UP' ? '▲ lên' : '▼ xuống') + ` (còn ${esc(d.hall_ttl_s)}s)` : 'không', d.hall_active ? 'on' : ''],
+            ['Relay nút gọi', d.hall_relay ? 'đang bấm' : 'nhả (khi gọi, relay nháy 5s bật / 1s tắt)', d.hall_relay ? 'on' : ''],
+            ['Sóng Wi-Fi / thời gian chạy', d.diag && d.diag.rssi != null ? esc(d.diag.rssi) + ' dBm' + (d.diag.uptimeS != null ? ' · chạy ' + esc(fmtUp(d.diag.uptimeS)) : '') : '—',
+             d.diag && d.diag.rssi != null && d.diag.rssi < -75 ? 'stale' : ''],
+            ['Nhà máy', esc(d.factory)]])
+      + ((d.errors || []).length ? `<div class="errbox" style="margin-top:6px">Thiết bị báo lỗi: ${d.errors.map(esc).join(' · ')}</div>` : '');
+  }
+  const dirs = (d && d.directions && d.directions.length) ? d.directions : ['UP', 'DN'];
+  $('c-btns').innerHTML = dirs.map(x => `<button class="btn big ${x === 'UP' ? 'b-green' : 'b-blue'}" onclick="hall('${esc(name)}','${esc(x)}')">`
+    + `<span class="material-symbols-outlined">${x === 'UP' ? 'keyboard_double_arrow_up' : 'keyboard_double_arrow_down'}</span>Gọi thang ${x === 'UP' ? 'đi LÊN' : 'đi XUỐNG'}</button>`).join('')
+    + `<button class="btn big b-warn" style="grid-column:1/-1" onclick="callerAct('${esc(name)}','release_hall')"><span class="material-symbols-outlined">back_hand</span>Nhả nút gọi</button>`;
+  $('c-reset').onclick = () => { if (confirm('Reset ' + devLabel(e, name) + '?')) post({action: 'reset'}, 'Reset ' + devLabel(e, name), name); };
+}
+
+// ── bài test 1 chuyến xe đi thang ──
+let rtSig = '';
+function renderRide(e) {
+  const fl = knownFloors(e), sig = JSON.stringify(fl.map(f => f.level));
+  if (sig !== rtSig) {
+    rtSig = sig;
+    const keepA = $('rt-from').value, keepB = $('rt-to').value;
+    const opts = fl.map(f => `<option value="${f.level}">Tầng ${esc(f.level)} — ${esc(f.name)}</option>`).join('');
+    $('rt-from').innerHTML = opts; $('rt-to').innerHTML = opts;
+    $('rt-from').value = keepA && fl.some(f => String(f.level) === keepA) ? keepA : (fl[0] ? fl[0].level : '');
+    $('rt-to').value = keepB && fl.some(f => String(f.level) === keepB) ? keepB : (fl[1] ? fl[1].level : (fl[0] ? fl[0].level : ''));
+  }
+  const t = e.ride_test, running = t && t.state === 'running';
+  $('rt-confirm').style.display = running && t.awaiting ? 'flex' : 'none';
+  if (running && t.awaiting) $('rt-confirm-label').textContent = `Thang ĐÃ TỚI tầng ${t.awaiting.floor} (tôi đã nhìn thấy)`;
+  $('rt-start').disabled = !!running; $('rt-cancel').disabled = !running;
+  const ICON = {run: '⟳', ok: '✓', fail: '✗', info: 'ℹ'};
+  $('rt-steps').innerHTML = t ? t.steps.map(x => `<div class="stp ${x.status}"><span>${ICON[x.status] || '•'}</span>`
+    + `<span style="flex:1">${esc(x.text)}</span><span class="mono" style="color:var(--mut)">+${esc(x.at)}s</span></div>`).join('') : '';
+  const ST = {running: ['⟳ Đang chạy bài test…', 'var(--accent)'], done: ['✓ Bài test hoàn tất', 'var(--ok)'],
+              failed: ['✗ Bài test thất bại — xem bước đỏ ở dưới', 'var(--bad)'], cancelled: ['Đã hủy bài test', 'var(--warn)']};
+  const st = t && ST[t.state];
+  $('rt-state').textContent = st ? st[0] : ''; $('rt-state').style.color = st ? st[1] : '';
+}
+const MODE_HINT = {
+  sensor: 'Master phải đọc được tầng qua cảm biến X4..X7. Nếu cảm biến chưa nối, bài test sẽ dừng sau ~12 giây và báo lỗi.',
+  manual: 'Server gửi đủ lệnh (gọi thang, giữ cửa, đi tầng, đóng cửa) và DỪNG chờ bạn ở mỗi chặng. Bạn nhìn thang thật, khi thang đã tới thì bấm “Thang đã tới”. Kiểm tra được lệnh + relay, không kiểm tra được cảm biến.',
+  timer: 'Server coi như thang tới sau số giây bạn nhập — KHÔNG kiểm tra gì về việc thang có thật sự tới. Chỉ dùng để chạy thử chuỗi lệnh và relay.',
+};
+function rtModeChange() {
+  const m = $('rt-mode').value;
+  $('rt-travel-box').style.display = m === 'timer' ? 'block' : 'none';
+  $('rt-mode-hint').textContent = MODE_HINT[m];
+}
+async function confirmArrive() {
+  const e = cur(); if (!e) return;
+  try {
+    const r = await fetch(`${API}/api/elevator-console/ride-test/confirm`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: e.id})});
+    const d = await r.json().catch(() => ({}));
+    msg('status', d.success ? '✓ Đã xác nhận, bài test tiếp tục' : '✗ Không có bước nào đang chờ xác nhận', d.success ? 'var(--ok)' : 'var(--bad)');
+    refresh();
+  } catch (err) { msg('status', '✗ Mất kết nối server', 'var(--bad)'); }
+}
+setTimeout(rtModeChange, 0);
+async function startRide() {
+  const e = cur(); if (!e) return;
+  const from = parseInt($('rt-from').value, 10), to = parseInt($('rt-to').value, 10);
+  if (isNaN(from) || isNaN(to) || from === to) return msg('status', '✗ Chọn tầng đi và tầng đến khác nhau', 'var(--bad)');
+  if (!confirm(`Thang SẼ CHẠY THẬT: gọi tới tầng ${from}, rồi đi tới tầng ${to}.\nĐảm bảo không có người/xe trong cabin. Tiếp tục?`)) return;
+  let force = false;
+  for (;;) {
+    try {
+      const r = await fetch(`${API}/api/elevator-console/ride-test`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({elevator_id: e.id, from_floor: from, to_floor: to, force,
+                              board_s: parseFloat($('rt-board').value) || 0, exit_s: parseFloat($('rt-exit').value) || 0,
+                              arrive_mode: $('rt-mode').value, travel_s: parseFloat($('rt-travel').value) || 10})});
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 409 && !force && confirm(`${d.detail}\nVẫn chạy bài test?`)) { force = true; continue; }
+      if (!r.ok) return msg('status', `✗ ${d.detail || 'Lỗi ' + r.status}`, 'var(--bad)', 8000);
+      msg('status', '✓ Đã bắt đầu bài test', 'var(--ok)'); refresh(); return;
+    } catch (err) { return msg('status', '✗ Mất kết nối server', 'var(--bad)'); }
+  }
+}
+async function cancelRide() {
+  const e = cur(); if (!e) return;
+  try {
+    await fetch(`${API}/api/elevator-console/ride-test/cancel`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: e.id})});
+    msg('status', 'Đang hủy…', 'var(--warn)'); refresh();
+  } catch (err) { msg('status', '✗ Mất kết nối server', 'var(--bad)'); }
+}
+
+function selectFloor(l) { selFloor = l; $('floor-num').value = ''; renderCtl(); }
+function addFloor() {
+  const v = parseInt($('floor-num').value, 10);
+  if (isNaN(v)) return msg('status', '✗ Nhập số tầng rồi bấm Thêm tầng', 'var(--bad)');
+  extraFloors.add(v); selFloor = v; $('floor-num').value = ''; renderCtl();
+}
+function pickNum() { const v = $('floor-num').value; selFloor = v === '' ? null : parseInt(v, 10); renderCtl(); }
+
+// ── gửi lệnh ────────────────────────────────────────────────────────────────
+async function post(body, label, device = 'master') {
+  const e = cur(); if (!e) return msg('status', '✗ Chưa chọn thang', 'var(--bad)');
+  if (busy) return; busy = true;
+  msg('status', `⟳ ${label}…`, 'var(--accent)', 0);
+  try {
+    let force = false;
+    for (;;) {
+      const r = await fetch(`${API}/api/elevator-console/action`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({elevator_id: e.id, device, force, ...body})});
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 409 && !force) {
+        if (confirm(`${d.detail}\nVẫn gửi lệnh tay (có thể làm hỏng chuyến đi của xe)?`)) { force = true; continue; }
+        return msg('status', '✗ Đã hủy', 'var(--mut)');
+      }
+      if (r.ok && d.success) {
+        last = {elev: e.id, device: d.device || device, id: d.action_id, label, at: Date.now()};
+        msg('status', `✓ Đã gửi: ${label}`, 'var(--ok)'); refresh(); return;
+      }
+      return msg('status', `✗ ${d.detail || 'Lỗi ' + r.status}`, 'var(--bad)', 8000);
+    }
+  } catch (err) { msg('status', '✗ Mất kết nối server', 'var(--bad)'); }
+  finally { busy = false; }
+}
+function holdSec() { return parseInt($('hold-min').value, 10) * 60; }
+function goFloor() {
+  if (selFloor == null) return msg('status', '✗ Chọn tầng trước', 'var(--bad)');
+  return post({action: 'depart', floor: selFloor, duration_sec: holdSec()}, `Đưa thang tới tầng ${selFloor}`);
+}
+function act(a) {
+  const labels = {call_floor: 'Gọi tầng', fast_close: 'Đóng nhanh cửa', hold: 'Giữ cửa mở', release: 'Thả & đóng cửa', reset: 'Reset master'};
+  const body = {action: a, duration_sec: holdSec(), close_on_end: $('hold-close').checked};
+  if (a === 'call_floor') {
+    if (selFloor == null) return msg('status', '✗ Chọn tầng trước', 'var(--bad)');
+    body.floor = selFloor;
+  }
+  if (a === 'reset' && !confirm('Reset master của thang này?')) return;
+  return post(body, labels[a] + (a === 'call_floor' ? ` ${selFloor}` : ''));
+}
+async function hall(dev, dir) {
+  const e = cur(), d = e && devOf(e, dev);
+  if (d && d.hall_active && d.hall_direction && d.hall_direction !== dir) {     // UP/DN loại trừ nhau → nhả hướng cũ trước
+    await post({action: 'release_hall'}, `Nhả hướng ${d.hall_direction === 'UP' ? 'lên' : 'xuống'} đang gọi`, dev);
+  }
+  return post({action: 'hall_call', direction: dir, ttl_s: parseInt($('hall-ttl').value, 10) || 20},
+              `Gọi thang đi ${dir === 'UP' ? 'lên' : 'xuống'} tại ${dev}`, dev);
+}
+function callerAct(dev, a) { return post({action: a}, `Nhả nút gọi tại ${dev}`, dev); }
+
+// ── khai báo ────────────────────────────────────────────────────────────────
+function edit(id) {
+  const e = data.elevators.find(x => x.id === id); if (!e) return;
+  $('f-id').value = e.id; $('f-name').value = e.name || ''; $('f-factory').value = e.factory || ''; $('f-note').value = e.note || '';
+}
+function adopt(id, factory) {
+  $('f-id').value = id; $('f-name').value = id; $('f-factory').value = factory; $('f-note').value = ''; $('f-name').focus();
+}
+async function save() {
+  const body = {id: $('f-id').value, name: $('f-name').value, factory: $('f-factory').value, note: $('f-note').value};
+  if (!body.id.trim()) return msg('f-status', '✗ Nhập mã thang', 'var(--bad)');
+  try {
+    const r = await fetch(`${API}/api/elevators/catalog`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const d = await r.json();
+    if (!r.ok) return msg('f-status', `✗ ${d.detail || 'Lỗi'}`, 'var(--bad)');
+    ['f-id', 'f-name', 'f-factory', 'f-note'].forEach(i => $(i).value = '');
+    msg('f-status', '✓ Đã lưu', 'var(--ok)'); sig = ''; refresh();
+  } catch (e) { msg('f-status', '✗ Mất kết nối', 'var(--bad)'); }
+}
+async function del(id) {
+  if (!confirm(`Xóa thang ${id} khỏi danh mục?`)) return;
+  try { await fetch(`${API}/api/elevators/catalog/${encodeURIComponent(id)}`, {method: 'DELETE'}); sig = ''; refresh(); }
+  catch (e) { msg('f-status', '✗ Mất kết nối', 'var(--bad)'); }
+}
+
+// ── cửa tự động ─────────────────────────────────────────────────────────────
+async function gate(cmd) {
+  const num = $('gate-num').value.trim(), label = cmd === 'open' ? 'Mở cửa' : 'Đóng cửa';
+  if (!num) return msg('gate-status', '✗ Nhập số thứ tự cửa trước', 'var(--bad)');
+  msg('gate-status', `⟳ ${label} gate${num}…`, 'var(--accent)', 0);
+  try {
+    const r = await fetch(`${API}/api/execute/gate-command`, {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({door_num: num, cmd})});
+    const d = await r.json();
+    if (r.ok && d.success) msg('gate-status', `✓ ${label} ${d.door_id}`, 'var(--ok)');
+    else msg('gate-status', `✗ ${d.detail || 'Lỗi'}`, 'var(--bad)');
+  } catch (e) { msg('gate-status', '✗ Mất kết nối', 'var(--bad)'); }
+}
+
+refresh();
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>

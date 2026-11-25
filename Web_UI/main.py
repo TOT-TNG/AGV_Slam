@@ -15,6 +15,9 @@ from task_execute import layout as task_execute_layout
 from journal_history import layout as journal_history_layout
 from journal_logs import layout as journal_logs_layout
 from statistics_page import layout as statistics_layout
+from simulation_page import layout as simulation_layout
+from elevator_page import layout as elevator_layout
+from sim_control import register_routes as register_sim_control_routes
 
 
 def _integration_iframe_layout(lang="vi"):
@@ -39,6 +42,7 @@ app = Dash(
 )
 server = app.server
 app.title = "TOT ACS"
+register_sim_control_routes(server)
 
 
 app.layout = html.Div(
@@ -106,6 +110,10 @@ def _route_content(pathname, lang: str):
         return journal_logs_layout(lang)
     if pathname in ["/statistics", "/home/statistics"]:
         return statistics_layout(lang)
+    if pathname in ["/simulation", "/home/simulation"]:
+        return simulation_layout(lang)
+    if pathname in ["/elevator", "/home/elevator"]:
+        return elevator_layout(lang)
     if pathname in ["/integration", "/home/integration"]:
         return _integration_iframe_layout(lang)
     if pathname in ["/settings-language", "/home/settings-language"]:

@@ -19,12 +19,36 @@
   .agv-card:hover:not(.offline){border-color:rgba(173,198,255,.35);background:rgba(49,57,77,.4)}
   .agv-card.selected{border-color:#adc6ff;background:rgba(77,142,255,.12);box-shadow:0 0 0 1px rgba(173,198,255,.3)}
   .agv-card.offline{opacity:.45;cursor:not-allowed}
+  .agv-card.has-alert{border-color:rgba(239,68,68,.55);background:rgba(239,68,68,.08)}
+  .agv-alert-row{margin-top:4px;font-size:9.5px;line-height:1.35;color:#fca5a5;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:4px 7px;display:flex;gap:5px;align-items:flex-start}
+  .agv-alert-row .material-symbols-outlined{font-size:12px;color:#ef4444;flex-shrink:0;margin-top:1px}
   /* Select */
   select{background:#ffffff;border:1px solid #c0c8d8;border-radius:8px;color:#111111;padding:7px 10px;font-size:12px;appearance:none;cursor:pointer;outline:none;width:100%}
   select:focus{border-color:#4d8eff;box-shadow:0 0 0 2px rgba(77,142,255,.15)}
   select option{background:#ffffff;color:#111111}
   /* Map */
   #map-svg{display:block;cursor:grab;user-select:none}
+  /* ── Chế độ xem nhiều tầng ── */
+  #multi-wrap{position:absolute;inset:0;z-index:5;padding:44px 6px 6px;box-sizing:border-box}
+  #multi-wrap.mv-grid{display:grid;gap:6px}
+  .mvt{position:relative;min-width:0;min-height:0;display:flex;flex-direction:column;background:#0b1626;border:1px solid rgba(173,198,255,.18);border-radius:8px;overflow:hidden}
+  .mvh{display:flex;align-items:center;gap:8px;padding:4px 8px;background:rgba(12,20,36,.95);border-bottom:1px solid rgba(255,255,255,.07);flex-shrink:0;font-size:11px;color:#dae2fd}
+  .mvh b{font-weight:700}
+  .mvh small{color:#8c909f;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .mvc{margin-left:auto;font-size:10px;font-family:'JetBrains Mono',monospace;color:#22c55e;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);border-radius:4px;padding:0 5px;white-space:nowrap}
+  .mvf{background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:4px;color:#b0b8c8;cursor:pointer;padding:1px 4px;display:flex;align-items:center;flex-shrink:0}
+  .mvf:hover{background:rgba(173,198,255,.15);color:#e1e2e7}
+  .mvw{position:relative;flex:1;min-height:0;overflow:hidden}
+  .mvs{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;user-select:none}
+  #view-menu{display:none;position:absolute;z-index:40;min-width:210px;background:#12192a;border:1px solid rgba(173,198,255,.28);border-radius:8px;padding:4px;box-shadow:0 10px 30px rgba(0,0,0,.55)}
+  .vm-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;cursor:pointer;color:#c2c6d6;font-size:12px}
+  .vm-item:hover{background:rgba(173,198,255,.12)}
+  .vm-item.on{background:rgba(173,198,255,.18);color:#fff}
+  .vm-item .material-symbols-outlined{font-size:16px}
+  .vm-ok{margin-left:auto;color:#22c55e}
+  .vm-sep{height:1px;background:rgba(255,255,255,.1);margin:4px 2px}
+  .vm-sub{font-size:10px;color:#8c909f;padding:2px 10px;text-transform:uppercase;letter-spacing:.05em}
+  .vm-chk{display:flex;align-items:center;gap:8px;padding:5px 10px;color:#c2c6d6;font-size:12px;cursor:pointer}
   #map-svg.panning{cursor:grabbing}
   /* Modals */
   .modal{opacity:0;pointer-events:none;transition:opacity .18s;position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.65)}
@@ -35,6 +59,7 @@
   .sec-label{font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes agvGlowPulse{0%,100%{opacity:.1}50%{opacity:.38}}
+  @keyframes agvAlertPulse{0%,100%{opacity:.18}50%{opacity:.55}}
 
   /* ══ Schedule HUD styles ══ */
 
@@ -463,6 +488,12 @@
         </select>
         <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#8c909f">expand_more</span>
       </div>
+      <button id="floor-follow" onclick="toggleFloorFollow()" title="Tự chuyển sang tầng của xe khi xe đi thang (bấm để tắt/bật)" style="display:none;width:26px;height:26px;border-radius:6px;border:1px solid rgba(173,198,255,.5);background:rgba(173,198,255,.15);color:#adc6ff;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0"><span class="material-symbols-outlined" style="font-size:14px">my_location</span></button>
+      <button id="floor-view" onclick="toggleViewMenu()" title="Chế độ xem nhiều tầng" style="display:none;width:26px;height:26px;border-radius:6px;border:1px solid rgba(173,198,255,.5);background:rgba(173,198,255,.15);color:#adc6ff;cursor:pointer;align-items:center;justify-content:center;flex-shrink:0"><span class="material-symbols-outlined" style="font-size:15px">crop_square</span></button>
+      <div id="floor-wrap" style="position:relative;display:none;width:130px;flex-shrink:0">
+        <select id="floor-select" onchange="onFloorChange()" title="Chọn tầng đang xem"></select>
+        <span class="material-symbols-outlined" style="position:absolute;right:9px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:13px;color:#8c909f">expand_more</span>
+      </div>
       <span id="map-badge" style="font-size:10px;font-family:'JetBrains Mono',monospace;color:#8c909f;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis"></span>
       <button onclick="zoomIn()"  title="Zoom in"  style="width:26px;height:26px;border-radius:6px;border:1px solid rgba(66,71,84,.4);background:rgba(34,42,61,.8);color:#c2c6d6;cursor:pointer;display:flex;align-items:center;justify-content:center"><span class="material-symbols-outlined" style="font-size:13px">add</span></button>
       <button onclick="zoomOut()" title="Zoom out" style="width:26px;height:26px;border-radius:6px;border:1px solid rgba(66,71,84,.4);background:rgba(34,42,61,.8);color:#c2c6d6;cursor:pointer;display:flex;align-items:center;justify-content:center"><span class="material-symbols-outlined" style="font-size:13px">remove</span></button>
@@ -471,11 +502,20 @@
 
     <!-- SVG map canvas -->
     <div id="map-wrap" style="flex:1;position:relative;overflow:hidden;background:#050d1a;min-height:0">
+      <!-- Trạng thái thang máy (chỉ hiện khi map có thang) -->
+      <!-- Thẻ xe: bấm icon xe trên bản đồ → trạng thái chi tiết + gửi lệnh tới điểm / tổ -->
+      <div id="agv-pop" onpointerdown="event.stopPropagation()" onwheel="event.stopPropagation()" style="display:none;position:absolute;top:8px;left:8px;z-index:25;width:268px;max-height:calc(100% - 16px);overflow-y:auto;background:rgba(5,13,26,.95);border:1px solid rgba(173,198,255,.28);border-radius:8px;backdrop-filter:blur(8px);font-size:11px;color:#dae2fd"></div>
+      <div id="elev-bar" style="position:absolute;top:8px;right:8px;z-index:20;display:none;flex-direction:column;gap:5px;max-width:270px;pointer-events:none"></div>
       <svg id="map-svg" style="position:absolute;inset:0;width:100%;height:100%">
         <defs id="map-defs"></defs>
         <g id="world-g"></g>
         <g id="anim-g" pointer-events="none"></g>
       </svg>
+      <!-- Xem nhiều tầng cùng lúc (lưới / chọn tầng / chồng 3D) -->
+      <div id="multi-wrap" style="display:none"></div>
+      <div id="view-menu"></div>
+      <!-- Quay lại lưới nhiều tầng sau khi "Mở riêng tầng này" (nút thanh công cụ ẩn khi toàn màn hình) -->
+      <button id="floor-back" onclick="backToMulti()" title="Thu nhỏ: quay lại xem tất cả tầng" style="display:none;position:absolute;top:8px;left:8px;z-index:12;height:28px;padding:0 10px;align-items:center;gap:5px;background:rgba(5,13,26,.85);border:1px solid rgba(173,198,255,.5);border-radius:6px;cursor:pointer;color:#adc6ff;font-size:11px"><span class="material-symbols-outlined" style="font-size:16px;pointer-events:none">close_fullscreen</span>Tất cả tầng</button>
       <!-- Fullscreen AGV status overlay -->
       <div id="fs-agv-panel" style="display:none;position:absolute;bottom:16px;left:16px;z-index:20;min-width:210px;max-width:290px;pointer-events:none">
         <div style="background:rgba(5,13,26,.88);border:1px solid rgba(255,255,255,.1);border-radius:6px;overflow:hidden;backdrop-filter:blur(8px)">
@@ -553,12 +593,12 @@
     <span class="material-symbols-outlined" style="color:#f5a623;font-size:20px">conveyor_belt</span>
     <div style="flex:1;min-width:0">
       <div style="font-size:11px;font-weight:700;color:#f5a623;letter-spacing:.04em" data-i18n="lc_hook_title">CHỜ MÓC XE HÀNG</div>
-      <div style="font-size:10px;color:#8c909f;margin-top:1px" data-i18n="lc_hook_desc">Móc xe hàng vào rồi bấm Hạ móc — xe sẽ chờ xác nhận sau khi móc hạ xong</div>
+      <div id="lc-hook-desc" style="font-size:10px;color:#8c909f;margin-top:1px" data-i18n="lc_hook_desc">Móc xe hàng vào rồi bấm Hạ móc — xe sẽ chờ xác nhận sau khi móc hạ xong</div>
     </div>
     <button id="lc-hook-lower-btn" onclick="sendHookLower()"
       style="padding:8px 20px;border-radius:9px;background:rgba(245,166,35,.3);border:1px solid rgba(245,166,35,.5);color:#fff;font-weight:700;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;transition:all .2s"
       onmouseover="this.style.background='rgba(245,166,35,.5)'" onmouseout="this.style.background='rgba(245,166,35,.3)'">
-      <span class="material-symbols-outlined" style="font-size:14px">arrow_downward</span><span data-i18n="lc_hook_btn">HẠ MÓC</span>
+      <span id="lc-hook-btn-icon" class="material-symbols-outlined" style="font-size:14px">arrow_downward</span><span id="lc-hook-btn-label" data-i18n="lc_hook_btn">HẠ MÓC</span>
     </button>
   </div>
   <!-- picking state (WAIT_SYS → arrived_wait_sys) -->
@@ -793,6 +833,9 @@ const _I = {
     lc_hook_title:'CHỜ MÓC XE HÀNG',
     lc_hook_desc:'Móc xe hàng vào rồi bấm Hạ móc — xe sẽ chờ xác nhận sau khi móc hạ xong',
     lc_hook_btn:'HẠ MÓC',lc_hook_sent:'✓ Đã gửi lệnh hạ móc',
+    // AGV kéo (tow) — quy trình móc ngược rơ-moóc: lấy hàng xong bằng NÂNG móc chứ không phải hạ
+    lc_hook_desc_tow:'Móc xe hàng vào rồi bấm Nâng móc — xe sẽ chờ xác nhận sau khi móc nâng xong',
+    lc_hook_btn_tow:'NÂNG MÓC',lc_hook_sent_tow:'✓ Đã gửi lệnh nâng móc',
     lc_pick_ack:'✓ Xác nhận lấy hàng — AGV tiếp tục',lc_del_ack:'✓ Xác nhận giao hàng — AGV tiếp tục',
     lc_confirming:'Đang xác nhận…',lc_confirm_err:'✗ Mất kết nối server',
     agv_not_sel:'Chưa chọn',wf_not_sel:'Chưa chọn',queue_lbl:'HÀNG CHỜ',
@@ -920,6 +963,9 @@ const _I = {
     lc_hook_title:'WAITING FOR CART HOOK-UP',
     lc_hook_desc:'Attach the cart, then press Lower Hook — AGV waits for confirmation after the hook lowers',
     lc_hook_btn:'LOWER HOOK',lc_hook_sent:'✓ Lower-hook command sent',
+    // Tow AGV — inverted hook flow vs trailer: pickup finishes by RAISING the hook, not lowering
+    lc_hook_desc_tow:'Attach the cart, then press Raise Hook — AGV waits for confirmation after the hook raises',
+    lc_hook_btn_tow:'RAISE HOOK',lc_hook_sent_tow:'✓ Raise-hook command sent',
     lc_pick_ack:'✓ Pickup confirmed — AGV continuing',lc_del_ack:'✓ Delivery confirmed — AGV continuing',
     lc_confirming:'Confirming…',lc_confirm_err:'✗ Connection to server lost',
     agv_not_sel:'Not selected',wf_not_sel:'Not selected',queue_lbl:'QUEUE',
@@ -991,7 +1037,12 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 // ── Config ─────────────────────────────────────────────────────────────────
-const API  = 'http://' + (window.location.hostname || '192.168.0.200') + ':8000';
+// api_port tuỳ chọn (?api_port=8001): dùng để xem server MÔ PHỎNG (chạy port
+// riêng, khác 8000 thật) qua ĐÚNG trang bản đồ này — xem Web_UI/assets/
+// simulation.html. Không có param → giữ nguyên :8000 như trước, không đổi
+// hành vi trang Thực hiện tác vụ thật.
+const _apiPort = new URLSearchParams(location.search).get('api_port') || '8000';
+const API  = 'http://' + (window.location.hostname || '192.168.0.200') + ':' + _apiPort;
 const DASH = '';   // same origin as iframe
 
 // AGV type → icon path (served by Dash /assets/)
@@ -1005,7 +1056,7 @@ const AGV_ICONS = {
 function agvIcon(type){ return AGV_ICONS[(type||'').toLowerCase()] || '/assets/agv_slam_icon.png'; }
 
 // Node type colours
-const NODE_COLORS = {0:'#adc6ff',1:'#0ea5e9',2:'#f59e0b',3:'#ef4444',4:'#22c55e',5:'#a855f7',6:'#14b8a6'};
+const NODE_COLORS = {0:'#adc6ff',1:'#0ea5e9',2:'#f59e0b',3:'#ef4444',4:'#22c55e',5:'#a855f7',6:'#14b8a6',7:'#ec4899',8:'#84cc16',9:'#6366f1'};
 
 // ── Step colors (tối đa 6 bước, lặp nếu nhiều hơn) ────────────────────────
 const STEP_C = [
@@ -1025,6 +1076,7 @@ let vp={zoom:1,panX:0,panY:0};
 let mapData=null, mapImgUrl='';
 let originX=0, originY=0, resolution=0.05, imgNatW=1, imgNatH=1;
 let isSchematic=false;
+let mapFloors=[], curFloorId=null;   // nhiều tầng trong 1 map: tầng đang xem
 let currentMapId=null, agvPositions=[], agvRoutes={};
 let panning=false, px0=0,py0=0,ppx=0,ppy=0;
 let pickingStartNode=false;   // chế độ click map để chọn vị trí xuất phát
@@ -1061,7 +1113,7 @@ async function loadAgvs(){
     updateManualBar();
     updateLifecycleBar();
     updateNotifRow();
-    renderAgvs(); updateStartBtn(); updateFsAgvPanel();
+    renderAgvs(); updateStartBtn(); updateFsAgvPanel(); _updateAgvPopLive(); _renderMonAgvPanel();
   }catch(e){
     console.error('[AGV]',e);
     document.getElementById('agv-list').innerHTML=
@@ -1079,7 +1131,7 @@ function renderAgvs(){
   }
   document.getElementById('agv-list').innerHTML=agvs.map(a=>{
     const online=a.connection==='ONLINE';
-    const busy=a.is_busy;
+    const busy=a.is_busy||(online&&a.driving);   // xe đang chạy (kể cả tự về chờ/sạc, né xe) không được hiện READY
     const isSel=selAgv?.agv_id===a.agv_id;
     const bat=a.battery??null;
     const [dot,stLabel,stColor]=!online
@@ -1093,8 +1145,13 @@ function renderAgvs(){
       <div style="flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.08)">
         <div style="height:100%;border-radius:2px;width:${bat}%;background:${bat>50?'#adc6ff':bat>20?'#eab308':'#ef4444'};transition:width .3s"></div>
       </div><span>${bat}%</span></div>`:'';
+    const alert=a.alert||null;
+    const alertHtml=alert?`<div class="agv-alert-row">
+      <span class="material-symbols-outlined">warning</span>
+      <span>${alert.message}${alert.elapsed_sec!=null?` <span style="color:#f87171">(${Math.round(alert.elapsed_sec)}s)</span>`:''}</span>
+    </div>`:'';
     return `
-      <div class="agv-card${!online?' offline':''}${isSel?' selected':''}"
+      <div class="agv-card${!online?' offline':''}${isSel?' selected':''}${alert?' has-alert':''}"
            data-id="${a.agv_id}" onclick="${online?`selectAgv('${a.agv_id}')`:``}">
         <!-- Icon -->
         <div style="flex-shrink:0;width:52px;height:52px;border-radius:10px;background:rgba(255,255,255,.04);display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(255,255,255,.07)">
@@ -1113,7 +1170,7 @@ function renderAgvs(){
             ${a.current_node?`<span style="font-size:9px;color:#555;margin-left:3px">TAG: ${a.current_node}</span>`:''}
           </div>
           ${a.ip?`<div style="font-size:9px;color:#555;margin-top:2px">IP: ${a.ip}</div>`:''}
-          ${batHtml}${runHtml}
+          ${batHtml}${runHtml}${alertHtml}
         </div>
         <!-- Selected indicator -->
         ${isSel?`<span class="material-symbols-outlined" style="color:#adc6ff;font-size:16px;flex-shrink:0">check_circle</span>`:''}
@@ -1124,12 +1181,13 @@ function renderAgvs(){
 function selectAgv(id){
   selAgv=agvs.find(a=>a.agv_id===id);
   selStartNode=null;
-  if(!manualEnabled) { /* giữ trạng thái manual nếu đang bật */ }
+  // (trạng thái manual được giữ nguyên — không cần xử lý gì ở đây)
   updateStartNodeRow();
   updateManualBar();
   updateLifecycleBar();
   updateNotifRow();
   renderAgvs(); updateSummary(); updateStartBtn();
+  _followAgvFloor();
 }
 
 // ── Start node (vị trí xuất phát) ─────────────────────────────────────────
@@ -1400,7 +1458,7 @@ function renderStepSelectors(){
       // Nếu đã có trong teamNodes hoặc supplyGroupNodes thì bỏ qua (tránh trùng)
       if(teamNodes.some(t=>String(t.node_id)===nid)) return '';
       if(supplyGroupNodes.some(sg=>String(sg.node_id)===nid)) return '';
-      const lbl=n.name?`${n.name} (${nid})`:`Node ${nid}`;
+      const lbl=_floorTag(n)+(n.name?`${n.name} (${nid})`:`Node ${nid}`);
       return `<option value="${nid}"${selN&&String(selN.name_id)===nid?' selected':''}>${lbl}</option>`;
     }).join('');
     const allNodeOpts = (teamNodes.length||supplyGroupNodes.length)
@@ -1459,6 +1517,7 @@ async function loadAgvPositions(){
     if(!r.ok) return;
     const d=await r.json();
     agvPositions=d.positions||[];
+    await _autoFollowFloors();
     renderMap();
   }catch(e){ console.warn('[AGV-POS]',e); }
 }
@@ -1500,6 +1559,11 @@ async function onMapChange(){
     mapData=await r.json();
     document.getElementById('map-badge').textContent=(mapData.name||'').slice(0,16).toUpperCase();
     mapNodes=mapData.robot_points||[];
+    mapFloors=mapData.floors||[];
+    curFloorId=mapFloors.length?String(mapFloors[0].id):null;
+    _lastAgvFloor={};
+    for(const k in _schemCache) delete _schemCache[k];
+    for(const k in _animNmCache) delete _animNmCache[k];
     // Load team nodes (DROPOFF nodes có mapping Tổ)
     try{
       const tr=await fetch(`${API}/api/execute/team-nodes?map_id=${mapId}`);
@@ -1518,26 +1582,9 @@ async function onMapChange(){
     selNodes={}; selStartNode=null;
     updateSummary(); updateStartBtn();
 
-    originX   = mapData.origin_x   || 0;
-    originY   = mapData.origin_y   || 0;
-    resolution= mapData.resolution || 0.05;
-    mapImgUrl = mapData.image_path ? `${API}${mapData.image_path}` : '';
-
-    // Nền tối cho cả 2 loại map — đường/node đều được thiết kế cho nền tối
-    document.getElementById('map-wrap').style.background =
-      mapData.image_path ? '#050d1a' : '#0d1b2e';
-
-    // Load ảnh để lấy kích thước thực (cần cho worldToPixel)
-    if(mapImgUrl){
-      await new Promise(res=>{
-        const img=new Image();
-        img.onload=()=>{ imgNatW=img.naturalWidth||1000; imgNatH=img.naturalHeight||1000; res(); };
-        img.onerror=()=>{ imgNatW=1000; imgNatH=1000; res(); };
-        img.src=mapImgUrl;
-      });
-    } else { imgNatW=1000; imgNatH=1000; }
-
-    autoFit(); renderMap();
+    await applyFloorView(curFloorId);
+    await _initViewMode();            // nhớ chế độ xem đã chọn (mặc định: màn hình theo dõi → xem tất cả tầng)
+    loadElevators();
     loadAgvPositions(); loadAgvRoutes();
   }catch(e){ console.error('[MAPLOAD]',e); toast(_t('no_map'),'error'); }
 }
@@ -1578,10 +1625,424 @@ function pickNode(n){
 
 const NS='http://www.w3.org/2000/svg';
 
+// ── Nhiều tầng: node thuộc tầng nào (floor_id rỗng/không hợp lệ = tầng đầu) ──────────
+function _floorOfNode(n){
+  const f=String(n&&n.floor_id||'');
+  if(mapFloors.some(x=>String(x.id)===f)) return f;
+  return mapFloors.length?String(mapFloors[0].id):'';
+}
+function _inCurFloor(n){ return mapFloors.length<=1 || _floorOfNode(n)===String(curFloorId); }
+function _floorNodes(){ return mapFloors.length<=1 ? mapNodes : mapNodes.filter(_inCurFloor); }
+function _floorName(fid){ const f=mapFloors.find(x=>String(x.id)===String(fid)); return f?f.name:String(fid); }
+function _floorTag(n){ return mapFloors.length>1 ? `[${_floorName(_floorOfNode(n))}] ` : ''; }
+// ── Tổ trên bản đồ (chỉ vẽ ở màn hình theo dõi ?view=monitor, vd khung nhúng của trang Mô phỏng Fleet) ──
+// Nguồn: action.team (+locationType=DROPOFF), action.trailer_drop_teams (+trailer_role=drop) = node GIAO của tổ;
+// action.supply_group = node LẤY HÀNG (cấp hàng) của tổ. Cùng quy ước với /api/execute/team-nodes & supply-groups.
+const _TEAM_COLORS=['#f472b6','#34d399','#fbbf24','#60a5fa','#c084fc','#fb923c','#2dd4bf','#a3e635','#f87171','#38bdf8'];
+function _teamColor(t){ const k=parseInt(t,10); return _TEAM_COLORS[(isNaN(k)?0:Math.abs(k))%_TEAM_COLORS.length]; }
+function _isMonitorView(){ return new URLSearchParams(location.search).get('view')==='monitor'; }
+// Màn hình theo dõi: chỉ tô 1 đoạn kế tiếp của xe; bấm vào icon xe mới hiện TOÀN BỘ đường còn lại.
+let _selRouteAgv=null;
+function _toggleRouteAgv(id){ _selRouteAgv=(_selRouteAgv===id?null:id); _buildAgvPop(); renderMap(); }
+
+// ── Thẻ xe (bấm icon xe): trạng thái chi tiết (cập nhật mỗi 2s) + gửi lệnh tới điểm / tổ ──────
+const _popEsc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function _popNodeLabel(id){
+  if(id==null||id==='') return '—';
+  const n=(mapNodes||[]).find(m=>String(m.name_id)===String(id));
+  return n&&n.name&&String(n.name)!==String(id)?`${id} (${n.name})`:String(id);
+}
+function _popDestOptions(){
+  const o=['<option value="">— chọn điểm đến —</option>'];
+  if((teamNodes||[]).length) o.push('<optgroup label="Tổ (giao hàng)">'+teamNodes.map(t=>
+    `<option value="team|${_popEsc(t.team)}|${_popEsc(t.node_id)}">Tổ ${_popEsc(t.team)}${t.name?' — '+_popEsc(t.name):''} → node ${_popEsc(t.node_id)}</option>`).join('')+'</optgroup>');
+  if((supplyGroupNodes||[]).length) o.push('<optgroup label="Điểm lấy hàng theo tổ">'+supplyGroupNodes.map(g=>
+    `<option value="node|${_popEsc(g.node_id)}">📦 ${_popEsc(g.supply_group)} → node ${_popEsc(g.node_id)}</option>`).join('')+'</optgroup>');
+  o.push('<optgroup label="Tất cả node">'+(mapNodes||[]).map(n=>
+    `<option value="node|${_popEsc(n.name_id)}">${_popEsc(n.name&&String(n.name)!==String(n.name_id)?n.name_id+' — '+n.name:n.name_id)}</option>`).join('')+'</optgroup>');
+  return o.join('');
+}
+function _buildAgvPop(){
+  const el=document.getElementById('agv-pop'); if(!el) return;
+  if(!_selRouteAgv){ el.style.display='none'; el.innerHTML=''; return; }
+  const btn=(c,ic,lb,col)=>`<button onclick="_popSend('${c}')" style="flex:1;padding:6px 4px;border-radius:6px;border:1px solid ${col}66;background:${col}1f;color:${col};font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">${ic} ${lb}</button>`;
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.08)">
+      <span style="width:8px;height:8px;border-radius:50%;background:${agvRouteColor(_selRouteAgv)}"></span>
+      <b style="font-size:13px;font-family:'JetBrains Mono',monospace">${_popEsc(_selRouteAgv)}</b>
+      <span id="agv-pop-type" style="font-size:9px;color:#8c909f"></span>
+      <button onclick="_toggleRouteAgv('${_popEsc(_selRouteAgv)}')" title="Đóng" style="margin-left:auto;background:none;border:none;color:#8c909f;font-size:16px;cursor:pointer;line-height:1">×</button>
+    </div>
+    <div id="agv-pop-live" style="padding:8px 10px"></div>
+    <div style="padding:8px 10px;border-top:1px solid rgba(255,255,255,.08)">
+      <div style="font-size:9px;color:#8c909f;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px">Gửi lệnh</div>
+      <select id="agv-pop-dest" style="width:100%;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:6px;padding:5px 6px;font-size:11px">${_popDestOptions()}</select>
+      ${_isMonitorView()?'<div style="font-size:9px;color:#64748a;margin:3px 0 0">hoặc bấm node trên bản đồ để điền</div>':''}
+      <button onclick="_popSend('go_to')" style="margin-top:6px;width:100%;padding:7px;border-radius:6px;border:1px solid #4ade8077;background:#4ade8026;color:#4ade80;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">▶ Đi tới điểm / tổ này</button>
+      <div style="display:flex;gap:4px;margin-top:5px">${btn('go_charge','⚡','Sạc','#fbbf24')}${btn('go_wait','⏸','Về chờ','#60a5fa')}${btn('stop','■','Dừng','#f87171')}${btn('resume','↻','Tiếp','#a3e635')}</div>
+      <div id="agv-pop-msg" style="min-height:14px;margin-top:6px;font-size:10px"></div>
+    </div>`;
+  el.style.display='block';
+  _updateAgvPopLive();
+}
+function _updateAgvPopLive(){
+  const live=document.getElementById('agv-pop-live'); if(!live||!_selRouteAgv) return;
+  const a=(agvs||[]).find(x=>x.agv_id===_selRouteAgv);
+  if(!a){ live.innerHTML='<span style="color:#8c909f">Không có dữ liệu xe này.</span>'; return; }
+  const ty=document.getElementById('agv-pop-type'); if(ty) ty.textContent=a.agv_type_raw||a.agv_type||'';
+  const online=a.connection==='ONLINE';
+  const st=!online?['Offline','#6b7280']:a.driving?['Đang chạy','#4ade80']:a.is_busy?['Đang chờ / làm việc','#eab308']:['Rảnh','#22c55e'];
+  const bat=a.battery!=null?Math.round(a.battery):null;
+  const batCol=bat==null?'#8c909f':bat>50?'#adc6ff':bat>20?'#eab308':'#ef4444';
+  const pos=(agvPositions||[]).find(p=>p.agv_id===a.agv_id);
+  const cur=a.current_node!=null&&a.current_node!==''?a.current_node:(pos&&pos.current_node);
+  const rt=agvRoutes&&agvRoutes[a.agv_id];
+  const path=(rt&&rt.path)?rt.path.map(String):[];
+  let dest='', next='';
+  if(path.length){
+    const k=cur!=null?path.indexOf(String(cur)):-1;
+    dest=path[path.length-1]; next=path[(k>=0?k:(rt.current_idx||0))+1]??'';
+  }
+  const rc=a.running_cmd;
+  const LC={picking:'Đang lấy hàng',delivering:'Đang giao hàng',charging:'Đang sạc'};
+  const row=(k,v)=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0"><span style="color:#8c909f">${k}</span><span style="text-align:right;color:#e2e8f0">${v}</span></div>`;
+  const al=a.alert;
+  live.innerHTML=
+    row('Trạng thái',`<b style="color:${st[1]}">${st[0]}</b>`)+
+    row('Pin',bat==null?'—':`<b style="color:${batCol}">${bat}%</b>`)+
+    row('Vị trí',_popEsc(_popNodeLabel(cur)))+
+    row('Lệnh đang chạy',rc?_popEsc((rc.command_label||rc.command)+(rc.dest_node?' → '+rc.dest_node:'')):'—')+
+    row('Hàng đợi',a.queue_size>0?`${a.queue_size} lệnh chờ`:'—')+
+    (a.task_lifecycle?row('Giai đoạn',_popEsc(LC[a.task_lifecycle]||a.task_lifecycle)):'')+
+    row('Node kế tiếp',next!==''?_popEsc(_popNodeLabel(next)):'—')+
+    row('Đích của đường đi',dest!==''?_popEsc(_popNodeLabel(dest)):'—')+
+    (a.ip?row('IP',_popEsc(a.ip)):'')+
+    (al?`<div style="margin-top:5px;padding:4px 6px;border-radius:5px;background:rgba(239,68,68,.12);color:#fca5a5">⚠ ${_popEsc(al.message)}${al.elapsed_sec!=null?` (${Math.round(al.elapsed_sec)}s)`:''}</div>`:'');
+}
+async function _popSend(cmd){
+  const id=_selRouteAgv; if(!id) return;
+  const a=(agvs||[]).find(x=>x.agv_id===id)||{};
+  const msg=document.getElementById('agv-pop-msg');
+  const say=(t,ok)=>{ if(msg){ msg.textContent=t; msg.style.color=ok?'#4ade80':'#f87171'; } };
+  const post=async(url,body)=>{
+    const r=await fetch(`${API}${url}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
+    return d;
+  };
+  try{
+    let d, label;
+    if(cmd==='go_to'){
+      const v=(document.getElementById('agv-pop-dest')||{}).value||'';
+      if(!v){ say('Chưa chọn điểm đến.',false); return; }
+      const [kind,x,y]=v.split('|');
+      const carry=a.op_mode==='carry_hook'||a.op_mode==='carry_fixed';
+      const towLike=!carry&&(a.agv_type_raw==='trailer'||a.agv_type_raw==='tow');
+      if(kind==='team'&&towLike){            // xe kéo/rơ-moóc + đích là Tổ → chu trình 5 chặng như màn hình Thực hiện tác vụ
+        d=await post('/api/execute/trailer-roundtrip',{agv_id:id,team:x});
+        label=`Tổ ${x} (chu trình rơ-moóc)`;
+      }else{
+        const dest=kind==='team'?y:x;
+        d=await post('/api/execute/dispatch',{agv_id:id,command:'go_to',dest_node:dest,session_label:'Lệnh từ bản đồ'});
+        label=`đi tới node ${dest}`;
+      }
+    }else{
+      d=await post('/api/execute/dispatch',{agv_id:id,command:cmd,session_label:'Lệnh từ bản đồ'});
+      label={go_charge:'về trạm sạc',go_wait:'về node chờ',stop:'dừng / huỷ lệnh',resume:'tiếp tục'}[cmd]||cmd;
+    }
+    say(`✓ ${id}: ${label}`+(d&&d.status==='queued'?' — đã xếp hàng chờ':d&&d.status==='dispatched'?' — xe chạy ngay':''),true);
+    setTimeout(loadAgvs,500);
+  }catch(e){ say('✗ '+e.message,false); }
+}
+function _routeRemaining(agv_id,rt){
+  let i=Math.max(0,rt.current_idx||0);
+  const pos=(agvPositions||[]).find(a=>a.agv_id===agv_id);
+  if(pos&&pos.current_node!=null){            // bám vị trí thật của xe: bỏ phần đường đã đi qua phía sau
+    const k=rt.path.map(String).indexOf(String(pos.current_node));
+    if(k>=0&&Math.abs(k-i)<=3) i=k;
+  }
+  const rem=rt.path.slice(i);
+  if(_isMonitorView()&&_selRouteAgv!==agv_id) return rem.slice(0,2);
+  return rem;
+}
+let _teamIdxSrc=null,_teamIdx=null;
+function _teamIndex(){
+  if(_teamIdxSrc===mapNodes&&_teamIdx) return _teamIdx;
+  const byNode={}, byTeam={};
+  const add=(nid,team,kind)=>{
+    team=String(team).trim(); if(!team) return;
+    const lst=(byNode[nid]=byNode[nid]||[]);
+    if(!lst.some(e=>e.team===team&&e.kind===kind)) lst.push({team,kind});
+    const t=(byTeam[team]=byTeam[team]||{drop:[],supply:[]});
+    if(!t[kind].includes(nid)) t[kind].push(nid);
+  };
+  (mapNodes||[]).forEach(n=>{
+    let a=n.action;
+    if(typeof a==='string'){ try{ a=JSON.parse(a); }catch(e){ return; } }   // API trả action dạng chuỗi JSON
+    if(!a||typeof a!=='object') return;
+    const nid=String(n.name_id);
+    // Rơ-moóc: trailer_role 'drop' (thả/giao) | 'pickup' (lấy) + số tổ ở team hoặc trailer_drop_teams/trailer_pickup_teams.
+    // Xe carry (chưa khai trailer_role): DROPOFF/wait_user + team = giao; supply_group = lấy hàng.
+    const role=String(a.trailer_role||'');
+    if(role==='drop'||role==='pickup'){
+      const kind=role==='pickup'?'supply':'drop';
+      if(a.team!=null&&a.team!=='') add(nid,a.team,kind);
+      const arr=a[role==='pickup'?'trailer_pickup_teams':'trailer_drop_teams'];
+      if(Array.isArray(arr)) arr.forEach(t=>add(nid,t,kind));
+    } else if(a.team!=null&&a.team!==''&&(String(a.locationType||'').toUpperCase()==='DROPOFF'||String(a.arrival_action||'')==='wait_user')){
+      add(nid,a.team,'drop');
+    }
+    let sg=a.supply_group; if(typeof sg==='string') sg=sg.split(',');
+    if(Array.isArray(sg)) sg.forEach(x=>add(nid,x,'supply'));
+  });
+  _teamIdxSrc=mapNodes; _teamIdx={byNode,byTeam};
+  return _teamIdx;
+}
+function _teamKeys(){ return Object.keys(_teamIndex().byTeam).sort((a,b)=>(parseInt(a,10)||0)-(parseInt(b,10)||0)||a.localeCompare(b)); }
+// Panel AGV bên phải bản đồ theo dõi: tổng số xe + trạng thái từng xe (thay cho bảng chú giải tổ)
+const _TEAM_NODE_COLOR='#14b8a6';
+function _renderTeamLegend(){ const el=document.getElementById('team-legend'); if(el) el.remove(); }
+// Nhật ký LỖI của panel (chỉ ghi khi có lỗi mới xuất hiện): xe offline, cảnh báo/lỗi hệ thống
+const _monLog=[]; const _monPrev={}; let _monLogInit=false;
+function _monLogAdd(level,agv,text){
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  _monLog.unshift({t:p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()),level,agv,text});
+  if(_monLog.length>150) _monLog.length=150;
+}
+function _monStatus(a){
+  const online=a.connection==='ONLINE';
+  const driving=online&&(a.is_busy||a.driving);
+  const charging=online&&!driving&&a.task_lifecycle==='charging';
+  return !online?['offline','Offline','#4b5563']:driving?['run','Đang chạy','#eab308']:charging?['charge','Đang sạc','#38bdf8']:['ready','Sẵn sàng','#22c55e'];
+}
+function _monTrack(list){
+  list.forEach(a=>{
+    const [st,txt]=_monStatus(a);
+    const alertMsg=a.alert?(a.alert.message||'Cảnh báo'):'';
+    const cmd=a.running_cmd?((a.running_cmd.command_label||'')+(a.running_cmd.dest_node?' → '+a.running_cmd.dest_node:'')):'';
+    const pv=_monPrev[a.agv_id];
+    // Chỉ ghi LỖI: xe mất kết nối và cảnh báo/lỗi hệ thống phát hiện (kẹt, nguy cơ va chạm...)
+    if(st==='offline'&&(!pv||pv.st!=='offline')&&pv) _monLogAdd('err',a.agv_id,'Mất kết nối (Offline)');
+    if(alertMsg&&(!pv||pv.alert!==alertMsg)) _monLogAdd('err',a.agv_id,alertMsg);
+    _monPrev[a.agv_id]={st,cmd,alert:alertMsg};
+  });
+}
+async function _ghostClear(id){
+  if(!confirm(id+' đã được gỡ khỏi đường? Hệ thống sẽ không còn giữ chỗ cho xe này.')) return;
+  try{ await fetch(`${API}/api/execute/agv-ghost-clear`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agv_id:id})}); }catch(e){}
+  loadAgvPositions();
+}
+function _renderMonAgvPanel(){
+  const wrap=document.getElementById('map-wrap'); if(!wrap) return;
+  let el=document.getElementById('mon-agv-panel');
+  const list=agvs||[];
+  _monTrack(list);
+  if(!el){
+    // Tách bản đồ và panel thành 2 khối riêng cạnh nhau: bản đồ bên trái (co giãn), panel dọc bên phải (cố định).
+    let body=document.getElementById('mon-body');
+    if(!body){
+      body=document.createElement('div'); body.id='mon-body';
+      body.style.cssText='flex:1;display:flex;gap:8px;padding:8px;min-height:0;min-width:0;background:#0b1326';
+      wrap.parentNode.insertBefore(body,wrap); body.appendChild(wrap);
+      wrap.style.borderRadius='8px'; wrap.style.border='1px solid rgba(255,255,255,.1)'; wrap.style.minWidth='0';
+      setTimeout(()=>{ try{ _fitAndRender(); }catch(e){} },80);
+    }
+    let hid=false; try{ hid=localStorage.getItem('mon_panel_hidden')==='1'; }catch(e){}
+    const tg=document.createElement('button'); tg.id='mon-panel-toggle';
+    tg.style.cssText='position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:30;width:20px;height:54px;display:flex;align-items:center;justify-content:center;'+
+      'background:rgba(5,13,26,.9);border:1px solid rgba(255,255,255,.15);border-right:none;border-radius:8px 0 0 8px;color:#b0b8c8;cursor:pointer;padding:0';
+    tg.innerHTML='<span class="material-symbols-outlined" id="mon-panel-arrow" style="font-size:18px;pointer-events:none"></span>';
+    tg.onpointerdown=e=>e.stopPropagation();
+    tg.onclick=()=>{
+      const pn=document.getElementById('mon-agv-panel'); if(!pn) return;
+      const hide=pn.style.display!=='none';
+      pn.style.display=hide?'none':'flex';
+      document.getElementById('mon-panel-arrow').textContent=hide?'chevron_left':'chevron_right';
+      tg.title=hide?'Hiện panel AGV':'Ẩn panel AGV';
+      try{ localStorage.setItem('mon_panel_hidden',hide?'1':'0'); }catch(e){}
+      setTimeout(()=>{ try{ _fitAndRender(); }catch(e){} },60);
+    };
+    wrap.appendChild(tg);
+    el=document.createElement('div'); el.id='mon-agv-panel';
+    document.getElementById('mon-panel-arrow').textContent=hid?'chevron_left':'chevron_right';
+    tg.title=hid?'Hiện panel AGV':'Ẩn panel AGV';
+    el.style.cssText='width:250px;flex-shrink:0;display:flex;flex-direction:column;'+
+      'background:rgba(5,13,26,.95);border:1px solid rgba(255,255,255,.1);border-radius:8px;font:11px JetBrains Mono,monospace;color:#e2e8f0;overflow:hidden';
+    if(hid) el.style.display='none';
+    body.appendChild(el);
+  }
+  const on=list.filter(a=>a.connection==='ONLINE').length;
+  const run=list.filter(a=>_monStatus(a)[0]==='run').length;
+  const rows=list.map(a=>{
+    let [,txt,dot]=_monStatus(a);
+    const gp=(agvPositions||[]).find(p=>p.agv_id===a.agv_id);
+    const ghost=!!(gp&&gp.ghost);
+    if(ghost){ txt='Mất tín hiệu (xe ma)'; dot='#f59e0b'; }
+    const alert=ghost?null:(a.alert||null);
+    const dest=(a.running_cmd&&a.running_cmd.dest_node&&_monStatus(a)[0]==='run')?' → '+a.running_cmd.dest_node:'';
+    const bat=(a.battery!=null)?Math.round(a.battery)+'%':'';
+    return '<div style="padding:5px 9px;border-top:1px solid rgba(255,255,255,.06)'+(alert?';background:rgba(239,68,68,.1)':'')+'">'+
+      '<div style="display:flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:'+(alert?'#ef4444':dot)+';flex-shrink:0"></span>'+
+      '<b>'+a.agv_id+'</b><span style="color:#8c909f;margin-left:auto">'+bat+'</span></div>'+
+      '<div style="padding-left:13px;color:#94a3b8;font-size:10px">'+txt+(a.current_node?' · node '+a.current_node:'')+dest+
+      (ghost?' <button onclick="_ghostClear(\''+a.agv_id+'\')" title="Xác nhận xe đã được gỡ khỏi đường" style="margin-left:6px;padding:0 6px;font-size:10px;background:#f59e0b;color:#0b1326;border:none;border-radius:3px;cursor:pointer">Gỡ</button>':'')+
+      '</div></div>';
+  }).join('');
+  const lc={err:'#f87171',ok:'#4ade80',info:'#94a3b8'};
+  const logs=_monLog.map(l=>'<div style="padding:3px 9px;border-top:1px solid rgba(255,255,255,.05);font-size:10px;line-height:1.35;color:'+(lc[l.level]||'#94a3b8')+'">'+
+    '<span style="color:#64748a">'+l.t+'</span> <b>'+l.agv+'</b> '+String(l.text).replace(/</g,'&lt;')+'</div>').join('');
+  const keepA=el.querySelector('#mon-agv-rows'), keepL=el.querySelector('#mon-log-rows');
+  const sa=keepA?keepA.scrollTop:0, sl=keepL?keepL.scrollTop:0;
+  el.innerHTML=
+    '<div style="padding:6px 9px;font-size:10px;letter-spacing:.05em;color:#8c909f;flex-shrink:0">AGV: <b style="color:#e2e8f0">'+list.length+'</b> · online <b style="color:#22c55e">'+on+'</b> · chạy <b style="color:#eab308">'+run+'</b></div>'+
+    '<div id="mon-agv-rows" style="flex:1 1 50%;min-height:0;overflow:auto">'+(rows||'<div style="padding:8px 9px;color:#555">Chưa có AGV</div>')+'</div>'+
+    '<div style="padding:5px 9px;font-size:10px;letter-spacing:.05em;color:#8c909f;border-top:1px solid rgba(255,255,255,.15);background:rgba(255,255,255,.04);flex-shrink:0">LỖI</div>'+
+    '<div id="mon-log-rows" style="flex:1 1 50%;min-height:0;overflow:auto">'+(logs||'<div style="padding:8px 9px;color:#555;font-size:10px">Chưa có lỗi nào</div>')+'</div>';
+  const na=el.querySelector('#mon-agv-rows'), nl=el.querySelector('#mon-log-rows');
+  if(na) na.scrollTop=sa; if(nl) nl.scrollTop=sl;
+}
+function _isElevNode(n){
+  const a=n&&n.action; const lt=(a&&typeof a==='object')?String(a.locationType||'').toUpperCase():'';
+  return +n.type===9 || lt==='ELEVATOR';
+}
+
+// ── Trạng thái thang máy (thiết bị báo + xe đang giữ/chờ) ───────────────────────────────
+let elevStatus=[];
+async function loadElevators(){
+  const defs=(mapData&&mapData.elevators)||[];
+  if(!currentMapId||!defs.length){ elevStatus=[]; renderElevatorBar(); return; }
+  try{
+    const r=await fetch(`${API}/api/execute/elevators`);
+    const d=await r.json();
+    elevStatus=d.elevators||[];
+  }catch(e){ /* giữ trạng thái cũ */ }
+  renderElevatorBar();
+}
+function renderElevatorBar(){
+  const bar=document.getElementById('elev-bar'); if(!bar) return;
+  const defs=(mapData&&mapData.elevators)||[];
+  if(!defs.length){ bar.style.display='none'; bar.innerHTML=''; return; }
+  const st={}; elevStatus.forEach(e=>st[e.id]=e);
+  const LBL={closed:['đóng','#8c909f'],opening:['đang mở','#eab308'],open:['mở','#22c55e'],closing:['đang đóng','#eab308'],
+             moving:['đang chạy','#60a5fa'],calling:['đang gọi','#eab308'],error:['LỖI','#ef4444'],unknown:['chưa kết nối','#6b7280']};
+  bar.style.display='flex';
+  bar.innerHTML=defs.map(d=>{
+    const s=st[d.id]||{};
+    const [txt,col]=LBL[s.state||'unknown']||LBL.unknown;
+    const where=s.floor?_floorName(s.floor):(s.level!=null?`tầng ${s.level}`:'—');
+    const use=s.owner?`<div style="font-size:10px;color:#adc6ff;margin-top:2px">xe: ${s.owner}${s.phase?' · '+s.phase:''}${(s.queue||[]).length?` (+${s.queue.length} chờ: ${s.queue.join(', ')})`:''}</div>`:'';
+    return `<div style="background:rgba(12,14,18,.82);border:1px solid rgba(129,140,248,.45);border-left:3px solid ${col};border-radius:8px;padding:5px 9px;backdrop-filter:blur(4px)">
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#dae2fd"><b>🛗 ${d.name||d.id}</b><span style="margin-left:auto;color:${col};font-weight:700">${txt}</span></div>
+      <div style="font-size:10px;color:#8c909f;margin-top:1px">đang ở: ${where}</div>${use}</div>`;
+  }).join('');
+}
+
+// Tự theo xe: khi xe đổi tầng (đi thang xong) trang tự chuyển sang tầng mới của xe.
+// Đang chọn 1 xe → chỉ theo xe đó; không chọn xe nào → theo xe nào vừa đổi tầng.
+let followFloor=true;
+let _lastAgvFloor={};
+function _updateFollowBtn(){
+  const b=document.getElementById('floor-follow'); if(!b) return;
+  b.style.display=(mapFloors.length>1 && viewMode==='single')?'flex':'none';
+  b.style.opacity=followFloor?'1':'0.4';
+  b.style.background=followFloor?'rgba(173,198,255,.25)':'transparent';
+}
+function toggleFloorFollow(){ followFloor=!followFloor; _updateFollowBtn(); toast(followFloor?'Tự chuyển tầng theo xe: BẬT':'Tự chuyển tầng theo xe: TẮT','success'); }
+function _agvFloorOfPos(a){
+  if(!a||!a.current_node) return null;
+  if(a.floor_id) return String(a.floor_id);     // xe trong cabin thang dùng chung: tầng thang đang đứng (server cho)
+  const nd=mapNodes.find(n=>String(n.name_id)===String(a.current_node));
+  return nd?_floorOfNode(nd):null;
+}
+async function _autoFollowFloors(){
+  if(mapFloors.length<=1){ _lastAgvFloor={}; return; }
+  if(viewMode!=='single') return;     // nhiều ô: đã thấy mọi tầng, không cần tự chuyển
+  let target=null;
+  for(const a of agvPositions){
+    const f=_agvFloorOfPos(a); if(!f) continue;
+    const prev=_lastAgvFloor[a.agv_id];
+    _lastAgvFloor[a.agv_id]=f;
+    if(prev!==undefined && prev!==f && (!selAgv || selAgv.agv_id===a.agv_id)) target=f;
+  }
+  if(target && followFloor && target!==String(curFloorId)) await applyFloorView(target);
+}
+
+function renderFloorSelect(){
+  const wrap=document.getElementById('floor-wrap'), sel=document.getElementById('floor-select');
+  if(!wrap||!sel) return;
+  _updateFollowBtn();
+  if(mapFloors.length<=1){ wrap.style.display='none'; return; }
+  wrap.style.display='block';
+  sel.innerHTML=mapFloors.map(f=>`<option value="${f.id}"${String(f.id)===String(curFloorId)?' selected':''}>${f.name}${f.note?' — '+f.note:''}</option>`).join('');
+}
+// Gắn số xe đang đứng trên từng tầng vào nhãn ô chọn tầng (chỉ đổi chữ, không đụng lựa chọn)
+function _updateFloorCounts(){
+  const sel=document.getElementById('floor-select');
+  if(!sel||mapFloors.length<=1) return;
+  const cnt={};
+  agvPositions.forEach(a=>{
+    if(!a.current_node) return;
+    if(a.floor_id){ cnt[String(a.floor_id)]=(cnt[String(a.floor_id)]||0)+1; return; }
+    const nd=mapNodes.find(n=>String(n.name_id)===String(a.current_node));
+    if(!nd) return;
+    const f=_floorOfNode(nd); cnt[f]=(cnt[f]||0)+1;
+  });
+  Array.from(sel.options).forEach(o=>{
+    const f=mapFloors.find(x=>String(x.id)===o.value); if(!f) return;
+    const c=cnt[o.value]||0;
+    o.textContent=`${f.name}${f.note?' — '+f.note:''}${c?` · ${c} xe`:''}`;
+  });
+}
+async function onFloorChange(){
+  const v=document.getElementById('floor-select').value;
+  if(viewMode!=='single'){ curFloorId=String(v); await setViewMode('single'); return; }   // đang xem nhiều ô → mở riêng tầng đó
+  await applyFloorView(v);
+}
+// Áp dụng tầng: gốc toạ độ / tỉ lệ / ảnh nền RIÊNG của tầng, rồi vẽ lại
+async function applyFloorView(fid){
+  curFloorId=(fid==null||fid==='')?null:String(fid);
+  detectCoordSystem();
+  const fl=mapFloors.find(f=>String(f.id)===curFloorId)||null;
+  originX   = fl ? (fl.origin_x||0) : (mapData.origin_x||0);
+  originY   = fl ? (fl.origin_y||0) : (mapData.origin_y||0);
+  resolution= (fl&&fl.resolution) || mapData.resolution || 0.05;
+  const imgPath = fl ? fl.image_path : mapData.image_path;
+  mapImgUrl = imgPath ? (/^https?:/.test(imgPath)?imgPath:`${API}${imgPath}`) : '';
+  // Nền tối cho cả 2 loại map — đường/node đều được thiết kế cho nền tối
+  document.getElementById('map-wrap').style.background = imgPath ? '#050d1a' : '#0d1b2e';
+  // Load ảnh để lấy kích thước thực (cần cho worldToPixel)
+  if(mapImgUrl){
+    await new Promise(res=>{
+      const img=new Image();
+      img.onload=()=>{ imgNatW=img.naturalWidth||1000; imgNatH=img.naturalHeight||1000; res(); };
+      img.onerror=()=>{ imgNatW=1000; imgNatH=1000; res(); };
+      img.src=mapImgUrl;
+    });
+  } else { imgNatW=1000; imgNatH=1000; }
+  renderFloorSelect();
+  autoFit(); renderMap();
+}
+// Chọn xe → tự chuyển sang tầng xe đang đứng (nếu biết)
+function _followAgvFloor(){
+  if(!selAgv||mapFloors.length<=1||viewMode!=='single') return;
+  const pos=agvPositions.find(a=>a.agv_id===selAgv.agv_id);
+  const cn=(pos&&pos.current_node)||selAgv.current_node;
+  if(!cn) return;
+  const nd=mapNodes.find(n=>String(n.name_id)===String(cn));
+  if(!nd) return;
+  const f=_floorOfNode(nd);
+  if(f!==String(curFloorId)) applyFloorView(f);
+}
+
 function detectCoordSystem(){
   let maxAbs=0;
-  for(const n of mapNodes) maxAbs=Math.max(maxAbs,Math.abs(+n.x),Math.abs(+n.y));
-  for(const r of (mapData.roads||[])) maxAbs=Math.max(maxAbs,Math.abs(r.point_start_x||0),Math.abs(r.point_start_y||0),Math.abs(r.point_end_x||0),Math.abs(r.point_end_y||0));
+  const fn=_floorNodes();
+  const ids=new Set(fn.map(n=>String(n.name_id)));
+  for(const n of fn) maxAbs=Math.max(maxAbs,Math.abs(+n.x),Math.abs(+n.y));
+  for(const r of (mapData.roads||[])){
+    if(mapFloors.length>1 && !ids.has(String(r.id_source))) continue;
+    maxAbs=Math.max(maxAbs,Math.abs(r.point_start_x||0),Math.abs(r.point_start_y||0),Math.abs(r.point_end_x||0),Math.abs(r.point_end_y||0));
+  }
   isSchematic=maxAbs>100;
 }
 function worldToPixel(wx,wy){
@@ -1591,25 +2052,296 @@ function worldToPixel(wx,wy){
   return {x:pyRel, y:pxRel};
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// NHIỀU CHẾ ĐỘ XEM TẦNG — theo dõi nhiều tầng CÙNG LÚC
+//   single : 1 tầng (như cũ, có pan/zoom/chọn node đầy đủ)
+//   grid   : lưới — MỌI tầng chia ô, mỗi ô 1 bản đồ nhỏ (kéo/lăn chuột zoom riêng từng ô)
+//   pick   : như lưới nhưng chỉ các tầng được tick
+// Mỗi ô là 1 <svg> riêng; vẽ bằng CHÍNH renderMapSingle() sau khi "đổi ngữ cảnh" (gốc toạ độ/tỉ lệ/ảnh nền/viewport
+// của tầng đó) — xem _withFloorCtx. Ngữ cảnh vẽ _RC trỏ tới nhóm <g> của ô.
+// ═══════════════════════════════════════════════════════════════════════════
+let viewMode='single';
+let pickFloors=[];
+let _tiles=[];                 // [{fid, el, svg, g, ag, vp, hdrCount, pan}]
+let _RC=null;                  // ngữ cảnh vẽ vào ô: {g, ag, el}
+const _schemCache={};          // 'fid|số node' -> isSchematic
+const _animNmCache={};         // 'fid|số node' -> {name_id: node} của tầng (cho hoạt ảnh)
+const _floorImgCache={};       // fid -> {w, h, url}
+
+function _worldG(){ return _RC ? _RC.g : document.getElementById('world-g'); }
+function _animG(){ return _RC ? _RC.ag : document.getElementById('anim-g'); }
+function _multiActive(){ return viewMode!=='single' && mapFloors.length>1 && _tiles.length>0; }
+
+function _viewKey(){ return 'te_view_'+(currentMapId||''); }
+function _loadViewPrefs(){
+  let mode=null, picks=null;
+  try{
+    const raw=localStorage.getItem(_viewKey());
+    if(raw){ const o=JSON.parse(raw); mode=o.mode; picks=o.picks; }
+  }catch(e){}
+  if(!['single','grid','pick'].includes(mode)){
+    // Mặc định: màn hình THEO DÕI (mô phỏng) với map nhiều tầng → xem tất cả tầng; trang thường → 1 tầng
+    mode=(typeof _MONITOR_VIEW!=='undefined' && _MONITOR_VIEW && mapFloors.length>1)?'grid':'single';
+  }
+  if(!Array.isArray(picks)) picks=[];
+  pickFloors=picks.map(String).filter(id=>mapFloors.some(f=>String(f.id)===id));
+  if(!pickFloors.length) pickFloors=mapFloors.map(f=>String(f.id));
+  return mode;
+}
+function _saveViewPrefs(){
+  try{ localStorage.setItem(_viewKey(), JSON.stringify({mode:viewMode, picks:pickFloors})); }catch(e){}
+}
+
+function _visibleFloorIds(){
+  const all=mapFloors.map(f=>String(f.id));
+  if(viewMode==='pick') return all.filter(id=>pickFloors.includes(id));
+  return all;
+}
+
+// ── Đổi ngữ cảnh toàn cục sang 1 ô tầng, chạy fn, rồi khôi phục ───────────────────────────
+function _withFloorCtx(tile, fn){
+  const sv={curFloorId,originX,originY,resolution,imgNatW,imgNatH,mapImgUrl,isSchematic,vp,rc:_RC};
+  try{
+    const fl=mapFloors.find(f=>String(f.id)===String(tile.fid))||null;
+    curFloorId=String(tile.fid);
+    // isSchematic của 1 tầng không đổi giữa các khung hình → tính 1 lần (quét toàn bộ node/road mỗi khung rất nặng)
+    const _sk=curFloorId+'|'+mapNodes.length;
+    if(_schemCache[_sk]===undefined){ detectCoordSystem(); _schemCache[_sk]=isSchematic; }
+    isSchematic=_schemCache[_sk];
+    originX=fl?(fl.origin_x||0):(mapData.origin_x||0);
+    originY=fl?(fl.origin_y||0):(mapData.origin_y||0);
+    resolution=(fl&&fl.resolution)||mapData.resolution||0.05;
+    const im=_floorImgCache[tile.fid]||{w:1000,h:1000,url:''};
+    imgNatW=im.w; imgNatH=im.h; mapImgUrl=im.url;
+    vp=tile.vp; _RC={g:tile.g, ag:tile.ag, el:tile.wrapEl};
+    return fn();
+  } finally {
+    curFloorId=sv.curFloorId; originX=sv.originX; originY=sv.originY; resolution=sv.resolution;
+    imgNatW=sv.imgNatW; imgNatH=sv.imgNatH; mapImgUrl=sv.mapImgUrl; isSchematic=sv.isSchematic;
+    vp=sv.vp; _RC=sv.rc;
+  }
+}
+
+// Nạp kích thước ảnh nền của TẤT CẢ tầng (để vẽ được nhiều tầng cùng lúc)
+async function _preloadFloorImages(){
+  await Promise.all(mapFloors.map(async f=>{
+    const fid=String(f.id);
+    const imgPath=f.image_path;
+    const url=imgPath?(/^https?:/.test(imgPath)?imgPath:`${API}${imgPath}`):'';
+    if(_floorImgCache[fid] && _floorImgCache[fid].url===url) return;
+    let w=1000,h=1000;
+    if(url){
+      await new Promise(res=>{
+        const img=new Image();
+        img.onload=()=>{ w=img.naturalWidth||1000; h=img.naturalHeight||1000; res(); };
+        img.onerror=()=>res();
+        img.src=url;
+      });
+    }
+    _floorImgCache[fid]={w,h,url};
+  }));
+}
+
+// ── Dựng các ô ────────────────────────────────────────────────────────────────────────
+function _buildTiles(){
+  const box=document.getElementById('multi-wrap');
+  box.innerHTML='';
+  _tiles=[];
+  const ids=_visibleFloorIds();
+  const n=ids.length;
+  box.className='mv-grid';
+  {
+    const wide=(box.clientWidth||800)/Math.max(1,(box.clientHeight||500));
+    const cols=Math.max(1,Math.min(n, Math.round(Math.sqrt(n*wide))));
+    box.style.gridTemplateColumns=`repeat(${cols},1fr)`;
+    box.style.gridTemplateRows=`repeat(${Math.ceil(n/cols)},1fr)`;
+  }
+  ids.forEach((fid,i)=>{
+    const fl=mapFloors.find(f=>String(f.id)===fid)||{};
+    const el=document.createElement('div');
+    el.className='mvt';
+    el.innerHTML=`<div class="mvh"><b></b><small></small><span class="mvc"></span>
+      <button class="mvf" title="Mở riêng tầng này (xem 1 tầng, đầy đủ thao tác)"><span class="material-symbols-outlined" style="font-size:15px">open_in_full</span></button></div>
+      <div class="mvw"><svg class="mvs"><defs></defs><g class="w"></g><g class="a" pointer-events="none"></g></svg></div>`;
+    el.querySelector('b').textContent=fl.name||fid;
+    el.querySelector('small').textContent=fl.note||'';
+    const svg=el.querySelector('svg');
+    const t={fid, el, svg, wrapEl:el.querySelector('.mvw'), g:svg.querySelector('.w'), ag:svg.querySelector('.a'),
+             vp:{zoom:1,panX:0,panY:0}, hdrCount:el.querySelector('.mvc'), pan:null, idx:i};
+    el.querySelector('.mvf').onclick=()=>focusFloor(fid);
+    _tileBind(t);
+    box.appendChild(el);
+    _tiles.push(t);
+  });
+}
+
+function _tileBind(t){
+  const svg=t.svg;
+  svg.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const r=svg.getBoundingClientRect();
+    const mx=e.clientX-r.left, my=e.clientY-r.top;
+    const d=e.deltaY>0?.88:1.14;
+    t.vp.panX=mx-(mx-t.vp.panX)*d; t.vp.panY=my-(my-t.vp.panY)*d; t.vp.zoom*=d;
+    _renderTile(t);
+  },{passive:false});
+  svg.addEventListener('mousedown',e=>{
+    if(e.target.closest('circle[style*="pointer"]')||e.target.style.cursor==='pointer') return;
+    t.pan={x:e.clientX,y:e.clientY,px:t.vp.panX,py:t.vp.panY};
+  });
+}
+window.addEventListener('mousemove',e=>{
+  _tiles.forEach(t=>{
+    if(!t.pan) return;
+    t.vp.panX=t.pan.px+(e.clientX-t.pan.x); t.vp.panY=t.pan.py+(e.clientY-t.pan.y);
+    _withFloorCtx(t,()=>applyViewport());
+  });
+});
+window.addEventListener('mouseup',()=>{ _tiles.forEach(t=>{ t.pan=null; }); });
+
+function _renderTile(t){
+  _withFloorCtx(t,()=>renderMapSingle());
+}
+function _updateTileHeaders(){
+  _tiles.forEach(t=>{
+    let n=0, on=0;
+    agvPositions.forEach(a=>{
+      if(!a.current_node) return;
+      const nd=mapNodes.find(x=>String(x.name_id)===String(a.current_node));
+      const af=a.floor_id?String(a.floor_id):(nd?_floorOfNode(nd):null);
+      if(af===t.fid){ n++; if(a.connection==='ONLINE') on++; }
+    });
+    t.hdrCount.textContent=n?`${n} xe`:'';
+    t.hdrCount.style.display=n?'':'none';
+  });
+}
+function renderTiles(){
+  if(!mapData) return;
+  _tiles.forEach(t=>_renderTile(t));
+  _updateTileHeaders();
+  _updateFloorCounts();
+}
+function _fitAllTiles(){
+  _tiles.forEach(t=>_withFloorCtx(t,()=>autoFit()));
+}
+
+// ── Chuyển chế độ xem ───────────────────────────────────────────────────────────────────
+async function setViewMode(mode, silent){
+  if(mapFloors.length<=1) mode='single';
+  viewMode=mode;
+  if(mode!=='single') _backMode=null;
+  _saveViewPrefs();
+  const multi=document.getElementById('multi-wrap'), svg=document.getElementById('map-svg');
+  if(mode==='single'){
+    _tiles=[]; multi.style.display='none'; multi.innerHTML='';
+    svg.style.display='block';
+    await applyFloorView(curFloorId);
+  } else {
+    svg.style.display='none';
+    multi.style.display='grid';
+    await _preloadFloorImages();
+    _buildTiles();
+    // đợi layout xong rồi mới fit (cần kích thước thật của từng ô)
+    await new Promise(r=>setTimeout(r,60));      // (setTimeout thay rAF: rAF có thể bị tạm dừng khi tab ẩn/không vẽ)
+    _fitAllTiles();
+    renderTiles();
+  }
+  _updateViewBtn();
+  _renderViewMenu();
+}
+let _backMode=null;            // chế độ nhiều tầng cần quay lại sau khi "Mở riêng tầng này"
+function focusFloor(fid){
+  if(viewMode!=='single') _backMode=viewMode;
+  curFloorId=String(fid);
+  setViewMode('single');
+}
+function backToMulti(){ if(_backMode) setViewMode(_backMode); }
+async function _initViewMode(){
+  const mode=_loadViewPrefs();
+  _updateViewBtn();
+  if(mode!=='single'){ await setViewMode(mode); }
+  else { viewMode='single'; document.getElementById('multi-wrap').style.display='none'; document.getElementById('map-svg').style.display='block'; _renderViewMenu(); }
+}
+
+// ── Nút + menu chọn chế độ xem ──────────────────────────────────────────────────────────
+const _VIEW_LABEL={single:'Một tầng',grid:'Lưới — tất cả tầng',pick:'Chọn các tầng'};
+const _VIEW_ICON={single:'crop_square',grid:'grid_view',pick:'checklist'};
+function _updateViewBtn(){
+  const b=document.getElementById('floor-view'); if(!b) return;
+  b.style.display=mapFloors.length>1?'flex':'none';
+  const ic=b.querySelector('.material-symbols-outlined'); if(ic) ic.textContent=_VIEW_ICON[viewMode]||'crop_square';
+  b.title='Chế độ xem: '+_VIEW_LABEL[viewMode];
+  const sel=document.getElementById('floor-select'); if(sel) sel.style.opacity=viewMode==='single'?'1':'.55';
+  const fb=document.getElementById('floor-follow'); if(fb && viewMode!=='single') fb.style.display='none';
+  const bk=document.getElementById('floor-back'); if(bk) bk.style.display=(viewMode==='single'&&_backMode&&mapFloors.length>1)?'flex':'none';
+}
+function toggleViewMenu(){
+  const m=document.getElementById('view-menu');
+  if(m.style.display==='block'){ m.style.display='none'; return; }
+  _renderViewMenu();
+  const b=document.getElementById('floor-view').getBoundingClientRect();
+  const w=document.getElementById('map-wrap').getBoundingClientRect();
+  m.style.left=Math.max(4,b.left-w.left)+'px'; m.style.top=(b.bottom-w.top+6)+'px';
+  m.style.display='block';
+}
+function _renderViewMenu(){
+  const m=document.getElementById('view-menu'); if(!m) return;
+  const modes=['single','grid','pick'];
+  let html=modes.map(k=>`<div class="vm-item${viewMode===k?' on':''}" data-mode="${k}">
+    <span class="material-symbols-outlined">${_VIEW_ICON[k]}</span><span>${_VIEW_LABEL[k]}</span>${viewMode===k?'<span class="material-symbols-outlined vm-ok">check</span>':''}</div>`).join('');
+  if(viewMode==='pick'){
+    html+='<div class="vm-sep"></div><div class="vm-sub">Tầng hiển thị</div>'+mapFloors.map(f=>{
+      const id=String(f.id), on=pickFloors.includes(id);
+      return `<label class="vm-chk"><input type="checkbox" data-fid="${id}"${on?' checked':''}/> <span>${f.name}${f.note?' — '+f.note:''}</span></label>`;
+    }).join('');
+  }
+  m.innerHTML=html;
+  m.querySelectorAll('.vm-item').forEach(el=>{
+    el.onclick=async ()=>{
+      const mode=el.dataset.mode;
+      if(mode==='pick' && viewMode!=='pick' && pickFloors.length===mapFloors.length){ /* giữ tất cả, người dùng bỏ tick sau */ }
+      await setViewMode(mode);
+      if(mode!=='pick') m.style.display='none';
+    };
+  });
+  m.querySelectorAll('input[data-fid]').forEach(cb=>{
+    cb.onchange=async ()=>{
+      const id=cb.dataset.fid;
+      pickFloors=pickFloors.filter(x=>x!==id);
+      if(cb.checked) pickFloors.push(id);
+      if(!pickFloors.length){ pickFloors=[id]; cb.checked=true; toast('Cần giữ ít nhất 1 tầng','warn'); }
+      pickFloors=mapFloors.map(f=>String(f.id)).filter(x=>pickFloors.includes(x));
+      await setViewMode('pick');
+      m.style.display='block';
+    };
+  });
+}
+document.addEventListener('mousedown',e=>{
+  const m=document.getElementById('view-menu');
+  if(m && m.style.display==='block' && !m.contains(e.target) && !e.target.closest('#floor-view')) m.style.display='none';
+});
+
 function applyViewport(){
   const t=`translate(${vp.panX},${vp.panY}) scale(${vp.zoom})`;
-  document.getElementById('world-g').setAttribute('transform',t);
-  document.getElementById('anim-g').setAttribute('transform',t);
+  _worldG().setAttribute('transform',t);
+  _animG().setAttribute('transform',t);
 }
 
 function autoFit(){
-  const wrap=document.getElementById('map-wrap');
+  const wrap=_RC?_RC.el:document.getElementById('map-wrap');
   const W=wrap.clientWidth||600, H=wrap.clientHeight||400;
-  if(isSchematic&&mapNodes.length>0){
+  if(isSchematic&&_floorNodes().length>0){
     let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
-    mapNodes.forEach(n=>{minX=Math.min(minX,+n.x);maxX=Math.max(maxX,+n.x);minY=Math.min(minY,+n.y);maxY=Math.max(maxY,+n.y);});
+    _floorNodes().forEach(n=>{minX=Math.min(minX,+n.x);maxX=Math.max(maxX,+n.x);minY=Math.min(minY,+n.y);maxY=Math.max(maxY,+n.y);});
     const bw=Math.max(maxX-minX,1),bh=Math.max(maxY-minY,1);
     const margin=60;
-    const s=Math.min((W-margin*2)/bw,(H-margin*2)/bh,4);
+    // Khung nhỏ hơn 2*margin (vd đang thu nhỏ / ô tầng chưa có kích thước) → (W-120) âm → zoom âm làm vòng lặp mũi tên
+    // trong _edgeArrows chạy VÔ HẠN (đơ trang). Luôn giữ zoom dương.
+    const s=Math.max(Math.min((W-margin*2)/bw,(H-margin*2)/bh,4),0.02);
     vp.zoom=s; vp.panX=(W-bw*s)/2-minX*s; vp.panY=(H-bh*s)/2-minY*s;
   } else if(imgNatW>1){
     const pad=0.05;
-    const s=Math.min(W*(1-2*pad)/imgNatW,H*(1-2*pad)/imgNatH);
+    const s=Math.max(Math.min(W*(1-2*pad)/imgNatW,H*(1-2*pad)/imgNatH),0.02);
     vp.zoom=s; vp.panX=(W-imgNatW*s)/2; vp.panY=(H-imgNatH*s)/2;
   }
 }
@@ -1702,17 +2434,29 @@ function _edgeArrows(g,x1,y1,x2,y2){
   const dx=x2-x1,dy=y2-y1;
   const len=Math.sqrt(dx*dx+dy*dy);
   const spacing=50/vp.zoom;
+  if(!(spacing>0)||!isFinite(spacing)||!(len>0)) return;      // zoom ≤0/NaN/∞ → bước ≤0 làm vòng while bên dưới không bao giờ dừng
   if(len<spacing*0.6) return;
   const ux=dx/len,uy=dy/len;
   let d=spacing*0.5;
-  while(d<len-spacing*0.2){_drawArrow(g,x1+ux*d,y1+uy*d,ux,uy);d+=spacing;}
+  for(let k=0; d<len-spacing*0.2 && k<500; k++){_drawArrow(g,x1+ux*d,y1+uy*d,ux,uy);d+=spacing;}
 }
 
+// renderMap: vẽ theo chế độ xem hiện tại (1 tầng hoặc nhiều ô); renderMapSingle vẽ 1 tầng vào nhóm <g> hiện hành
+let _tilesTimer=null;
 function renderMap(){
-  const g=document.getElementById('world-g');
+  if(_multiActive()){
+    // gộp nhiều lần gọi liên tiếp (vị trí + tuyến + chọn node...) thành 1 lần vẽ lại
+    if(_tilesTimer) return;
+    _tilesTimer=setTimeout(()=>{ _tilesTimer=null; if(_multiActive()) renderTiles(); },40);
+  } else renderMapSingle();
+}
+function renderMapSingle(){
+  const g=_worldG();
   g.innerHTML='';
   applyViewport();
   if(!mapData) return;
+  if(!_RC) _updateFloorCounts();
+  _renderTeamLegend();
 
   // ── Ảnh nền ─────────────────────────────────────────────────────────────
   if(mapImgUrl&&imgNatW>1){
@@ -1725,9 +2469,18 @@ function renderMap(){
     g.appendChild(imgEl);
   }
 
-  const roads=mapData.roads||[], beziers=mapData.benziers||[];
-  const _nm={};
-  mapNodes.forEach(n=>_nm[String(n.name_id)]=n);
+  // _nm = node của TẦNG ĐANG XEM (vẽ node/cạnh/route); _nmAll = mọi tầng (tra vị trí xe)
+  const _nm={}, _nmAll={};
+  mapNodes.forEach(n=>{ _nmAll[String(n.name_id)]=n; if(_inCurFloor(n)) _nm[String(n.name_id)]=n; });
+  // Cạnh mang floor_id của tầng nó được vẽ (map editor vẽ theo floor_id). Cạnh qua thang (vd 7→9) có node nguồn
+  // ở tầng 1 nhưng toạ độ + floor_id của tầng đích → nếu lọc theo node nguồn sẽ bị vẽ thừa lên tầng 1.
+  const _inFl = r => {
+    if(mapFloors.length<=1) return true;
+    const rf=String(r.floor_id||'');
+    if(rf && mapFloors.some(x=>String(x.id)===rf)) return rf===String(curFloorId);
+    return !!_nm[String(r.id_source)];
+  };
+  const roads=(mapData.roads||[]).filter(_inFl), beziers=(mapData.benziers||[]).filter(_inFl);
 
   // ── Roads ────────────────────────────────────────────────────────────────
   roads.forEach(r=>{
@@ -1771,13 +2524,12 @@ function renderMap(){
 
   // ── AGV Routes (animated dashed path + arrow markers) ─────────────────────
   // Reset defs markers
-  const mapDefs=document.getElementById('map-defs');
-  mapDefs.innerHTML='';
+  if(!_RC){ document.getElementById('map-defs').innerHTML=''; }
 
   const _bzMapRoute=_bzLookup(beziers);
   Object.entries(agvRoutes).forEach(([agv_id,rt])=>{
     if(!rt.driving||!rt.path||rt.path.length<2) return;
-    const remaining=rt.path.slice(Math.max(0,rt.current_idx));
+    const remaining=_routeRemaining(agv_id,rt);
     if(remaining.length<2) return;
     const validIds=remaining.filter(nid=>_nm[String(nid)]);
     if(validIds.length<2) return;
@@ -1807,7 +2559,7 @@ function renderMap(){
     if(nd) nodeStepMap[String(nd.name_id)]=parseInt(si);
   }
 
-  mapNodes.forEach(n=>{
+  mapNodes.filter(_inCurFloor).forEach(n=>{
     const {x,y}=worldToPixel(+n.x,+n.y);
     const stepIdx=nodeStepMap[String(n.name_id)];
     const isSel=stepIdx!==undefined;
@@ -1815,7 +2567,8 @@ function renderMap(){
     const isStart=selStartNode&&String(selStartNode.name_id)===String(n.name_id);
     const stepCol=isSel?sc(stepIdx).h:null;
     // Normal nodes: #e1e2e7; selected/start nodes keep their functional color
-    const col=isStart?'#ffb700':(stepCol||'#e1e2e7');
+    const isElev=_isElevNode(n);
+    const col=isStart?'#ffb700':(stepCol||(isElev?'#a5b4fc':'#e1e2e7'));
 
     // Pulse ring for active step
     if(isActive){
@@ -1858,6 +2611,24 @@ function renderMap(){
     label.textContent=n.name||n.name_id;
 
     g.appendChild(circle); g.appendChild(hit); g.appendChild(label);
+    // Tổ: mọi node tổ dùng chung 1 màu
+    if(_isMonitorView()){
+      const _tl=_teamIndex().byNode[String(n.name_id)];
+      if(_tl&&_tl.length){
+        circle.setAttribute('fill',_TEAM_NODE_COLOR);
+        circle.setAttribute('stroke','#ffffff'); circle.setAttribute('stroke-width',String(1.5/vp.zoom));
+      }
+    }
+    // Thang máy: huy hiệu ⇅ phía trên node
+    if(isElev){
+      const eb=document.createElementNS(NS,'text');
+      eb.setAttribute('x',String(x+R*0.95)); eb.setAttribute('y',String(y-R*0.8));
+      eb.setAttribute('font-size',String(Math.max(7,11/vp.zoom)));
+      eb.setAttribute('fill','#818cf8'); eb.setAttribute('font-weight','700');
+      eb.setAttribute('pointer-events','none');
+      eb.textContent='⇅';
+      g.appendChild(eb);
+    }
 
     // Badge số bước trên node được chọn
     if(isSel){
@@ -1888,7 +2659,7 @@ function renderMap(){
     for(let i=0;i<route.length-1;i++){
       const na=mapNodes.find(n=>String(n.name_id)===String(route[i]));
       const nb=mapNodes.find(n=>String(n.name_id)===String(route[i+1]));
-      if(!na||!nb) continue;
+      if(!na||!nb||!_inCurFloor(na)||!_inCurFloor(nb)) continue;
       const {x:x1,y:y1}=worldToPixel(+na.x,+na.y);
       const {x:x2,y:y2}=worldToPixel(+nb.x,+nb.y);
       // glow
@@ -1908,7 +2679,7 @@ function renderMap(){
     // Vẽ số thứ tự trên mỗi node
     route.forEach((nid,i)=>{
       const nd=mapNodes.find(n=>String(n.name_id)===String(nid));
-      if(!nd) return;
+      if(!nd||!_inCurFloor(nd)) return;
       const {x,y}=worldToPixel(+nd.x,+nd.y);
       const isCurrent=String(nid)===String(simRouteData.current_dest);
       const R=Math.max(7,10/vp.zoom);
@@ -1943,16 +2714,34 @@ function renderMap(){
   // ── AGV Icons (top-view với hướng di chuyển) ─────────────────────────────
   agvPositions.forEach(agv=>{
     if(!agv.has_position) return;
+    if(mapFloors.length>1 && agv.current_node){
+      if(agv.floor_id){
+        if(String(agv.floor_id)!==String(curFloorId)) return;   // xe trong cabin ở tầng thang đang đứng
+      } else {
+        const _an=_nmAll[String(agv.current_node)];
+        if(_an && !_inCurFloor(_an)) return;      // xe đang ở tầng khác
+      }
+    }
     const {x,y}=worldToPixel(+agv.x,+agv.y);
-    const online=agv.connection==='ONLINE';
+    const ghost=!!agv.ghost;              // mất tín hiệu khi đang chạy: vẫn nằm trên đường
+    const online=agv.connection==='ONLINE'&&!ghost;
     const driving=agv.driving&&online;
+    const alert=ghost?null:(agv.alert||null);
     const rt=agvRoutes[agv.agv_id]||null;
-    const col=online?agvRouteColor(agv.agv_id):'#4b5563';
+    const col=ghost?'#f59e0b':(alert?'#ef4444':(online?agvRouteColor(agv.agv_id):'#4b5563'));
     const S=Math.max(6,10/vp.zoom);
     const heading=_computeHeading(rt,_nm);
 
-    // Outer glow pulse when driving
-    if(driving){
+    // Outer glow pulse — đỏ + nhanh hơn khi có cảnh báo hệ thống (ưu tiên hơn
+    // glow driving thường, để NHẬN RA xe có vấn đề ngay cả khi đang đứng yên)
+    if(alert){
+      const alertC=document.createElementNS(NS,'circle');
+      alertC.setAttribute('cx',String(x)); alertC.setAttribute('cy',String(y));
+      alertC.setAttribute('r',String(S*3.1)); alertC.setAttribute('fill','#ef4444');
+      alertC.setAttribute('opacity','0.2'); alertC.setAttribute('pointer-events','none');
+      alertC.style.animation='agvAlertPulse 0.6s ease-in-out infinite';
+      g.appendChild(alertC);
+    }else if(driving){
       const glowC=document.createElementNS(NS,'circle');
       glowC.setAttribute('cx',String(x)); glowC.setAttribute('cy',String(y));
       glowC.setAttribute('r',String(S*2.6)); glowC.setAttribute('fill',col);
@@ -1964,29 +2753,55 @@ function renderMap(){
     // Rotating group (body + arrow)
     const grp=document.createElementNS(NS,'g');
     grp.setAttribute('transform',`translate(${x},${y}) rotate(${heading})`);
+    grp.style.cursor='pointer'; grp.addEventListener('click',ev=>{ ev.stopPropagation(); _toggleRouteAgv(agv.agv_id); });
+    if(alert){
+      const tip=document.createElementNS(NS,'title');
+      tip.textContent=`${agv.agv_id}: ${alert.message}`+
+        (alert.elapsed_sec!=null?` (từ ${Math.round(alert.elapsed_sec)}s)`:'');
+      grp.appendChild(tip);
+    }
 
     const bw=S*1.5, bh=S*2.1;
-    // Body
+    // Halo tối phía sau thân xe — giúp xe NỔI BẬT trên mọi nền (ảnh SLAM xám,
+    // đường/node sáng màu, nền tối) thay vì chỉ có viền màu dễ lẫn vào nền.
+    const halo=document.createElementNS(NS,'rect');
+    const haloPad=1.6/vp.zoom;
+    halo.setAttribute('x',String(-bw/2-haloPad)); halo.setAttribute('y',String(-bh/2-haloPad));
+    halo.setAttribute('width',String(bw+haloPad*2)); halo.setAttribute('height',String(bh+haloPad*2));
+    halo.setAttribute('rx',String(bw*0.28+haloPad));
+    halo.setAttribute('fill','#05070c'); halo.setAttribute('opacity','0.85');
+    halo.setAttribute('pointer-events','none');
+    grp.appendChild(halo);
+
+    // Body — fill ĐẶC (không còn mờ như trước) để không bị lẫn vào nền bản đồ.
     const body=document.createElementNS(NS,'rect');
     body.setAttribute('x',String(-bw/2)); body.setAttribute('y',String(-bh/2));
     body.setAttribute('width',String(bw)); body.setAttribute('height',String(bh));
     body.setAttribute('rx',String(bw*0.28));
-    body.setAttribute('fill',online?col+'55':'rgba(75,85,99,.35)');
-    body.setAttribute('stroke',col); body.setAttribute('stroke-width',String(2.2/vp.zoom));
+    body.setAttribute('fill',ghost?'#f59e0b':(alert?'#ef4444':(online?col:'#4b5563')));
+    body.setAttribute('fill-opacity',ghost?'0.35':(alert?'0.85':(online?'0.82':'0.6')));
+    if(ghost){
+      body.setAttribute('stroke-dasharray',String(S*0.5)+' '+String(S*0.35));
+      const gt=document.createElementNS(NS,'title');
+      gt.textContent=`${agv.agv_id}: mất tín hiệu — đang giữ chỗ node ${(agv.ghost_nodes||[]).join(', ')}`;
+      grp.appendChild(gt);
+    }
+    body.setAttribute('stroke','#ffffff'); body.setAttribute('stroke-opacity','0.9');
+    body.setAttribute('stroke-width',String((alert?2.6:1.6)/vp.zoom));
     grp.appendChild(body);
 
     // Direction arrow (pointing "up" = front of AGV)
     const arrowH=S*0.8, arrowW=S*1.0;
     const arr=document.createElementNS(NS,'polygon');
     arr.setAttribute('points',`0,${-bh/2-arrowH} ${arrowW/2},${-bh/2} ${-arrowW/2},${-bh/2}`);
-    arr.setAttribute('fill',online?col:'#4b5563');
-    arr.setAttribute('opacity',driving?'1':'0.55');
+    arr.setAttribute('fill','#ffffff');
+    arr.setAttribute('opacity',driving?'1':'0.85');
     grp.appendChild(arr);
 
     // Center indicator dot
     const dot=document.createElementNS(NS,'circle');
     dot.setAttribute('r',String(S*0.2));
-    dot.setAttribute('fill',col);
+    dot.setAttribute('fill','#ffffff');
     grp.appendChild(dot);
 
     // Battery bar inside body (bottom area, stays in rotated group)
@@ -2009,16 +2824,29 @@ function renderMap(){
 
     g.appendChild(grp);
 
-    // Label (outside rotation — stays upright)
+    // Label (outside rotation — stays upright) — có nền pill tối phía sau để
+    // đọc được chữ dù đè lên đường/node sáng màu hay ảnh nền SLAM.
+    const lblText=alert?`⚠ ${agv.agv_id}`:agv.agv_id;
+    const fontSize=Math.max(7,9/vp.zoom);
+    const lblY=y+S*2.05+6/vp.zoom;
+    const pillW=lblText.length*fontSize*0.62+fontSize*0.9;
+    const pillH=fontSize*1.5;
+    const pill=document.createElementNS(NS,'rect');
+    pill.setAttribute('x',String(x-pillW/2)); pill.setAttribute('y',String(lblY-pillH*0.74));
+    pill.setAttribute('width',String(pillW)); pill.setAttribute('height',String(pillH));
+    pill.setAttribute('rx',String(pillH*0.3));
+    pill.setAttribute('fill','#05070c'); pill.setAttribute('fill-opacity','0.78');
+    pill.setAttribute('pointer-events','none');
+    g.appendChild(pill);
     const lbl=document.createElementNS(NS,'text');
-    lbl.setAttribute('x',String(x)); lbl.setAttribute('y',String(y+S*1.9+5/vp.zoom));
+    lbl.setAttribute('x',String(x)); lbl.setAttribute('y',String(lblY));
     lbl.setAttribute('text-anchor','middle');
-    lbl.setAttribute('font-size',String(Math.max(7,9/vp.zoom)));
+    lbl.setAttribute('font-size',String(fontSize));
     lbl.setAttribute('fill',col);
     lbl.setAttribute('pointer-events','none');
     lbl.setAttribute('font-family','JetBrains Mono,monospace');
     lbl.setAttribute('font-weight','700');
-    lbl.textContent=agv.agv_id;
+    lbl.textContent=lblText;
     g.appendChild(lbl);
   });
 }
@@ -2045,12 +2873,24 @@ mapSvg.addEventListener('wheel',e=>{
   applyViewport(); renderMap();
 },{passive:false});
 
-function zoomIn(){  vp.zoom*=1.18; applyViewport(); renderMap(); }
-function zoomOut(){ vp.zoom/=1.18; applyViewport(); renderMap(); }
-function fitMap(){  autoFit(); renderMap(); }
+function _zoomTiles(f){
+  _tiles.forEach(t=>{
+    const cx=(t.wrapEl.clientWidth||400)/2, cy=(t.wrapEl.clientHeight||300)/2;
+    t.vp.panX=cx-(cx-t.vp.panX)*f; t.vp.panY=cy-(cy-t.vp.panY)*f; t.vp.zoom*=f;
+  });
+  renderTiles();
+}
+function zoomIn(){  if(_multiActive()){ _zoomTiles(1.18); return; } vp.zoom*=1.18; applyViewport(); renderMap(); }
+function zoomOut(){ if(_multiActive()){ _zoomTiles(1/1.18); return; } vp.zoom/=1.18; applyViewport(); renderMap(); }
+function _fitAndRender(){
+  if(_multiActive()){ _fitAllTiles(); renderTiles(); }
+  else { autoFit(); renderMap(); }
+}
+function fitMap(){  _fitAndRender(); }
 
 function toggleMapFullscreen(){
-  const wrap=document.getElementById('map-wrap');
+  // Màn hình theo dõi: phóng to CẢ khối (bản đồ + panel AGV) để vẫn thấy panel khi toàn màn hình
+  const wrap=document.getElementById('mon-body')||document.getElementById('map-wrap');
   if(!document.fullscreenElement){
     wrap.requestFullscreen().catch(()=>{});
   } else {
@@ -2062,8 +2902,8 @@ document.addEventListener('fullscreenchange',()=>{
   const panel=document.getElementById('fs-agv-panel');
   const isFs=!!document.fullscreenElement;
   if(icon) icon.textContent=isFs?'fullscreen_exit':'fullscreen';
-  if(panel) panel.style.display=isFs?'block':'none';
-  setTimeout(()=>{autoFit();renderMap();},120);
+  if(panel) panel.style.display=(isFs&&!document.getElementById('mon-body'))?'block':'none';
+  setTimeout(()=>{ _fitAndRender(); },120);
   if(isFs) updateFsAgvPanel();
 });
 
@@ -2107,14 +2947,19 @@ function updateFsAgvPanel(){
       nextLabel=String(a.running_cmd.dest_node);
     }
 
+    const alert=a.alert||null;
     const border=i<agvs.length-1?'border-bottom:1px solid rgba(255,255,255,.05)':'';
-    return `<div style="padding:7px 10px;${border}">
+    return `<div style="padding:7px 10px;${border}${alert?';background:rgba(239,68,68,.08)':''}">
       <div style="display:flex;align-items:center;gap:6px">
-        <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${dotCol}"></span>
+        <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:${alert?'#ef4444':dotCol}"></span>
         <span style="font-weight:700;font-size:12px;font-family:'JetBrains Mono',monospace;color:${col}">${a.agv_id}</span>
         <span style="font-size:9px;font-family:'JetBrains Mono',monospace;color:${stCol};margin-left:2px">${stText}</span>
       </div>
       ${nextLabel?`<div style="margin-top:3px;padding-left:12px;font-size:10px;font-family:'JetBrains Mono',monospace;color:#ffb700">→ ${nextLabel}</div>`:''}
+      ${alert?`<div class="agv-alert-row" style="margin-left:12px">
+        <span class="material-symbols-outlined">warning</span>
+        <span>${alert.message}${alert.elapsed_sec!=null?` <span style="color:#f87171">(${Math.round(alert.elapsed_sec)}s)</span>`:''}</span>
+      </div>`:''}
     </div>`;
   }).join('');
 }
@@ -2194,12 +3039,15 @@ function startMission(){
 async function doDispatch(){
   closeModal('confirm-modal');
 
-  // ── AGV loại Trailer/rơ-moóc + bước đích là "Tổ X" (nhóm teamOpts trong
-  // dropdown) → chạy chu trình 5 chặng qua /api/execute/trailer-roundtrip
+  // ── AGV loại Trailer/rơ-moóc/kéo (tow) + bước đích là "Tổ X" (nhóm teamOpts
+  // trong dropdown) → chạy chu trình 5 chặng qua /api/execute/trailer-roundtrip
   // thay vì go_to thường (server tự tìm node thả rỗng/lấy đầy/staging theo
   // cấu hình map). Bước đích KHÔNG phải "Tổ" (node thường) vẫn dispatch bình
   // thường như cũ — không đụng carry hay các luồng khác.
-  if (selAgv && selAgv.agv_type_raw === 'trailer') {
+  // Xe kéo cấu hình chế độ carry_hook / carry_fixed (Quản lý AGV → Chế độ vận hành)
+  // chạy như XE CHỞ: bỏ qua chu trình trailer-roundtrip, dispatch từng bước go_to bên dưới.
+  const _towCarryMode = selAgv && (selAgv.op_mode === 'carry_hook' || selAgv.op_mode === 'carry_fixed');
+  if (selAgv && !_towCarryMode && (selAgv.agv_type_raw === 'trailer' || selAgv.agv_type_raw === 'tow')) {
     const teamSteps = wfSteps.filter(s => s.needsDest && selNodes[s.idx]
       && teamNodes.some(t => String(t.node_id) === String(selNodes[s.idx].name_id)));
     if (teamSteps.length) {
@@ -2399,15 +3247,26 @@ function updateLifecycleBar(){
   const deliver  = document.getElementById('lc-delivering');
   const lc = selAgv?.task_lifecycle;
 
-  // Xe rơ-moóc đã nâng móc, đang chờ được đưa xe hàng vào + bấm Hạ móc thủ công
-  // — xảy ra TRƯỚC khi task_lifecycle chuyển 'picking' (chỉ chuyển sau khi hạ móc xong).
-  if(selAgv?.hook_pending === 'pickup' && selAgv?.hook_state !== 'lowered'){
+  // Xe đã tới node lấy hàng, đang chờ được đưa xe hàng vào + bấm nút móc thủ
+  // công — xảy ra TRƯỚC khi task_lifecycle chuyển 'picking' (chỉ chuyển sau khi
+  // bước móc thủ công xong). Rơ-moóc: NÂNG tự động lúc tới → chờ bấm HẠ (đích
+  // hook_state='lowered'). AGV kéo: quy trình NGƯỢC — HẠ tự động lúc tới → chờ
+  // bấm NÂNG (đích hook_state='raised').
+  const isTowAgv = selAgv?.agv_type_raw === 'tow';
+  const hookWaitTarget = isTowAgv ? 'raised' : 'lowered';
+  if(selAgv?.hook_pending === 'pickup' && selAgv?.hook_state !== hookWaitTarget){
     bar.style.display      = 'flex';
     bar.style.borderColor  = 'rgba(245,166,35,.35)';
     bar.style.background   = 'rgba(38,26,4,.9)';
     hookLow.style.display  = 'flex';
     picking.style.display  = 'none';
     deliver.style.display  = 'none';
+    const descEl = document.getElementById('lc-hook-desc');
+    const iconEl = document.getElementById('lc-hook-btn-icon');
+    const lblEl  = document.getElementById('lc-hook-btn-label');
+    if(descEl) descEl.textContent = _t(isTowAgv ? 'lc_hook_desc_tow' : 'lc_hook_desc');
+    if(iconEl) iconEl.textContent = isTowAgv ? 'arrow_upward' : 'arrow_downward';
+    if(lblEl)  lblEl.textContent  = _t(isTowAgv ? 'lc_hook_btn_tow' : 'lc_hook_btn');
   } else if(lc === 'picking'){
     bar.style.display      = 'flex';
     bar.style.borderColor  = 'rgba(34,197,94,.35)';
@@ -2432,19 +3291,27 @@ function updateLifecycleBar(){
 
 async function sendHookLower(){
   if(!selAgv) return;
+  const isTowAgv = selAgv?.agv_type_raw === 'tow';
   const btn = document.getElementById('lc-hook-lower-btn');
   if(btn){ btn.disabled = true; btn.textContent = _t('lc_confirming'); }
   try{
-    const r = await fetch(`${API}/api/execute/line-action`,{
+    // Server tự chọn đúng lệnh (HẠ cho rơ-moóc, NÂNG cho AGV kéo) theo agv_type —
+    // KHÔNG còn gửi cứng action_code=31 như trước (sai hướng với AGV kéo).
+    const r = await fetch(`${API}/api/execute/hook-confirm`,{
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({agv_id: selAgv.agv_id, action_code: 31, value: 0})
+      body: JSON.stringify({agv_id: selAgv.agv_id})
     });
     const d = await r.json();
-    if(!r.ok || !d.ok){ toast('✗ '+(d.detail||'Lỗi gửi lệnh hạ móc'),'error'); }
-    else { toast(_t('lc_hook_sent'), 'success'); }
+    if(!r.ok || !d.ok){ toast('✗ '+(d.detail||'Lỗi gửi lệnh móc'),'error'); }
+    else { toast(_t(isTowAgv ? 'lc_hook_sent_tow' : 'lc_hook_sent'), 'success'); }
   }catch(e){ toast(_t('lc_confirm_err'),'error'); }
   finally{
-    if(btn){ btn.disabled = false; btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:14px">arrow_downward</span><span data-i18n="lc_hook_btn">'+_t('lc_hook_btn')+'</span>'; }
+    if(btn){
+      const icon = isTowAgv ? 'arrow_upward' : 'arrow_downward';
+      const label = _t(isTowAgv ? 'lc_hook_btn_tow' : 'lc_hook_btn');
+      btn.disabled = false;
+      btn.innerHTML = '<span id="lc-hook-btn-icon" class="material-symbols-outlined" style="font-size:14px">'+icon+'</span><span id="lc-hook-btn-label">'+label+'</span>';
+    }
     await loadAgvs();
     updateLifecycleBar();
   }
@@ -2478,6 +3345,7 @@ async function confirmLifecycle(){
 const _rtAnim={};          // {agv_id: {ei, t, pathKey}}
 let   _animRaf=null;
 let   _lastTs=null;
+let   _multiAcc=0;
 const EDGE_SPEED=1.6;      // giây để đi hết 1 cạnh
 
 function _animTick(ts){
@@ -2485,20 +3353,34 @@ function _animTick(ts){
   if(!_lastTs){ _lastTs=ts; return; }
   const dt=Math.min((ts-_lastTs)/1000,.12);   // tối đa 120ms/frame
   _lastTs=ts;
+  if(_multiActive()){
+    // nhiều ô: tiến thời gian hoạt ảnh ĐÚNG 1 lần/khung (ô đầu), các ô còn lại chỉ vẽ lại với dt=0
+    // giới hạn ~15 khung/s khi nhiều ô (vẽ lại N ô mỗi khung 60fps làm trang đứng)
+    _multiAcc+=dt;
+    if(_multiAcc<0.066) return;
+    const step=_multiAcc; _multiAcc=0;
+    let first=true;
+    _tiles.forEach(t=>{ const d=first?step:0; first=false; _withFloorCtx(t,()=>_drawAnimFrame(d)); });
+  } else {
+    _drawAnimFrame(dt);
+  }
+}
 
-  const ag=document.getElementById('anim-g');
+function _drawAnimFrame(dt){
+  const ag=_animG();
   if(!ag) return;
   ag.innerHTML='';
 
   if(!mapData||!mapNodes.length) return;
 
   // node lookup (world-space)
-  const nm={};
-  mapNodes.forEach(n=>nm[String(n.name_id)]=n);
+  const _nk=String(curFloorId)+'|'+mapNodes.length;
+  let nm=_animNmCache[_nk];
+  if(!nm){ nm={}; mapNodes.filter(_inCurFloor).forEach(n=>nm[String(n.name_id)]=n); _animNmCache[_nk]=nm; }
 
   Object.entries(agvRoutes).forEach(([agv_id,rt])=>{
     if(!rt.driving||!rt.path||rt.path.length<2) return;
-    const remaining=rt.path.slice(Math.max(0,rt.current_idx));
+    const remaining=_routeRemaining(agv_id,rt);
     if(remaining.length<2) return;
     const col=agvRouteColor(agv_id);
     const pathKey=remaining.join(',');
@@ -2555,8 +3437,8 @@ function startAnimation(){
 }
 
 // ── Auto-refresh ───────────────────────────────────────────────────────────
-setInterval(()=>{ loadAgvs(); if(currentMapId){ loadAgvPositions(); loadAgvRoutes(); } },2000);
-window.addEventListener('resize',()=>{ if(mapData&&mapNodes.length){autoFit();renderMap();} });
+setInterval(()=>{ loadAgvs(); if(currentMapId){ loadAgvPositions(); loadAgvRoutes(); loadElevators(); } },2000);
+window.addEventListener('resize',()=>{ if(mapData&&mapNodes.length){ _fitAndRender(); } });
 startAnimation();
 
 // ── CHẾ ĐỘ "BẢN ĐỒ THEO DÕI" (mở từ menu, tab mới ?view=monitor) ────────────
@@ -2574,10 +3456,14 @@ if (_MONITOR_VIEW) {
 
 loadAll().then(() => {
   if (!_MONITOR_VIEW) return;
-  // Tự chọn bản đồ đầu tiên để BẢN ĐỒ LOAD NGAY (không bắt người dùng chọn thủ công).
+  // Tự chọn bản đồ: dùng ?map_id= nếu có (vd nhúng từ trang Mô phỏng Fleet —
+  // xem/chọn ĐÚNG bản đồ đang cấu hình), ngược lại lấy bản đồ đầu tiên để
+  // BẢN ĐỒ LOAD NGAY (không bắt người dùng chọn thủ công).
   const sel = document.getElementById('map-select');
   if (sel && !currentMapId) {
-    const opt = Array.from(sel.options).find(o => o.value);
+    const _wantMapId = new URLSearchParams(location.search).get('map_id');
+    const opt = (_wantMapId && Array.from(sel.options).find(o => o.value === _wantMapId))
+                || Array.from(sel.options).find(o => o.value);
     if (opt) { sel.value = opt.value; onMapChange(); }
   }
 });
@@ -2687,6 +3573,17 @@ function simPopulateAgvs() {
 // Override pickNode để thêm node vào sim route khi ở sim mode
 const _origPickNode = typeof pickNode === 'function' ? pickNode : null;
 function pickNode(n) {
+  if (_isMonitorView() && _selRouteAgv) {
+    // Đang mở thẻ xe: node vừa bấm thành điểm đến của ô "Gửi lệnh"
+    const dsel = document.getElementById('agv-pop-dest');
+    if (dsel) {
+      const val = 'node|' + String(n.name_id);
+      if (!Array.from(dsel.options).some(o => o.value === val)) {
+        const op = document.createElement('option'); op.value = val; op.textContent = String(n.name_id); dsel.appendChild(op);
+      }
+      dsel.value = val;
+    }
+  }
   if (currentMode === 'sim') {
     simAddNode(n);
     return;
@@ -3474,7 +4371,8 @@ async function multiDispatch() {
   if (!agvId || !multiTeamOrder.length) return;
 
   const selAgvObj = agvs.find(x => x.agv_id === agvId);
-  if (selAgvObj && selAgvObj.agv_type_raw === 'trailer') {
+  if (selAgvObj && (selAgvObj.agv_type_raw === 'trailer' || selAgvObj.agv_type_raw === 'tow')
+      && selAgvObj.op_mode !== 'carry_hook' && selAgvObj.op_mode !== 'carry_fixed') {
     return multiDispatchTrailer(agvId);
   }
 

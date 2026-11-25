@@ -1,0 +1,22 @@
+{
+  "name": "same_destination",
+  "description": "2 xe (SIM01, SIM02) cùng được giao đích giống nhau (106), xuất phát lệch nhau 2s theo 2 nhánh khác nhau, rồi TỰ VỀ TRẠM (return_to_charge) — mô phỏng lại đúng ca thực tế AGV01/AGV04 ngày 2026-10-08. Kỳ vọng: không va chạm/đối đầu vật lý, và CẢ HAI đều phải hoàn tất round-trip (về trạm sạc HOẶC điểm chờ nếu trạm sạc đã đầy) trong thời gian hợp lý.",
+  "timeout_s": 300,
+  "agvs": {
+    "SIM01": {
+      "start_at_s": 0,
+      "route": ["98", "105", "106"],
+      "return_to_charge": true
+    },
+    "SIM02": {
+      "start_at_s": 2,
+      "route": ["99", "104", "106"],
+      "return_to_charge": true
+    }
+  },
+  "expectations": [
+    {"type": "no_violations", "kinds": ["COLLISION", "HEADON_EDGE"], "max_count": 0},
+    {"type": "arrive", "agv_id": "SIM01", "within_s": 240},
+    {"type": "arrive", "agv_id": "SIM02", "within_s": 240}
+  ]
+}

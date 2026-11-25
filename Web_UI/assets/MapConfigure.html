@@ -471,6 +471,7 @@ select option:checked {
             <option value="HOME">HOME - Điểm về nhà / Vị trí gốc</option>
             <option value="BUFFER">BUFFER - Khu vực chờ / Đệm</option>
             <option value="PARKING">PARKING - Khu vực đỗ xe / Đợi</option>
+            <option value="WAIT">WAIT - Điểm chờ (lệnh Về chờ)</option>
           </select>
         </div>
 
@@ -800,6 +801,9 @@ select option:checked {
     case 'HOME':     return '#22c55e';
     case 'BUFFER':   return '#a855f7';
     case 'PARKING':  return '#14b8a6';
+    case 'WAIT':     return '#ec4899';
+    case 'DOOR':     return '#84cc16';
+    case 'ELEVATOR': return '#6366f1';
     default:         return '#94a3b8';
   }
 }

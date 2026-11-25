@@ -1,4 +1,4 @@
-"""
+﻿"""
 task_queue.py — Hàng chờ lệnh per-AGV
 ---------------------------------------
 Mỗi AGV có 1 hàng chờ (deque). Khi AGV đang bận, lệnh mới được xếp vào hàng
@@ -21,6 +21,8 @@ CMD_GO_CHARGE = "go_charge"
 CMD_GO_WAIT   = "go_wait"
 CMD_STOP      = "stop"
 CMD_RESUME    = "resume"
+# Lệnh thang máy (xem floor_nav.py / elevator_coordinator.py): dest_node mang tham số dạng chuỗi
+from floor_nav import CMD_ELEV_BOOK, CMD_ELEV_CALL, CMD_ELEV_RIDE, CMD_ELEV_RELEASE
 
 CMD_LABELS = {
     CMD_GO_TO:     "Đi đến điểm",
@@ -28,6 +30,10 @@ CMD_LABELS = {
     CMD_GO_WAIT:   "Về khu chờ",
     CMD_STOP:      "Dừng khẩn cấp",
     CMD_RESUME:    "Tiếp tục",
+    CMD_ELEV_BOOK:    "Đặt thang máy",
+    CMD_ELEV_CALL:    "Gọi thang máy",
+    CMD_ELEV_RIDE:    "Đi thang máy",
+    CMD_ELEV_RELEASE: "Ra khỏi thang",
 }
 
 STATUS_QUEUED    = "queued"
@@ -56,6 +62,8 @@ class QueuedCommand:
     notes:         str = ""
     session_id:    Optional[str] = None   # nhóm các bước của cùng 1 lượt workflow
     session_label: Optional[str] = None   # tên workflow / nhãn hiển thị
+    chain_leg:     bool = False           # go_to TRUNG GIAN của chuỗi đi thang (không phải đích thật của lượt)
+    seq:           float = 0.0            # thứ tự trong hàng đợi (nhỏ = chạy trước) — lưu DB để khôi phục đúng thứ tự khi server khởi động lại
 
     def to_dict(self) -> dict:
         return {
@@ -71,6 +79,7 @@ class QueuedCommand:
             "notes":         self.notes,
             "session_id":    self.session_id,
             "session_label": self.session_label,
+            "chain_leg":     self.chain_leg,
         }
 
 
@@ -95,6 +104,14 @@ class AGVTaskQueue:
         # Một supply node chỉ lấy hàng MỘT lần mỗi lượt; các lệnh giao hàng sau trong
         # cùng session sẽ không dừng lại tại supply node đã lấy (đi một mạch qua).
         self._session_pickups: dict[str, set[str]] = {}
+        # AGV có hàng đợi vừa KHÔI PHỤC từ DB sau khi server khởi động lại, chờ xe sẵn sàng (online, đứng yên, biết vị trí)
+        # rồi mới chạy lệnh đầu (xem restore_from_rows / pop_restored).
+        self._restore_pending: set[str] = set()
+        # Chuẩn bị lệnh đầu của hàng đợi vừa khôi phục TRƯỚC khi chạy (nạp bản đồ, nhận lại chuyến thang, gọi lại thang...). Gắn bởi
+        # main.py. Mọi đường kích hàng đợi — người vận hành xác nhận trên web, bấm xác nhận/tiếp tục trực tiếp trên xe (HMI),
+        # hay tự động khi xe sẵn sàng — đều đi qua on_agv_completed nên cùng chạy hàm này: kết quả y hệt nhau.
+        # fn(agv_id) -> False = giữ hàng đợi, chưa chạy.
+        self.restore_prepare_fn: Optional[Callable] = None
 
     def set_pool(self, pool) -> None:
         self._pool = pool
@@ -112,6 +129,23 @@ class AGVTaskQueue:
             if self._loop and self._loop.is_running():
                 asyncio.run_coroutine_threadsafe(coro, self._loop)
 
+    # ── Thứ tự hàng đợi (lưu DB) ───────────────────────────────────────────────
+
+    def _tail_seq(self, agv_id: str) -> float:
+        q = self._queues.get(agv_id)
+        now = time.time()
+        return max(now, q[-1].seq + 1e-3) if q else now
+
+    def _head_seq(self, agv_id: str) -> float:
+        q = self._queues.get(agv_id)
+        return (q[0].seq - 1.0) if q else time.time()
+
+    def mark_chain_leg(self, cmd: "QueuedCommand", flag: bool) -> None:
+        """Đặt cờ chain_leg SAU khi tạo lệnh và lưu DB (bản ghi đã được chèn trước đó)."""
+        if cmd.chain_leg != bool(flag):
+            cmd.chain_leg = bool(flag)
+            self._db_set_chain_leg(cmd)
+
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def is_busy(self, agv_id: str) -> bool:
@@ -126,7 +160,17 @@ class AGVTaskQueue:
         """Đánh dấu supply node đã (hoặc sẽ) lấy hàng trong session này."""
         if node is None:
             return
-        self._session_pickups.setdefault(self._session_key(session_id), set()).add(str(node))
+        key = self._session_key(session_id)
+        bucket = self._session_pickups.setdefault(key, set())
+        if str(node) not in bucket:
+            bucket.add(str(node))
+            from persistent_flags import flag_store
+            flag_store.add("session_pickup", key, str(node))      # sống sót qua server khởi động lại
+
+    def restore_session_pickups(self, rows) -> None:
+        """Nạp lại từ DB: rows = [(session_key, node)]."""
+        for key, node in rows:
+            self._session_pickups.setdefault(str(key), set()).add(str(node))
 
     def session_has_pickup(self, session_id: Optional[str], node) -> bool:
         """True nếu supply node đã được lấy hàng trong session này → không dừng lại nữa."""
@@ -153,7 +197,10 @@ class AGVTaskQueue:
         return out
 
     def _clear_session_pickups(self, session_id: Optional[str]) -> None:
-        self._session_pickups.pop(self._session_key(session_id), None)
+        key = self._session_key(session_id)
+        if self._session_pickups.pop(key, None) is not None:
+            from persistent_flags import flag_store
+            flag_store.remove_group("session_pickup", key)
 
     def dispatch_or_queue(
         self,
@@ -179,6 +226,7 @@ class AGVTaskQueue:
                 started_at=time.time(),
                 session_id=session_id,
                 session_label=session_label,
+                seq=time.time(),
             )
             self._running[agv_id] = cmd
             self._db_insert(cmd)
@@ -201,6 +249,7 @@ class AGVTaskQueue:
                 status=STATUS_QUEUED,
                 session_id=session_id,
                 session_label=session_label,
+                seq=self._tail_seq(agv_id),
             )
             self._queues.setdefault(agv_id, deque()).append(cmd)
             self._db_insert(cmd)
@@ -216,6 +265,15 @@ class AGVTaskQueue:
         pending_retry dispatch LẠI go_to khi đích trống, mà KHÔNG chạy nhầm go_charge
         đứng sau trong hàng đợi (gây bỏ giao hàng đi sạc).
         """
+        if agv_id in self._restore_pending and not self._running.get(agv_id):
+            self._restore_pending.discard(agv_id)
+            if auto_dispatch and self.restore_prepare_fn is not None:
+                try:
+                    if self.restore_prepare_fn(agv_id) is False:
+                        return           # chưa chạy được (vd xe trong cabin mà thang chưa nhận lại) — giữ nguyên hàng đợi
+                except Exception as e:
+                    print(f"[QUEUE] {agv_id}: chuẩn bị lệnh đầu hàng đợi khôi phục lỗi: {type(e).__name__}: {e}")
+
         running = self._running.get(agv_id)
         if running:
             running.status        = STATUS_COMPLETED
@@ -289,6 +347,8 @@ class AGVTaskQueue:
             status=STATUS_QUEUED,
             session_id=running.session_id if running else None,
             session_label=running.session_label if running else None,
+            chain_leg=bool(running and running.chain_leg and command == "go_to"),
+            seq=self._head_seq(agv_id),
         )
         self._queues.setdefault(agv_id, deque()).appendleft(cmd)
         self._db_insert(cmd)
@@ -346,7 +406,81 @@ class AGVTaskQueue:
         """Hủy lệnh đang chạy + toàn bộ hàng chờ. Dùng khi AGV bị stuck."""
         running  = self.cancel_running(agv_id)
         queued_n = self.cancel_queue(agv_id)
+        # Dấu "staging transit" còn sót của xe này (đặt lúc off_route/split nhưng lệnh re-queue
+        # đã bị huỷ) PHẢI xoá — nếu không lệnh go_to KẾ TIẾP tới đúng node đó bị coi là transit:
+        # tới điểm lấy hàng không chờ xác nhận mà tự đi tiếp (log 2026-11-11 13:39, AGV02 node 98).
+        try:
+            from main import _pending_staging_transits as _pst_ca
+            for _k in [k for k in _pst_ca if k[0] == agv_id]:
+                _pst_ca.discard(_k)
+        except Exception:
+            pass
         return {"cancelled_running": running, "cancelled_queued": queued_n}
+
+    # ── Khôi phục hàng đợi sau khi server khởi động lại ─────────────────────────
+
+    def restore_from_rows(self, rows: list) -> dict:
+        """Dựng lại hàng đợi từ các dòng DB còn 'running'/'queued' của lần chạy trước (rows đã sắp: lệnh đang chạy dở trước,
+        rồi theo seq). Mọi lệnh khôi phục về trạng thái 'queued' — lệnh đang chạy dở sẽ được dispatch LẠI từ vị trí thật của xe
+        khi xe sẵn sàng. Trả {agv_id: số lệnh}."""
+        per: dict = {}
+        was_running: set = set()
+        for r in rows:
+            cmd = QueuedCommand(
+                cmd_id=str(r["cmd_id"]), agv_id=str(r["agv_id"]), command=str(r["command"]),
+                dest_node=(str(r["dest_node"]) if r.get("dest_node") not in (None, "") else None),
+                start_node=(str(r["start_node"]) if r.get("start_node") else None),
+                queued_at=float(r.get("queued_at") or time.time()),
+                status=STATUS_QUEUED,
+                notes="restored",
+                session_id=r.get("session_id"), session_label=r.get("session_label"),
+                chain_leg=bool(r.get("chain_leg")),
+                seq=float(r["seq"]) if r.get("seq") is not None else float(r.get("queued_at") or time.time()),
+            )
+            per.setdefault(cmd.agv_id, []).append(cmd)
+            if str(r.get("status")) == STATUS_RUNNING:
+                was_running.add(cmd.cmd_id)
+        out: dict = {}
+        for agv_id, cmds in per.items():
+            if self._running.get(agv_id) or self._queues.get(agv_id):
+                continue        # xe đã có lệnh mới trong RAM (restore chạy trễ) — không đè
+            self._queues[agv_id] = deque(cmds)
+            self._restore_pending.add(agv_id)
+            out[agv_id] = len(cmds)
+            for c in cmds:
+                if c.cmd_id in was_running:
+                    self._db_update(c)      # DB: lệnh đang chạy dở quay về 'queued' (sẽ dispatch lại)
+        return out
+
+    def restore_pending(self) -> list:
+        return sorted(self._restore_pending)
+
+    def pop_restored(self, agv_id: str) -> bool:
+        """Bỏ AGV khỏi danh sách chờ khôi phục. True nếu trước đó đang chờ."""
+        had = agv_id in self._restore_pending
+        self._restore_pending.discard(agv_id)
+        return had
+
+    def heading_to_special(self, agv_id: str) -> bool:
+        """True nếu lệnh đang chạy là go_charge/go_wait, hoặc là chặng go_to TRUNG GIAN của một chuỗi (đi thang...) mà đích cuối
+        là go_charge/go_wait. Với các lượt này xe CHỈ ĐI QUA các node lấy/thả hàng, không dừng lấy hàng (xem _dispatch_go_to)."""
+        run = self._running.get(agv_id)
+        if run is None:
+            return False
+        if run.command in (CMD_GO_CHARGE, CMD_GO_WAIT):
+            return True
+        if run.command != CMD_GO_TO or not run.chain_leg:
+            return False
+        for c in self._queues.get(agv_id, ()):
+            if c.command in (CMD_GO_CHARGE, CMD_GO_WAIT):
+                return True
+            if c.command == CMD_GO_TO and not c.chain_leg:
+                return False
+        return False
+
+    def peek_head(self, agv_id: str):
+        q = self._queues.get(agv_id)
+        return q[0] if q else None
 
     def get_queue(self, agv_id: str) -> list[dict]:
         return [c.to_dict() for c in self._queues.get(agv_id, [])]
@@ -582,14 +716,28 @@ class AGVTaskQueue:
                 async with self._pool.acquire() as conn:
                     await conn.execute(
                         "INSERT INTO agv_task_executions"
-                        "(cmd_id,agv_id,command,dest_node,status,queued_at,session_id,session_label)"
-                        " VALUES($1,$2,$3,$4,$5,to_timestamp($6),$7,$8)",
+                        "(cmd_id,agv_id,command,dest_node,status,queued_at,session_id,session_label,"
+                        "seq,chain_leg,start_node)"
+                        " VALUES($1,$2,$3,$4,$5,to_timestamp($6),$7,$8,$9,$10,$11)",
                         cmd.cmd_id, cmd.agv_id, cmd.command,
                         cmd.dest_node, cmd.status, cmd.queued_at,
                         cmd.session_id, cmd.session_label,
+                        float(cmd.seq), bool(cmd.chain_leg), cmd.start_node,
                     )
             except Exception as e:
                 print(f"[QUEUE] DB insert error: {e}")
+        self._schedule_db(_do())
+
+    def _db_set_chain_leg(self, cmd: QueuedCommand) -> None:
+        if not self._pool:
+            return
+        async def _do():
+            try:
+                async with self._pool.acquire() as conn:
+                    await conn.execute("UPDATE agv_task_executions SET chain_leg=$2 WHERE cmd_id=$1",
+                                       cmd.cmd_id, bool(cmd.chain_leg))
+            except Exception as e:
+                print(f"[QUEUE] DB chain_leg error: {e}")
         self._schedule_db(_do())
 
     def _db_update(self, cmd: QueuedCommand) -> None:

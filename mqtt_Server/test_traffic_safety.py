@@ -16,6 +16,22 @@ import networkx as nx
 import line_agv_handler as LH
 from mqtt_client import map_manager as MM
 
+# Xe offline bị coi như không tồn tại (xem LH.line_state_online) — state giả của test
+# phải "online": get_or_create đánh dấu ONLINE và nới ngưỡng stale.
+LH.LINE_STATE_STALE_SEC = 10 ** 9
+_orig_get_or_create = LH.LineAGVStateStore.get_or_create
+
+
+def _online_get_or_create(self, agv_id):
+    st = _orig_get_or_create(self, agv_id)
+    if st.last_update <= 0:
+        st.last_update = 1.0
+        st.connection_state = "ONLINE"
+    return st
+
+
+LH.LineAGVStateStore.get_or_create = _online_get_or_create
+
 DB = "postgresql://postgres:ducmanh1801@localhost:5432/TOT_AGV"
 MAP_ID = "1779790224391"
 
@@ -1642,6 +1658,113 @@ def test_reroute_cooldown_prevents_flipflop():
         h.send_window_fn = _saved
 
 
+def test_stall_bypass_allows_reroute_after_long_stall():
+    """PHÁT HIỆN THỰC TẾ (2026-10-02): REROUTE_COOLDOWN có thể tự trở thành cái bẫy khi
+    xe đứng im THẬT SỰ rất lâu (bế tắc toàn hệ thống) — mỗi lần thử lại đều rơi vào
+    "vừa reroute < 18s". Nếu xe KHÔNG tiến được (current_idx không đổi, last_progress_ts
+    cũ) quá STALL_BYPASS_SEC → phải được PHÉP bỏ qua CỔNG COOLDOWN (dù việc TÌM được
+    đường thay thế thật hay không là chuyện khác, đã có test riêng ở
+    test_reroute_cooldown_prevents_flipflop/test_backup_to_reroute_node). Xe vừa mới
+    nhích (last_progress_ts gần) thì KHÔNG được bypass (giữ đúng hành vi chống dao động
+    cũ). Kiểm tra qua ĐÚNG thông báo quyết định (bypass vs chặn) — tách khỏi kết quả
+    pathfinding thật (phụ thuộc dữ liệu map, không phải logic đang test ở đây)."""
+    print("[test] stall-bypass: cổng cooldown reroute bị bỏ qua khi xe đứng im quá lâu")
+    import io
+    import time as _t
+    import contextlib
+    g = load_graph()
+    tc, h = reset(g)
+    _fake_points(g)
+    _saved = h.send_window_fn
+    h.send_window_fn = lambda a, p: None
+    try:
+        def _fresh_route():
+            r = LH.LineAGVRoute(full_path=["8", "5", "18"], task_type="delivery",
+                                direction="fwd", window_start=0, window_end=2, is_complete=False)
+            h._routes["AGV01"] = r
+            return r
+        r = _fresh_route()
+        st1 = place(h, "AGV01", "8", driving=False)
+
+        # (1) Đứng im RẤT LÂU (last_progress_ts cũ hơn STALL_BYPASS_SEC) + vừa reroute
+        #     (trong REROUTE_COOLDOWN) → cổng cooldown PHẢI bị bỏ qua (in dòng bypass,
+        #     KHÔNG in dòng "BỎ reroute... chống dao động").
+        tc._registered["AGV01"] = {
+            "path": ["8", "5", "18"], "direction": "fwd", "current_idx": 0, "priority": 1,
+            "last_progress_ts": _t.monotonic() - (LH.STALL_BYPASS_SEC + 5.0),
+        }
+        h._reroute_ts["AGV01"] = _t.monotonic()   # vừa reroute < cooldown
+        _buf1 = io.StringIO()
+        with contextlib.redirect_stdout(_buf1):
+            h._try_line_reroute("AGV01", st1, r, 0, {"5"}, avoid_all=True)
+        _out1 = _buf1.getvalue()
+        if "cooldown reroute bị bỏ qua" in _out1 and "chống dao động lật nhánh" not in _out1:
+            _ok(f"đứng im > {LH.STALL_BYPASS_SEC:.0f}s → cổng cooldown BỊ BỎ QUA đúng như kỳ vọng")
+        else:
+            _bad(f"đứng im lâu vẫn KHÔNG bỏ qua được cổng cooldown: {_out1!r}")
+
+        # (2) ĐỐI CHỨNG: vừa nhích gần đây (last_progress_ts mới) + vừa reroute → cổng
+        #     cooldown VẪN chặn như cũ (không vô hiệu hoá chống dao động cho ca chờ
+        #     ngắn bình thường, đúng hành vi của test_reroute_cooldown_prevents_flipflop).
+        tc._registered["AGV01"]["last_progress_ts"] = _t.monotonic()
+        h._reroute_ts["AGV01"] = _t.monotonic()
+        r2 = _fresh_route()
+        _buf2 = io.StringIO()
+        with contextlib.redirect_stdout(_buf2):
+            h._try_line_reroute("AGV01", st1, r2, 0, {"5"}, avoid_all=True)
+        _out2 = _buf2.getvalue()
+        if "chống dao động lật nhánh" in _out2 and "cooldown reroute bị bỏ qua" not in _out2:
+            _ok("(đối chứng) vừa nhích gần đây → cổng cooldown VẪN chặn bình thường")
+        else:
+            _bad(f"đối chứng sai: xe mới nhích mà vẫn bị bypass oan: {_out2!r}")
+    finally:
+        h.send_window_fn = _saved
+
+
+def test_check_global_stall_detects_n_way():
+    """check_global_stall() phải phát hiện ĐÚNG ca N-xe (3+) cùng bí hoàn toàn — thứ
+    _is_deadlocked_with (pairwise) KHÔNG bắt được. Chỉ coi là "bí toàn hệ thống" khi
+    TẤT CẢ xe đang active đều đứng im quá GLOBAL_STALL_SEC; còn ít nhất 1 xe tiến được
+    thì KHÔNG phải bí do giao thông → trả None."""
+    print("[test] check_global_stall() nhận diện đúng N xe cùng bí (không chỉ 2 xe)")
+    import time as _t
+    g = load_graph()
+    tc, h = reset(g)
+    _old = _t.monotonic() - (LH.GLOBAL_STALL_SEC + 5.0)
+    _fresh = _t.monotonic()
+
+    # (1) Chỉ 1 xe active → không thể gọi là "khoá chéo nhau", luôn None.
+    tc._registered["AGV01"] = {"priority": 1, "last_progress_ts": _old}
+    if tc.check_global_stall() is None:
+        _ok("chỉ 1 xe active → None (không phải bí do giao thông)")
+    else:
+        _bad("chỉ 1 xe mà vẫn báo bí toàn hệ thống")
+
+    # (2) 3 xe, 1 xe vẫn còn tiến được gần đây → KHÔNG phải bí toàn hệ thống → None.
+    tc._registered["AGV02"] = {"priority": 3, "last_progress_ts": _old}
+    tc._registered["AGV03"] = {"priority": 2, "last_progress_ts": _fresh}
+    if tc.check_global_stall() is None:
+        _ok("3 xe nhưng 1 xe vẫn tiến được gần đây → None (không phải bí toàn hệ thống)")
+    else:
+        _bad("còn xe tiến được mà vẫn báo bí toàn hệ thống")
+
+    # (3) CẢ 3 xe đều đứng im quá GLOBAL_STALL_SEC → phải trả đủ 3 agv_id.
+    tc._registered["AGV03"]["last_progress_ts"] = _old
+    stalled = tc.check_global_stall()
+    if stalled is not None and set(stalled) == {"AGV01", "AGV02", "AGV03"}:
+        _ok("cả 3 xe cùng đứng im quá lâu → phát hiện ĐÚNG bí toàn hệ thống (N-xe)")
+    else:
+        _bad(f"không phát hiện đúng N-xe bí: {stalled}")
+
+    # (4) Gọi lại NGAY sau đó (chưa qua GLOBAL_STALL_SEC) → None, chống gửi lặp liên tục
+    #     (_last_stall_dispatch_ts cooldown, tránh cử 2 xe cùng lúc / gọi lại mỗi vài giây).
+    stalled_again = tc.check_global_stall()
+    if stalled_again is None:
+        _ok("gọi lại ngay sau đó → None (chống dispatch lặp liên tục khi đang xử lý)")
+    else:
+        _bad(f"gọi lại liên tục không bị chặn, có thể cử 2 xe cùng lúc: {stalled_again}")
+
+
 def test_no_backup_into_held_node():
     """`_back_up_to_prev` (thoát deadlock head-on) KHÔNG được LÙI vào node đang bị xe KHÁC
     giữ chỗ. Gốc lỗi (đúng log): AGV02 ở 15 head-on tại node 8 (do AGV01 giữ) → "LÙI VỀ
@@ -1760,6 +1883,8 @@ def main():
               test_obstacle_winner_proceeds_when_loser_held,
               test_off_route_recovery_when_not_on_route,
               test_reroute_cooldown_prevents_flipflop,
+              test_stall_bypass_allows_reroute_after_long_stall,
+              test_check_global_stall_detects_n_way,
               test_no_backup_into_held_node,
               test_dest_occupied_not_headon_at_dispatch):
         try:

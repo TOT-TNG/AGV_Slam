@@ -213,6 +213,8 @@ def make_sidebar(lang: str, pathname: str = ""):
     is_home              = p in {"/home", "/home/"}
     is_map               = p in MAP_PATHS
     is_agv               = p in {"/agv-manager", "/home/agv-manager"}
+    is_elevator          = p in {"/elevator", "/home/elevator"}
+    is_simulation        = p in {"/simulation",  "/home/simulation"}
     is_task              = p in TASK_PATHS
     is_log               = p in LOG_PATHS
     is_create_map        = p in {"/create-map",        "/home/create-map"}
@@ -288,6 +290,11 @@ def make_sidebar(lang: str, pathname: str = ""):
                                         id="submenu-task-execute",
                                         className=si(is_task_execute),
                                     ),
+                                    html.Div(
+                                        t(lang, "menu.task.simulation", "Mô phỏng Fleet"),
+                                        id="submenu-task-simulation",
+                                        className=si(is_simulation),
+                                    ),
                                 ],
                                 id="submenu-task",
                                 className=task_cls,
@@ -298,6 +305,11 @@ def make_sidebar(lang: str, pathname: str = ""):
                         [html.I(className="bi bi-cpu me-2"), html.Span(t(lang, "menu.agv", "AGV Manager"))],
                         className=mi(is_agv),
                         id="menu-agv-manager",
+                    ),
+                    html.Div(
+                        [html.I(className="bi bi-building-up me-2"), html.Span(t(lang, "menu.elevator", "Thang máy & Cửa"))],
+                        className=mi(is_elevator),
+                        id="menu-elevator",
                     ),
                     html.Div(
                         [
@@ -712,7 +724,7 @@ def logout(n_clicks):
 
 
 MAP_PATHS      = {"/create-map", "/home/create-map", "/map-view", "/home/map-view"}
-TASK_PATHS     = {"/task-create", "/home/task-create", "/task-manager", "/home/task-manager", "/task-list", "/task-execute", "/home/task-execute"}
+TASK_PATHS     = {"/task-create", "/home/task-create", "/task-manager", "/home/task-manager", "/task-list", "/task-execute", "/home/task-execute", "/simulation", "/home/simulation"}
 LOG_PATHS      = {"/journal-history", "/home/journal-history", "/journal-logs", "/home/journal-logs"}
 SETTINGS_PATHS = {
     "/integration",         "/home/integration",
@@ -728,9 +740,11 @@ SETTINGS_PATHS = {
     Input("submenu-create-map", "n_clicks"),
     Input("menu-home", "n_clicks"),
     Input("menu-agv-manager", "n_clicks"),
+    Input("menu-elevator", "n_clicks"),
     Input("submenu-task-create", "n_clicks"),
     Input("submenu-task-list", "n_clicks"),
     Input("submenu-task-execute", "n_clicks"),
+    Input("submenu-task-simulation", "n_clicks"),
     Input("submenu-journal-history", "n_clicks"),
     Input("submenu-journal-logs", "n_clicks"),
     Input("menu-stat", "n_clicks"),
@@ -740,8 +754,9 @@ SETTINGS_PATHS = {
     Input("submenu-broker", "n_clicks"),
     prevent_initial_call=True,
 )
-def go_to_pages(create_click, home_click, agv_mgr_click,
+def go_to_pages(create_click, home_click, agv_mgr_click, elevator_click,
                 task_create_click, task_list_click, task_execute_click,
+                task_simulation_click,
                 journal_history_click, journal_logs_click, stat_click,
                 settings_click, integration_click, lang_click, broker_click):
     ctx = dash.callback_context
@@ -754,6 +769,10 @@ def go_to_pages(create_click, home_click, agv_mgr_click,
         return "/home"
     if trigger == "menu-agv-manager":
         return "/agv-manager"
+    if trigger == "menu-elevator":
+        return "/elevator"
+    if trigger == "submenu-task-simulation":
+        return "/simulation"
     if trigger == "submenu-task-create":
         return "/task-create"
     if trigger == "submenu-task-list":
@@ -860,6 +879,13 @@ def settings_broker_layout(lang: str):
     _LBL_SM = {"fontSize": "10px", "fontWeight": "700",
                "color": "rgba(255,255,255,.4)", "textTransform": "uppercase",
                "letterSpacing": ".09em", "marginBottom": "10px"}
+    _LBL_FIELD = {"fontSize": "11px", "color": "rgba(255,255,255,.5)", "marginBottom": "4px"}
+    _INPUT = {"width": "100%", "boxSizing": "border-box", "padding": "8px 10px", "borderRadius": "8px",
+              "background": "rgba(15,20,32,.8)", "border": "1px solid rgba(255,255,255,.15)",
+              "color": "#e2e8f0", "fontSize": "13px", "outline": "none"}
+    _BTN = {"display": "inline-flex", "alignItems": "center", "padding": "9px 18px", "borderRadius": "10px",
+            "background": "rgba(77,142,255,.15)", "border": "1px solid rgba(77,142,255,.35)",
+            "color": "#93c5fd", "cursor": "pointer", "fontSize": "13px", "fontWeight": "600"}
 
     return html.Div(
         [
@@ -894,6 +920,12 @@ def settings_broker_layout(lang: str):
                             "fontSize": "13px", "fontWeight": "600",
                         },
                     ),
+                    dcc.Loading(
+                        html.Div(id="settings-switch-result", children="",
+                                 style={"fontSize": "12px", "marginTop": "10px", "minHeight": "18px"}),
+                        type="circle", color="#93c5fd",
+                        style={"marginTop": "10px", "minHeight": "26px"},
+                    ),
                     html.Div(
                         [
                             html.Div(t(lang, "settings.broker.note_local"),
@@ -906,9 +938,139 @@ def settings_broker_layout(lang: str):
                 ],
                 style=_CARD,
             ),
+            html.Div(
+                [
+                    dcc.Interval(id="settings-local-init", interval=400, n_intervals=0, max_intervals=1),
+                    html.Div(t(lang, "settings.broker.local_title"), style=_LBL_SM),
+                    html.Div(t(lang, "settings.broker.local_desc"),
+                             style={"fontSize": "11px", "color": "rgba(255,255,255,.4)",
+                                    "marginBottom": "14px", "lineHeight": "1.6"}),
+                    html.Div(
+                        [
+                            html.Div([html.Div(t(lang, "settings.broker.host"), style=_LBL_FIELD),
+                                      dcc.Input(id="settings-local-host", type="text",
+                                                placeholder="192.168.0.200", style=_INPUT)],
+                                     style={"flex": "3"}),
+                            html.Div([html.Div(t(lang, "settings.broker.port"), style=_LBL_FIELD),
+                                      dcc.Input(id="settings-local-port", type="number", min=1, max=65535,
+                                                placeholder="1883", style=_INPUT)],
+                                     style={"flex": "1"}),
+                        ],
+                        style={"display": "flex", "gap": "10px", "marginBottom": "10px"},
+                    ),
+                    html.Div(
+                        [
+                            html.Div([html.Div(t(lang, "settings.broker.user"), style=_LBL_FIELD),
+                                      dcc.Input(id="settings-local-user", type="text",
+                                                autoComplete="off", style=_INPUT)],
+                                     style={"flex": "1"}),
+                            html.Div([html.Div(t(lang, "settings.broker.password"), style=_LBL_FIELD),
+                                      dcc.Input(id="settings-local-pass", type="password",
+                                                autoComplete="new-password",
+                                                placeholder=t(lang, "settings.broker.password_keep"),
+                                                style=_INPUT)],
+                                     style={"flex": "1"}),
+                        ],
+                        style={"display": "flex", "gap": "10px", "marginBottom": "14px"},
+                    ),
+                    html.Div(
+                        [
+                            html.Button(t(lang, "settings.broker.test"), id="settings-local-test", n_clicks=0,
+                                        style={**_BTN, "background": "rgba(255,255,255,.06)",
+                                               "border": "1px solid rgba(255,255,255,.18)", "color": "#e2e8f0"}),
+                            html.Button(t(lang, "settings.broker.save"), id="settings-local-save", n_clicks=0,
+                                        style=_BTN),
+                        ],
+                        style={"display": "flex", "gap": "10px"},
+                    ),
+                    dcc.Loading(
+                        html.Div(id="settings-local-result", children="",
+                                 style={"fontSize": "12px", "marginTop": "12px", "minHeight": "18px",
+                                        "lineHeight": "1.5"}),
+                        type="circle", color="#93c5fd",
+                        style={"marginTop": "12px", "minHeight": "26px"},
+                    ),
+                ],
+                style={**_CARD, "marginTop": "16px"},
+            ),
+            html.Div(
+                [
+                    dcc.Interval(id="settings-factory-init", interval=400, n_intervals=0, max_intervals=1),
+                    html.Div(t(lang, "settings.factory.title", "Môi trường nhà máy (factory)"), style=_LBL_SM),
+                    html.Div(
+                        t(lang, "settings.factory.desc",
+                          "Tên factory nằm trong topic MQTT (uagv/v2/<factory>/...). Mọi xe và thang trong nhà máy phải dùng "
+                          "CÙNG một factory, và phải khớp với firmware."),
+                        style={"fontSize": "11px", "color": "rgba(255,255,255,.4)", "marginBottom": "14px", "lineHeight": "1.6"}),
+                    html.Div(id="settings-factory-info",
+                             style={"fontSize": "12px", "color": "#cbd5e1", "marginBottom": "12px", "lineHeight": "1.7"}),
+                    html.Div(t(lang, "settings.factory.field", "Factory"), style=_LBL_FIELD),
+                    dcc.Input(id="settings-factory-input", type="text", placeholder="tngfh", autoComplete="off",
+                              maxLength=32, style={**_INPUT, "marginBottom": "10px"}),
+                    dcc.Checklist(
+                        id="settings-factory-apply",
+                        options=[{"label": " " + t(lang, "settings.factory.apply", "Gán luôn cho tất cả xe đã đăng ký"), "value": "agv"}],
+                        value=["agv"], style={"fontSize": "12px", "color": "#cbd5e1", "marginBottom": "14px"}),
+                    html.Button(t(lang, "settings.factory.save", "Lưu & áp dụng"), id="settings-factory-save", n_clicks=0, style=_BTN),
+                    dcc.Loading(
+                        html.Div(id="settings-factory-result", children="",
+                                 style={"fontSize": "12px", "marginTop": "12px", "minHeight": "18px", "lineHeight": "1.5"}),
+                        type="circle", color="#93c5fd", style={"marginTop": "12px", "minHeight": "26px"}),
+                    html.Div(t(lang, "settings.factory.note",
+                               "Áp dụng sẽ kết nối lại MQTT (vài giây) và xoá tin presence cũ của factory trước trên broker. "
+                               "Thang (uelev) tự nhận factory từ topic nên không cần đặt riêng."),
+                             style={"fontSize": "11px", "color": "rgba(255,255,255,.28)", "marginTop": "14px", "lineHeight": "1.7"}),
+                ],
+                style={**_CARD, "marginTop": "16px"},
+            ),
         ],
         style={"padding": "24px 28px"},
     )
+
+
+@callback(
+    Output("settings-factory-input", "value"),
+    Output("settings-factory-info", "children"),
+    Input("settings-factory-init", "n_intervals"),
+    Input("settings-factory-result", "children"),
+)
+def _settings_factory_prefill(_n, _res):
+    try:
+        d = _req.get(f"{_API}/api/config/factory", timeout=3).json()
+    except Exception:
+        return no_update, "Không đọc được cấu hình factory từ server (server cũ chưa restart?)"
+    src = {"ui": "đặt trên giao diện", "env": "biến môi trường LINE_AGV_FACTORY", "agv": "lấy từ xe đầu tiên trong DB"}.get(d.get("source"), "?")
+    eff = d.get("effective") or "?"
+    lines = [html.Div(["Đang dùng: ", html.B(eff), f" ({src})"]), html.Div(f"Presence: {d.get('topic', '')}")]
+    bad = {a: f for a, f in (d.get("agvs") or {}).items() if f != eff}
+    if bad:
+        lines.append(html.Div("⚠ Xe đang lệch factory trong DB: " + ", ".join(f"{a}={f or '(trống)'}" for a, f in bad.items()),
+                              style={"color": "#fbbf24"}))
+    return (d.get("configured") or eff), lines
+
+
+@callback(
+    Output("settings-factory-result", "children"),
+    Output("settings-factory-result", "style"),
+    Input("settings-factory-save", "n_clicks"),
+    State("settings-factory-input", "value"),
+    State("settings-factory-apply", "value"),
+    prevent_initial_call=True,
+)
+def _settings_factory_save(_n, factory, apply_v):
+    base = {"fontSize": "12px", "marginTop": "12px", "minHeight": "18px", "lineHeight": "1.5"}
+    try:
+        r = _req.post(f"{_API}/api/config/factory",
+                      json={"factory": (factory or "").strip(), "apply_agvs": "agv" in (apply_v or [])}, timeout=30)
+        if r.status_code == 404:
+            return "✗ Server chưa có chức năng này — restart server.", {**base, "color": "#f87171"}
+        d = r.json()
+        if not r.ok:
+            return f"✗ {d.get('detail', r.status_code)}", {**base, "color": "#f87171"}
+        return (f"✓ Đã đặt factory = {d['factory']} (gán cho {d.get('agvs_updated', 0)} xe). Presence: {d['topic']}",
+                {**base, "color": "#4ade80"})
+    except Exception as e:
+        return f"✗ Lỗi: {e}", {**base, "color": "#f87171"}
 
 
 @callback(
@@ -942,18 +1104,83 @@ def _settings_refresh_broker(_, lang):
 
 @callback(
     Output("settings-mqtt-interval", "n_intervals"),
+    Output("settings-switch-result", "children"),
+    Output("settings-switch-result", "style"),
     Input("settings-btn-switch-mqtt", "n_clicks"),
+    State("settings-lang-store-broker", "data"),
     prevent_initial_call=True,
 )
-def _settings_switch_broker(_):
+def _settings_switch_broker(_, lang):
+    lang = normalize_lang(lang or "vi")
+    base = {"fontSize": "12px", "marginTop": "10px", "minHeight": "18px"}
     try:
         r    = _req.get(f"{_API}/api/config/mqtt-mode", timeout=2)
         mode = r.json().get("mode", "local")
-        _req.post(f"{_API}/api/config/mqtt-mode",
-                  json={"mode": "cloud" if mode == "local" else "local"}, timeout=5)
+        new  = "cloud" if mode == "local" else "local"
+        rp   = _req.post(f"{_API}/api/config/mqtt-mode", json={"mode": new}, timeout=15)
+        if not rp.ok:
+            try:
+                detail = rp.json().get("detail", rp.status_code)
+            except Exception:
+                detail = rp.status_code
+            return 0, f"✗ {t(lang, 'settings.broker.error')}: {detail}", {**base, "color": "#f87171"}
+        return 0, f"✓ {t(lang, 'settings.broker.switched')} {new.upper()}", {**base, "color": "#4ade80"}
     except Exception:
-        pass
-    return 0
+        return 0, "✗ " + t(lang, "settings.broker.server_down"), {**base, "color": "#f87171"}
+
+
+@callback(
+    Output("settings-local-host", "value"),
+    Output("settings-local-port", "value"),
+    Output("settings-local-user", "value"),
+    Input("settings-local-init", "n_intervals"),
+)
+def _settings_local_prefill(_):
+    try:
+        loc = _req.get(f"{_API}/api/config/mqtt-mode", timeout=2).json().get("local") or {}
+        return loc.get("host", ""), loc.get("port", 1883), loc.get("user", "")
+    except Exception:
+        return no_update, no_update, no_update
+
+
+@callback(
+    Output("settings-local-result", "children"),
+    Output("settings-local-result", "style"),
+    Input("settings-local-test", "n_clicks"),
+    Input("settings-local-save", "n_clicks"),
+    State("settings-local-host", "value"),
+    State("settings-local-port", "value"),
+    State("settings-local-user", "value"),
+    State("settings-local-pass", "value"),
+    State("settings-lang-store-broker", "data"),
+    prevent_initial_call=True,
+)
+def _settings_local_actions(_n_test, _n_save, host, port, user, password, lang):
+    lang = normalize_lang(lang or "vi")
+    base = {"fontSize": "12px", "marginTop": "12px", "minHeight": "18px", "lineHeight": "1.5"}
+    ok_s, bad_s = {**base, "color": "#4ade80"}, {**base, "color": "#f87171"}
+    trig = dash.callback_context.triggered_id
+    body = {"host": (host or "").strip(), "port": port or 0, "user": (user or "").strip(),
+            "password": password or None}
+    try:
+        if trig == "settings-local-test":
+            r = _req.post(f"{_API}/api/config/mqtt-local/test", json=body, timeout=10)
+            if r.status_code == 404:
+                return "✗ " + t(lang, "settings.broker.server_old"), bad_s
+            d = r.json()
+            if not r.ok:
+                return f"✗ {t(lang, 'settings.broker.error')}: {d.get('detail', r.status_code)}", bad_s
+            return ("✓ " if d.get("ok") else "✗ ") + str(d.get("detail", "")), (ok_s if d.get("ok") else bad_s)
+        r = _req.post(f"{_API}/api/config/mqtt-local", json=body, timeout=15)
+        if r.status_code == 404:
+            return "✗ " + t(lang, "settings.broker.server_old"), bad_s
+        d = r.json()
+        if not r.ok:
+            return f"✗ {t(lang, 'settings.broker.error')}: {d.get('detail', r.status_code)}", bad_s
+        key = "settings.broker.saved_applied" if d.get("applied") else "settings.broker.saved_only"
+        return "✓ " + t(lang, key), ok_s
+    except Exception:
+        return "✗ " + t(lang, "settings.broker.server_down"), bad_s
 
 
 # Backward compatibility

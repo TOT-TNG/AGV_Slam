@@ -1,0 +1,20 @@
+{
+  "name": "charger_overflow",
+  "description": "5 xe (SIM01..SIM05) nhưng map chỉ có 3 trạm sạc — mỗi xe đi 1 chặng ngắn rồi TỰ VỀ TRẠM (return_to_charge). Xuất phát lệch nhau 3s để không dồn cục. Kỳ vọng: không va chạm, 3 xe đầu tới được trạm sạc, 2 xe còn lại tự chuyển sang điểm chờ đã cấu hình (KHÔNG lỗi/kẹt), và CẢ 5 xe đều hoàn tất round-trip trong thời gian hợp lý — đúng quy trình thực tế khi số xe nhiều hơn số trạm sạc.",
+  "timeout_s": 420,
+  "agvs": {
+    "SIM01": {"start_at_s": 0,  "route": ["98"],  "return_to_charge": true},
+    "SIM02": {"start_at_s": 3,  "route": ["99"],  "return_to_charge": true},
+    "SIM03": {"start_at_s": 6,  "route": ["105"], "return_to_charge": true},
+    "SIM04": {"start_at_s": 9,  "route": ["106"], "return_to_charge": true},
+    "SIM05": {"start_at_s": 12, "route": ["104"], "return_to_charge": true}
+  },
+  "expectations": [
+    {"type": "no_violations", "kinds": ["COLLISION", "HEADON_EDGE"], "max_count": 0},
+    {"type": "arrive", "agv_id": "SIM01", "within_s": 360},
+    {"type": "arrive", "agv_id": "SIM02", "within_s": 360},
+    {"type": "arrive", "agv_id": "SIM03", "within_s": 360},
+    {"type": "arrive", "agv_id": "SIM04", "within_s": 360},
+    {"type": "arrive", "agv_id": "SIM05", "within_s": 360}
+  ]
+}

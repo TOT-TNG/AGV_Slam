@@ -560,9 +560,19 @@ def save_agv(n_clicks, name, factory, ip, port, agv_type, map_id, cannot_reverse
     if not agv_type:
         raise dash.exceptions.PreventUpdate
 
-    # Tự sinh tên AGV dạng "AGV01", "AGV02" … dựa trên số AGV hiện có
+    # Tự sinh tên AGV dạng "AGV01", "AGV02" … dựa trên SỐ LỚN NHẤT đang có (KHÔNG
+    # phải đếm số lượng — nếu có khoảng trống trong dãy số (vd AGV01 đã bị xoá,
+    # còn AGV02/03/04) thì đếm số lượng (=3) sẽ ra "AGV04" TRÙNG với AGV04 đã có
+    # sẵn → upsert_agv() ON CONFLICT DO UPDATE sẽ ĐÈ LÊN xe cũ thay vì tạo xe mới,
+    # trông như bấm "+Add AGV" không có tác dụng gì).
+    import re as _re_agv
     existing = load_agvs()
-    auto_idx = len(existing) + 1
+    _max_idx = 0
+    for _row in existing:
+        _m = _re_agv.fullmatch(r"AGV(\d+)", str(_row.get("name", "")))
+        if _m:
+            _max_idx = max(_max_idx, int(_m.group(1)))
+    auto_idx = _max_idx + 1
     auto_name = f"AGV{auto_idx:02d}"
     # Nhà máy: dùng đúng giá trị người dùng chọn/gõ ở panel (chọn từ dropdown
     # nhà máy đã có, hoặc gõ tên mới nếu là nhà máy đầu tiên) — mọi xe cùng nhà
