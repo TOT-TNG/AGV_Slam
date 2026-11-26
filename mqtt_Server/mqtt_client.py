@@ -2052,7 +2052,15 @@ def send_agv_to_special_target(agv_id: str, target_type: str, _require_locate: b
             _cur_arrival   = str(_cur_node_cfg.get("arrival_action") or "").lower()
             _lifecycle_chg = _was_leaving_charger
             _at_charge_bwd = (_cur_approach == "bwd") or (_cur_arrival == "wait_charge") or _lifecycle_chg
-            if _last_tdir_bwd == "bwd" or _at_charge_bwd:
+            # Rơ-moóc đứng ở trạm có kịch bản lùi mù + quay đầu: KHÔNG lùi thẳng dọc đường cũ (đúng lỗi 26/11: lệnh khu chờ gửi DIR_BWD
+            # 10→11, xe lùi vào vật cản). Rơi xuống nhánh dưới, nơi bước lùi mù + quay được chèn (giống go_to).
+            _trailer_script = False
+            try:
+                from main import _trailer_has_exit_script as _ths
+                _trailer_script = _ths(agv_id, str(path[0]), _cur_node_cfg)
+            except Exception as _e_ths:
+                print(f"[SPECIAL] {agv_id}: kiểm tra kịch bản thoát trạm lỗi (bỏ qua): {_e_ths}")
+            if _last_tdir_bwd == "bwd" or _at_charge_bwd or _trailer_script:
                 # AGV lùi vào (server-route hoặc thủ công) — front hướng ra ngoài → TIẾN.
                 if _lstate:
                     _lstate.last_transit_direction = ''

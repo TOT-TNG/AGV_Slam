@@ -4361,6 +4361,21 @@ def _build_trailer_exit_steps(agv_id: str, path: list, exit_from_charger: bool, 
     return _trailer_exit_steps
 
 
+def _trailer_has_exit_script(agv_id: str, node_id: str, cfg: dict) -> bool:
+    """True nếu xe là RƠ-MOÓC đang đứng ở TRẠM SẠC có kịch bản thoát trạm 'lùi mù + quay đầu' (khai trong node hoặc mặc định ngõ cụt).
+    Khi đó xe KHÔNG được coi là 'phải lùi dọc đường cũ' — kịch bản lùi mù + quay tự xử lý hướng ra (xem _build_trailer_exit_steps)."""
+    from agv_registry import agv_registry as _reg_hs
+    try:
+        if str(_reg_hs.get_config(agv_id).get("agv_type") or "").lower() != "trailer":
+            return False
+        c = _with_trailer_exit_defaults(agv_id, node_id, cfg or {})
+        if not (str(c.get("locationType", "")).upper() == "CHARGER" or str(c.get("arrival_action", "")).lower() == "wait_charge"):
+            return False
+        return int(c.get("exit_reverse_ms") or 0) > 0 and str(c.get("exit_turn") or "").strip().lower() in ("left", "right")
+    except Exception:
+        return False
+
+
 def _trailer_turnaround_charger(agv_id: str, cur: str, prev: str | None) -> str | None:
     """Xe KHÔNG lùi được kẹt trong nhánh cụt (lối ra duy nhất là quay lại đúng node vừa tới) → tìm
     TRẠM SẠC mà xe đi TIẾN tới được (không quay lại prev) để dùng làm chỗ QUAY ĐẦU: tiến vào trạm

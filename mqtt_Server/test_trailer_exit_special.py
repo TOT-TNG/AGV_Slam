@@ -25,5 +25,13 @@ check(M._build_trailer_exit_steps("K1", path, True, cfg, {}) == [], "xe kéo (to
 check(M._build_trailer_exit_steps("C1", path, True, cfg, {}) == [], "xe chở (carry) → không chèn")
 check(M._build_trailer_exit_steps("T1", path, False, cfg, {}) == [], "xe không ở trạm → không chèn")
 check(M._build_trailer_exit_steps("T1", path, True, {"locationType": "CHARGER"}, {}) == [], "trạm chưa khai exit_reverse_ms/exit_turn → không chèn")
+print("[test] _trailer_has_exit_script: quyết định có lùi dọc đường cũ hay dùng kịch bản lùi mù + quay")
+check(M._trailer_has_exit_script("T1", "10", cfg), "rơ-moóc + trạm có kịch bản → True (không lùi thẳng dọc đường cũ)")
+check(not M._trailer_has_exit_script("K1", "10", cfg), "xe kéo → False")
+check(not M._trailer_has_exit_script("C1", "10", cfg), "xe chở → False")
+check(not M._trailer_has_exit_script("T1", "10", {"locationType": "NORMAL", "exit_reverse_ms": 3000, "exit_turn": "left"}), "node thường (không phải trạm) → False")
+check(not M._trailer_has_exit_script("T1", "10", {"locationType": "CHARGER"}), "trạm chưa khai kịch bản và không phải ngõ cụt → False")
+check(M._trailer_has_exit_script("T1", "10", {"arrival_action": "wait_charge", "exit_reverse_ms": 2000, "exit_turn": "right"}), "trạm nhận diện theo wait_charge → True")
+
 print(f"KẾT QUẢ: {_p} pass, {_f} fail")
 raise SystemExit(1 if _f else 0)
