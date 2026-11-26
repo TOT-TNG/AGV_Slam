@@ -2580,7 +2580,28 @@ def _pick_least_claimed_station(
     except Exception as _e_pp:
         print(f"[STATION] tính đường bị chặn lỗi (bỏ qua): {_e_pp}")
 
-    best_id = min(claims, key=lambda n: (claims[n] + path_penalty.get(n, 0), claims[n]))
+    # ── Mức ưu tiên cấu hình trên node (action.station_priority, số NHỎ = ưu tiên CAO; không khai = thấp nhất) ──
+    # Thứ tự chọn: node CHƯA ai chiếm/giữ/đang tới/bị chắn đường trước → rồi ưu tiên cao → rồi ít bị chiếm. Không node nào khai ưu tiên thì
+    # kết quả y hệt cách chọn cũ (điểm thấp nhất, hoà lấy node đầu danh sách).
+    def _prio_of(nid):
+        a = (node_ids.get(nid) or {}).get("action")
+        if isinstance(a, str):
+            try:
+                import json as _json_pr
+                a = _json_pr.loads(a) if a else {}
+            except Exception:
+                a = {}
+        try:
+            v = int((a or {}).get("station_priority") or 0)
+        except (TypeError, ValueError):
+            v = 0
+        return v if v > 0 else 9999
+
+    def _rank(nid):
+        score = claims[nid] + path_penalty.get(nid, 0)
+        return (score > 0, _prio_of(nid), score, claims[nid])
+
+    best_id = min(claims, key=_rank)
     all_occupied = claims[best_id] >= 2
     print(f"[STATION] {requesting_agv_id}: chọn trạm={best_id} | claims={claims}"
           f"{' | phạt đường=' + str({k: v for k, v in path_penalty.items() if v}) if any(path_penalty.values()) else ''}"

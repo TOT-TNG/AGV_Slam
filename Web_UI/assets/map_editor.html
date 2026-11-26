@@ -385,6 +385,13 @@ select:focus{border-color:var(--accent) !important}
               <option value="trailer">🛒 Chỉ AGV Trailer (đầu kéo/rơ-moóc)</option>
             </select>
           </div>
+          <!-- Mức ưu tiên khi có NHIỀU trạm sạc / điểm chờ cùng loại -->
+          <div id="pn-priority-field" style="display:none;border-left:3px solid #ec4899;padding-left:8px;margin-top:6px">
+            <label style="font-size:11px;color:#ec4899;display:block;margin-bottom:2px">⭐ Mức ưu tiên (trạm sạc / điểm chờ)</label>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Số NHỎ = ưu tiên CAO (1 = chọn trước). Chỉ dùng khi lệnh Về trạm/Về chờ có nhiều node để chọn: xe vào node ưu tiên cao nhất còn TRỐNG, đầy mới sang node kế. Để trống = ưu tiên thấp nhất.</div>
+            <input id="pn-station-priority" type="number" min="1" max="99" step="1" placeholder="vd 1"
+              style="width:100%;box-sizing:border-box;background:#fff;color:#111;border:1px solid #c0c8d8;border-radius:6px;padding:6px 8px;font-size:11px"/>
+          </div>
           <!-- Lùi mù + quay đầu khi rời trạm — CHỈ áp dụng cho AGV Trailer -->
           <div id="pn-exit-turn-field" style="display:none;border-left:3px solid #a855f7;padding-left:8px;margin-top:6px">
             <label style="font-size:11px;color:#a855f7;display:block;margin-bottom:2px">↩⟳ Lùi mù + quay đầu khi rời trạm (Trailer)</label>
@@ -2374,6 +2381,8 @@ function updateProps(){
     document.getElementById('pn-vda-turn-angle').value= n.vdaTurnAngle || '360';
     document.getElementById('pn-arrival-action').value = n.arrivalAction || 'none';
     document.getElementById('pn-approach-dir').value   = n.approachDir   || 'none';
+    const _prioEl = document.getElementById('pn-station-priority');
+    if (_prioEl) _prioEl.value = n.stationPriority || '';
     const stationTypeEl = document.getElementById('pn-station-agv-type');
     if (stationTypeEl) stationTypeEl.value = n.stationAgvType || 'none';
     const exitRevEl = document.getElementById('pn-exit-reverse-sec');
@@ -2499,6 +2508,8 @@ document.getElementById('btn-apply').onclick = ()=>{
     n.arrivalAction = document.getElementById('pn-arrival-action').value || 'none';
     n.approachDir   = document.getElementById('pn-approach-dir').value   || 'none';
     n.stationAgvType = document.getElementById('pn-station-agv-type')?.value || 'none';
+    const _prioV = parseInt(document.getElementById('pn-station-priority')?.value, 10);
+    n.stationPriority = (!isNaN(_prioV) && _prioV > 0) ? _prioV : null;
     const _exitRevSec = parseFloat(document.getElementById('pn-exit-reverse-sec')?.value);
     n.exitReverseMs = (!isNaN(_exitRevSec) && _exitRevSec > 0) ? Math.round(_exitRevSec * 1000) : null;
     n.exitTurn = document.getElementById('pn-exit-turn')?.value || 'none';
@@ -2751,6 +2762,12 @@ function onArrivalActionChange_pn(){
   }
   const stationField = document.getElementById('pn-station-agv-type-field');
   const typeVal = document.getElementById('pn-type')?.value;
+  const _prioField = document.getElementById('pn-priority-field');
+  if (_prioField) {
+    const _showPrio = ['charger', 'wait', 'buffer', 'parking', 'home'].includes(typeVal) || act === 'wait_charge';
+    _prioField.style.display = _showPrio ? 'block' : 'none';
+    if (!_showPrio) { const _pi = document.getElementById('pn-station-priority'); if (_pi) _pi.value = ''; }
+  }
   if(stationField){
     const showStation = (act === 'wait_charge' || typeVal === 'charger');
     stationField.style.display = showStation ? 'block' : 'none';
@@ -3485,7 +3502,7 @@ function _importDrawioXml(xmlText){
       id, name: '', floor: _fidImp, x: Math.round(v.cx), y: Math.round(v.cy),
       type: 'normal', action: '', speed: 0.5, agvCompat: 'RFID',
       fwdTurn: 'none', bwdTurn: 'none', turnAllowed: 'yes', lidarOff: 'no', vdaTurnAngle: '360',
-      arrivalAction: 'none', approachDir: 'none', stationAgvType: 'none',
+      arrivalAction: 'none', approachDir: 'none', stationAgvType: 'none', stationPriority: null,
       exitReverseMs: null, exitTurn: 'none', doorId: '', trailerStaging: false, trailerEmptyStaging: false, trailerRole: 'none',
       turnMap: {}, team: null, teamAgvType: 'none', supplyGroups: [], trailerPickupTeams: [], trailerDropTeams: [],
     };
@@ -3790,6 +3807,7 @@ async function _parseMapData(data){
       arrivalAction: (['wait_sys','wait_user','wait_charge'].includes(act.arrival_action) ? act.arrival_action : 'none'),
       approachDir:   act.approach_dir   || 'none',
       stationAgvType: (['carry','tow','trailer'].includes(act.station_agv_type) ? act.station_agv_type : 'none'),
+      stationPriority: (act.station_priority != null && parseInt(act.station_priority) > 0) ? parseInt(act.station_priority) : null,
       exitReverseMs: (act.exit_reverse_ms != null) ? parseInt(act.exit_reverse_ms) : null,
       exitTurn: (['left','right'].includes(act.exit_turn) ? act.exit_turn : 'none'),
       doorId: act.door_id || '',
@@ -4060,6 +4078,7 @@ async function _doSaveMap(name){
         ...(n.vdaTurnAngle && n.vdaTurnAngle!=='360'  ? {vda_turn_angle:n.vdaTurnAngle}       : {}),
         ...(n.arrivalAction && n.arrivalAction!=='none' ? {arrival_action:n.arrivalAction} : {}),
         ...(n.approachDir   && n.approachDir!=='none'   ? {approach_dir:n.approachDir}     : {}),
+        ...(n.stationPriority > 0 ? {station_priority:n.stationPriority} : {}),
         ...(n.arrivalAction==='wait_charge' && n.stationAgvType && n.stationAgvType!=='none' ? {station_agv_type:n.stationAgvType} : {}),
         ...(n.exitReverseMs && n.exitTurn && n.exitTurn!=='none' ? {exit_reverse_ms:n.exitReverseMs, exit_turn:n.exitTurn} : {}),
         ...(n.doorId ? {door_id:n.doorId} : {}),

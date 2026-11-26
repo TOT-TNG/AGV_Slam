@@ -577,6 +577,13 @@ select option:checked {
             <small style="color:#8c909f;display:block;margin-top:4px">Để "Dùng chung" nếu trạm này tiếp cận được bởi mọi loại xe. Chọn riêng nếu trạm chỉ thiết kế cho 1 loại (vd trạm lùi vào chỉ carry dùng được, trạm tiến vào riêng cho trailer).</small>
           </div>
 
+          <!-- Mức ưu tiên khi có nhiều trạm sạc / điểm chờ — hiện với loại Charger/Wait/Buffer/Parking/Home -->
+          <div class="field" id="station-priority-field" style="display:none;border-left:3px solid #ec4899;padding-left:10px;margin-left:2px;margin-top:8px">
+            <label for="cfgStationPriority" style="color:#ec4899">⭐ Mức ưu tiên (trạm sạc / điểm chờ)</label>
+            <input id="cfgStationPriority" type="number" min="1" max="99" step="1" placeholder="vd 1">
+            <small style="color:#8c909f;display:block;margin-top:4px">Số NHỎ = ưu tiên CAO (1 = chọn trước). Xe vào node ưu tiên cao nhất còn trống, đầy mới sang node kế. Để trống = ưu tiên thấp nhất.</small>
+          </div>
+
           <!-- BLOCK — vùng tới hạn chống va chạm (openTCS-style) -->
           <div class="field" style="margin-top:8px;border-top:1px solid rgba(96,165,250,.25);padding-top:8px">
             <label for="cfgBlock">🚧 Vùng tới hạn (Block)</label>
@@ -665,8 +672,20 @@ select option:checked {
         }
       }
 
-      function onLocationTypeChange() {
+      function _isStationType(t) {
+  return ['CHARGER', 'WAIT', 'BUFFER', 'PARKING', 'HOME'].includes(String(t || '').toUpperCase());
+}
+function _togglePriorityField() {
+  const f = document.getElementById('station-priority-field');
+  const lt = document.getElementById('cfgLocationType');
+  if (!f || !lt) return;
+  const show = _isStationType(lt.value);
+  f.style.display = show ? 'block' : 'none';
+  if (!show) { const i = document.getElementById('cfgStationPriority'); if (i) i.value = ''; }
+}
+function onLocationTypeChange() {
         const loc = document.getElementById('cfgLocationType').value;
+        _togglePriorityField();
         const teamField = document.getElementById('team-field');
         if (teamField) {
           teamField.style.display = (loc === 'DROPOFF') ? 'block' : 'none';
@@ -944,6 +963,9 @@ select option:checked {
   document.getElementById('cfgApproachDir').value   = action.approach_dir   || 'none';
   const stationTypeEl = document.getElementById('cfgStationAgvType');
   if (stationTypeEl) stationTypeEl.value = action.station_agv_type || 'none';
+  const prioEl = document.getElementById('cfgStationPriority');
+  if (prioEl) prioEl.value = action.station_priority || '';
+  _togglePriorityField();
   // Load block (vùng tới hạn)
   document.getElementById('cfgBlock').value     = action.block || '';
   document.getElementById('cfgBlockType').value = (action.block_type === 'same_dir') ? 'same_dir' : 'single';
@@ -1255,6 +1277,8 @@ select option:checked {
         const blockType   = document.getElementById('cfgBlockType').value;
         const stationAgvTypeEl = document.getElementById('cfgStationAgvType');
         const stationAgvType   = stationAgvTypeEl ? stationAgvTypeEl.value : 'none';
+        const _prioN = parseInt((document.getElementById('cfgStationPriority') || {}).value, 10);
+        const stationPriority = (!isNaN(_prioN) && _prioN > 0 && _isStationType(cfgLocationType.value)) ? _prioN : null;
         const turnMapVal  = Object.keys(currentTurnMap).length > 0 ? currentTurnMap : null;
         const payload = {
           mapId: currentMapId,
@@ -1272,6 +1296,7 @@ select option:checked {
             station_agv_type: (arrivalAct === 'wait_charge' && stationAgvType !== 'none')
                   ? stationAgvType
                   : null,
+            station_priority: stationPriority,
             // Block (vùng tới hạn): chỉ lưu khi có tên block
             block:      blockName || null,
             block_type: blockName ? blockType : null,

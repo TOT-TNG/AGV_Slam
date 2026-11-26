@@ -68,6 +68,24 @@ setup(None, {"AGV03": 2})
 node, occ = mc._pick_least_claimed_station(stations, "AGV01", "m")
 check(node["node_id"] in ("1", "27"), f"chọn trạm {node['node_id']}")
 
+print("[test] mức ưu tiên station_priority: số nhỏ = chọn trước, bỏ qua nếu node đã bị chiếm")
+st_pr = [{"node_id": "1", "name": "S1", "action": {"station_priority": 2}},
+         {"node_id": "27", "name": "S27", "action": '{"station_priority": 1}'}]
+setup(4, {})
+node, occ = mc._pick_least_claimed_station(st_pr, "AGV01", "m")
+check(node["node_id"] == "27", f"27 ưu tiên 1 (action dạng chuỗi JSON) thắng 1 ưu tiên 2: chọn {node['node_id']}")
+setup(4, {"AGV03": 27})
+node, occ = mc._pick_least_claimed_station(st_pr, "AGV01", "m")
+check(node["node_id"] == "1", f"node ưu tiên cao nhất đã có xe → sang node kế: chọn {node['node_id']}")
+st_none = [{"node_id": "1", "name": "S1", "action": {"station_priority": 3}}, {"node_id": "27", "name": "S27"}]
+setup(4, {})
+node, occ = mc._pick_least_claimed_station(st_none, "AGV01", "m")
+check(node["node_id"] == "1", f"node không khai ưu tiên xếp sau node có khai: chọn {node['node_id']}")
+st_bad = [{"node_id": "1", "action": {"station_priority": "abc"}}, {"node_id": "27", "action": {"station_priority": 5}}]
+setup(4, {})
+node, occ = mc._pick_least_claimed_station(st_bad, "AGV01", "m")
+check(node["node_id"] == "27", f"ưu tiên không hợp lệ coi như không khai: chọn {node['node_id']}")
+
 print()
 print(f"KẾT QUẢ: {_pass} pass, {_fail} fail")
 raise SystemExit(1 if _fail else 0)
