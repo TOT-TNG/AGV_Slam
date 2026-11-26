@@ -6,6 +6,16 @@ Import module này SỚM (trước các import khác trong main.py) để bắt 
 """
 import builtins as _builtins
 import os
+import sys
+
+# Chạy dưới NSSM/service (stdout bị redirect ra file) Python dùng bảng mã hệ thống (cp1252) → print có ký tự tiếng Việt/"→" văng
+# UnicodeEncodeError ngay lúc import và server không khởi động được. Ép UTF-8 (thay ký tự lỗi thay vì ném lỗi).
+for _s in (sys.stdout, sys.stderr):
+    try:
+        if _s is not None and (getattr(_s, "encoding", "") or "").lower().replace("-", "") != "utf8":
+            _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 import time
 import threading
 from collections import deque

@@ -83,6 +83,8 @@ Write-Host "[SERVICE] Tao service '$ServiceName' ..."
 & $NssmExe set $ServiceName Start SERVICE_AUTO_START | Out-Null
 # Tu restart neu crash - NSSM mac dinh da restart khi process thoat bat thuong,
 # dat rieng them de chac chan luon bat (khong phu thuoc default cua ban NSSM).
+# Ep Python xuat UTF-8 khi stdout bi redirect (tranh UnicodeEncodeError cp1252 khi print tieng Viet)
+& $NssmExe set $ServiceName AppEnvironmentExtra "PYTHONUTF8=1" "PYTHONIOENCODING=utf-8" | Out-Null
 & $NssmExe set $ServiceName AppExit Default Restart | Out-Null
 & $NssmExe set $ServiceName AppRestartDelay 3000 | Out-Null
 & $NssmExe set $ServiceName AppStdout (Join-Path $RootDir "deploy\service_stdout.log") | Out-Null
