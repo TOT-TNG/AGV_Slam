@@ -4310,6 +4310,57 @@ def _with_trailer_exit_defaults(agv_id: str, node_id: str, cfg: dict) -> dict:
     return cfg
 
 
+def _build_trailer_exit_steps(agv_id: str, path: list, exit_from_charger: bool, cfg_exit: dict, edge_spd: dict) -> list:
+    """Bước 'lùi mù + quay đầu' khi xe RƠ-MOÓC rời trạm sạc (mũi xe quay vào trong). Dùng chung cho dispatch go_to (main) và lệnh
+    khu chờ/về trạm (mqtt_client.send_agv_to_special_target). Trả [] nếu không áp dụng (không phải rơ-moóc, không ở trạm, hoặc trạm
+    chưa khai exit_reverse_ms/exit_turn). Chèn vào ĐẦU plan và gọi build_plan_window(skip_initial_dir=True)."""
+    from agv_registry import agv_registry
+    from line_agv_plan_builder import (ACTION_LIDAR_OFF, ACTION_LIDAR_ON, ACTION_REVERSE_BLIND, ACTION_TURN_L,
+                                       ACTION_TURN_R, ACTION_DIR_FWD, ACTION_SPEED, SPEED_SLOW)
+    _exit_from_charger = exit_from_charger
+    _trailer_exit_steps = []
+    if _exit_from_charger and agv_registry.get_config(agv_id).get('agv_type') == 'trailer':
+        _exit_ms   = int(cfg_exit.get('exit_reverse_ms') or 0)
+        _exit_turn = str(cfg_exit.get('exit_turn') or '').strip().lower()
+        if _exit_ms > 0 and _exit_turn in ('left', 'right'):
+            _turn_action = ACTION_TURN_L if _exit_turn == 'left' else ACTION_TURN_R
+            # Ép tốc độ CHẬM quanh thao tác lùi+quay: không dựa vào tốc độ còn sót lại
+            # từ lệnh trước đó (có thể là tốc độ tiếp cận trạm sạc, hoặc mặc định firmware).
+            # Dùng đúng tốc độ đã cấu hình cho cạnh path[0]->path[1] (nếu có), fallback SPEED_SLOW
+            # (KHÔNG dùng SPEED_FAST) để đảm bảo luôn chậm khi chưa rõ tốc độ cạnh.
+            _exit_edge_key = f"{path[0]}_{path[1]}" if len(path) > 1 else None
+            _exit_spd = edge_spd.get(_exit_edge_key, SPEED_SLOW) if _exit_edge_key else SPEED_SLOW
+            # KHÔNG chèn DIR_BWD/SPEED trước REVERSE_BLIND nữa: nghi vấn firmware xử lý
+            # SPEED (a=4) là chạy NGAY theo chiều đang có tại thời điểm đó (có thể vẫn
+            # còn là FWD của lệnh trước, DIR_BWD chưa kịp chốt) → xe chạy tiến trước khi
+            # REVERSE_BLIND kịp phát huy tác dụng. REVERSE_BLIND tự thân đã là "lùi mù
+            # theo thời gian" nên không cần DIR_BWD/SPEED phụ trợ đứng trước nó.
+            # Tắt Lidar quanh SUỐT thao tác lùi mù + quay (giống mọi thao tác rẽ
+            # khác trong hệ thống luôn tắt Lidar trước khi rẽ, bật lại sau) —
+            # trước đây bỏ sót, khiến cảm biến vẫn hoạt động lúc lùi/quay tại
+            # trạm (không gian hẹp, sát vật cản xung quanh) → báo vật cản giả.
+            # QUAN TRỌNG: "t" PHẢI là số nguyên (int), giống hệt phần còn lại của
+            # plan (build_line_plan dùng tag=int(...)) — path[0] là STRING (path
+            # luôn được str() hoá), nếu để nguyên chuỗi thì payload có "t" LẪN LỘN
+            # kiểu dữ liệu (vài bước "t":"10" dạng chuỗi, các bước khác "t":10 dạng
+            # số) trong CÙNG 1 plan. Bộ chunker phía firmware (ESP32) chỉ xử lý đúng
+            # khi "t" là số — gặp chuỗi thì giải mã sai thành "t":0 cho toàn bộ các
+            # bước trong gói đó (đã xác nhận qua log UART RX thực tế của firmware).
+            _exit_tag = int(path[0])
+            _trailer_exit_steps = [
+                {"t": _exit_tag, "a": ACTION_LIDAR_OFF, "v": 0},
+                {"t": _exit_tag, "a": ACTION_REVERSE_BLIND, "v": _exit_ms},
+                {"t": _exit_tag, "a": _turn_action, "v": 0},
+                {"t": _exit_tag, "a": ACTION_LIDAR_ON, "v": 0},
+                {"t": _exit_tag, "a": ACTION_DIR_FWD, "v": 0},
+                {"t": _exit_tag, "a": ACTION_SPEED, "v": _exit_spd},
+            ]
+            print(f"[DISPATCH] {agv_id}: xe rơ-moóc rời trạm {path[0]} → "
+                  f"chèn TẮT Lidar + lùi mù {_exit_ms}ms + quay {_exit_turn} + BẬT Lidar + "
+                  f"DIR_FWD + SPEED={_exit_spd} trước khi tiến ra")
+    return _trailer_exit_steps
+
+
 def _trailer_turnaround_charger(agv_id: str, cur: str, prev: str | None) -> str | None:
     """Xe KHÔNG lùi được kẹt trong nhánh cụt (lối ra duy nhất là quay lại đúng node vừa tới) → tìm
     TRẠM SẠC mà xe đi TIẾN tới được (không quay lại prev) để dùng làm chỗ QUAY ĐẦU: tiến vào trạm
@@ -5630,46 +5681,7 @@ def _dispatch_go_to(agv_id: str, dest_node: str, start_node: str | None = None,
         # chỗ để đổi mũi ra hướng tiến, TRƯỚC KHI đi theo plan bình thường. Chỉ
         # áp dụng khi trạm đó có cấu hình exit_reverse_ms/exit_turn (bỏ trống =
         # không đổi gì, giữ nguyên hành vi "đi thẳng ra" như carry hiện tại).
-        _trailer_exit_steps = []
-        if _exit_from_charger and agv_registry.get_config(agv_id).get('agv_type') == 'trailer':
-            _exit_ms   = int(_cur_node_cfg_exit.get('exit_reverse_ms') or 0)
-            _exit_turn = str(_cur_node_cfg_exit.get('exit_turn') or '').strip().lower()
-            if _exit_ms > 0 and _exit_turn in ('left', 'right'):
-                _turn_action = ACTION_TURN_L if _exit_turn == 'left' else ACTION_TURN_R
-                # Ép tốc độ CHẬM quanh thao tác lùi+quay: không dựa vào tốc độ còn sót lại
-                # từ lệnh trước đó (có thể là tốc độ tiếp cận trạm sạc, hoặc mặc định firmware).
-                # Dùng đúng tốc độ đã cấu hình cho cạnh path[0]->path[1] (nếu có), fallback SPEED_SLOW
-                # (KHÔNG dùng SPEED_FAST) để đảm bảo luôn chậm khi chưa rõ tốc độ cạnh.
-                _exit_edge_key = f"{path[0]}_{path[1]}" if len(path) > 1 else None
-                _exit_spd = edge_spd.get(_exit_edge_key, SPEED_SLOW) if _exit_edge_key else SPEED_SLOW
-                # KHÔNG chèn DIR_BWD/SPEED trước REVERSE_BLIND nữa: nghi vấn firmware xử lý
-                # SPEED (a=4) là chạy NGAY theo chiều đang có tại thời điểm đó (có thể vẫn
-                # còn là FWD của lệnh trước, DIR_BWD chưa kịp chốt) → xe chạy tiến trước khi
-                # REVERSE_BLIND kịp phát huy tác dụng. REVERSE_BLIND tự thân đã là "lùi mù
-                # theo thời gian" nên không cần DIR_BWD/SPEED phụ trợ đứng trước nó.
-                # Tắt Lidar quanh SUỐT thao tác lùi mù + quay (giống mọi thao tác rẽ
-                # khác trong hệ thống luôn tắt Lidar trước khi rẽ, bật lại sau) —
-                # trước đây bỏ sót, khiến cảm biến vẫn hoạt động lúc lùi/quay tại
-                # trạm (không gian hẹp, sát vật cản xung quanh) → báo vật cản giả.
-                # QUAN TRỌNG: "t" PHẢI là số nguyên (int), giống hệt phần còn lại của
-                # plan (build_line_plan dùng tag=int(...)) — path[0] là STRING (path
-                # luôn được str() hoá), nếu để nguyên chuỗi thì payload có "t" LẪN LỘN
-                # kiểu dữ liệu (vài bước "t":"10" dạng chuỗi, các bước khác "t":10 dạng
-                # số) trong CÙNG 1 plan. Bộ chunker phía firmware (ESP32) chỉ xử lý đúng
-                # khi "t" là số — gặp chuỗi thì giải mã sai thành "t":0 cho toàn bộ các
-                # bước trong gói đó (đã xác nhận qua log UART RX thực tế của firmware).
-                _exit_tag = int(path[0])
-                _trailer_exit_steps = [
-                    {"t": _exit_tag, "a": ACTION_LIDAR_OFF, "v": 0},
-                    {"t": _exit_tag, "a": ACTION_REVERSE_BLIND, "v": _exit_ms},
-                    {"t": _exit_tag, "a": _turn_action, "v": 0},
-                    {"t": _exit_tag, "a": ACTION_LIDAR_ON, "v": 0},
-                    {"t": _exit_tag, "a": ACTION_DIR_FWD, "v": 0},
-                    {"t": _exit_tag, "a": ACTION_SPEED, "v": _exit_spd},
-                ]
-                print(f"[DISPATCH] {agv_id}: xe rơ-moóc rời trạm {path[0]} → "
-                      f"chèn TẮT Lidar + lùi mù {_exit_ms}ms + quay {_exit_turn} + BẬT Lidar + "
-                      f"DIR_FWD + SPEED={_exit_spd} trước khi tiến ra")
+        _trailer_exit_steps = _build_trailer_exit_steps(agv_id, path, _exit_from_charger, _cur_node_cfg_exit, edge_spd)
 
         # ── Simulation: inject turn_map entry còn thiếu ─────────────────────
         # Khi simulation dispatch (13→1→2), node 1 turn_map thường chỉ có entries

@@ -2145,13 +2145,26 @@ def send_agv_to_special_target(agv_id: str, target_type: str, _require_locate: b
               f"(last_tdir={_last_tdir_pre!r}, post_charge={_is_post_charge})")
 
         _rt = line_agv_handler.set_route(agv_id, path, line_task, direction=_line_dir)
+        # Xe RƠ-MOÓC rời trạm sạc (mũi quay vào trong): phải lùi mù + quay đầu TRƯỚC khi tiến ra — cùng kịch bản với dispatch go_to
+        # (main._build_trailer_exit_steps). Trước đây chỉ go_to có; lệnh khu chờ/về trạm bỏ sót nên rơ-moóc không đi ra được.
+        _te_steps = []
+        try:
+            if _exit_from_charger:
+                from main import _build_trailer_exit_steps as _bte, _with_trailer_exit_defaults as _wted
+                _te_steps = _bte(agv_id, path, True, _wted(agv_id, str(path[0]), _cur_cfg_exit), edge_spd)
+        except Exception as _e_te:
+            print(f"[SPECIAL] {agv_id}: tạo bước lùi mù thoát trạm lỗi (bỏ qua): {_e_te}")
+        _rt.has_exit_steps = bool(_te_steps)
         # Gửi CỬA SỔ ĐẦU (≤LOOKAHEAD node) — rolling gửi tiếp nếu đường dài (tránh tràn buffer)
         order = build_plan_window(
             full_path=path, w_start=0, w_end=_rt.window_end, points=points,
             is_final=_rt.is_complete, task_type=line_task,
             node_actions=node_actions, direction=_line_dir,
             edge_speeds=edge_spd, edge_lidar=edge_lidar, agv_id=agv_id,
-            initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd)
+            initial_prev_tag=_initial_prev, initial_arrived_bwd=_initial_arrived_bwd,
+            skip_initial_dir=bool(_te_steps))
+        if _te_steps:
+            order["d"] = _te_steps + order.get("d", [])
         send_generated_order(agv_id, order)
         return {
             "success": True,
