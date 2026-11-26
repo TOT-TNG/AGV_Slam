@@ -2152,6 +2152,27 @@ def send_agv_to_special_target(agv_id: str, target_type: str, _require_locate: b
         print(f"[SPECIAL] {agv_id}: direction={_line_dir} "
               f"(last_tdir={_last_tdir_pre!r}, post_charge={_is_post_charge})")
 
+        # ── CỬA TỰ ĐỘNG trên đường đi: tách route tại node cửa đầu tiên mà xe đang TIẾN VÀO (giống _dispatch_go_to) ──
+        # Xe dừng ở node cửa (WAIT_SYS), line_agv_handler._handle_door_arrival xin mở và giữ xe tới khi cửa xác nhận mở, rồi
+        # resume_after_door cho hàng đợi chạy tiếp lệnh khu chờ/về trạm xếp sẵn dưới đây. Trước đây hàm này không tách route nên
+        # xe chạy xuyên qua cửa khi chưa mở (26/11). Hướng THOÁT cửa (đã vào từ node khác của cùng cửa) thì đi thẳng.
+        _door_split_s = None
+        try:
+            from door_coordinator import door_coordinator as _dc_s
+            for _si_s in range(1, len(path) - 1):
+                _did_s = str((node_actions.get(str(path[_si_s])) or {}).get('door_id') or '').strip()
+                if not _did_s:
+                    continue
+                if _dc_s.is_exit_arrival(_did_s, agv_id, str(path[_si_s])):
+                    continue
+                _door_split_s = _si_s
+                print(f"[SPECIAL] {agv_id}: node {path[_si_s]} = cửa tự động '{_did_s}' — xe TIẾN VÀO, dừng xin mở cửa trước khi qua")
+                break
+        except Exception as _e_dr:
+            print(f"[SPECIAL] {agv_id}: kiểm tra cửa tự động lỗi (bỏ qua): {_e_dr}")
+        if _door_split_s is not None:
+            path = path[:_door_split_s + 1]
+            line_task = "delivery"      # chặng tới cửa kết thúc bằng WAIT_SYS như go_to
         _rt = line_agv_handler.set_route(agv_id, path, line_task, direction=_line_dir)
         # Xe RƠ-MOÓC rời trạm sạc (mũi quay vào trong): phải lùi mù + quay đầu TRƯỚC khi tiến ra — cùng kịch bản với dispatch go_to
         # (main._build_trailer_exit_steps). Trước đây chỉ go_to có; lệnh khu chờ/về trạm bỏ sót nên rơ-moóc không đi ra được.
@@ -2174,6 +2195,8 @@ def send_agv_to_special_target(agv_id: str, target_type: str, _require_locate: b
         if _te_steps:
             order["d"] = _te_steps + order.get("d", [])
         send_generated_order(agv_id, order)
+        if _door_split_s is not None:
+            _atq_s.insert_next(agv_id, _CGC_S if target_type == "charge" else _CGW_S)
         return {
             "success": True,
             "agv_id": agv_id,
